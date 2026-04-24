@@ -1,0 +1,5 @@
+package com.birdflash.bird_flashcard
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity: FlutterActivity()

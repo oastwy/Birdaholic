@@ -1,0 +1,29 @@
+name: bird_flashcard
+description: 鸟鸣闪卡学习工具
+version: 1.0.2+3
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  audioplayers: ^6.1.0
+  path_provider: ^2.1.0
+  shared_preferences: ^2.3.0
+  archive: ^4.0.0
+  file_picker: ^8.0.0
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/data/avilist_species.json
+    - assets/data/ebird_sample_checklist.csv
+    - assets/data/china_birds.json
+    - data_packs/盈江鸟鸣试用_v0.1.zip

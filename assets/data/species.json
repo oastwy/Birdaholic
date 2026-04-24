@@ -1,0 +1,178 @@
+[
+  {
+    "cn": "双角犀鸟",
+    "en": "Great Hornbill",
+    "sci": "Buceros bicornis",
+    "cons": "1",
+    "habitat": "热带雨林",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/107314_call.m4a"
+      },
+      {
+        "type": "song",
+        "file": "sounds/302245_song.m4a"
+      }
+    ],
+    "image": "images/Buceros_bicornis.jpg"
+  },
+  {
+    "cn": "花冠皱盔犀鸟",
+    "en": "Wreathed Hornbill",
+    "sci": "Rhyticeros undulatus",
+    "cons": "1",
+    "habitat": "热带雨林",
+    "audios": [
+      {
+        "type": "song",
+        "file": "sounds/169450_song.m4a"
+      },
+      {
+        "type": "call",
+        "file": "sounds/205361_call.m4a"
+      }
+    ],
+    "image": "images/Rhyticeros_undulatus.jpg"
+  },
+  {
+    "cn": "冠斑犀鸟",
+    "en": "Oriental Pied Hornbill",
+    "sci": "Anthracoceros albirostris",
+    "cons": "1",
+    "habitat": "热带雨林",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/1006226_call.m4a"
+      },
+      {
+        "type": "song",
+        "file": "sounds/316352_song.m4a"
+      }
+    ],
+    "image": "images/Anthracoceros_albirostris.jpg"
+  },
+  {
+    "cn": "灰孔雀雉",
+    "en": "Grey Peacock-Pheasant",
+    "sci": "Polyplectron bicalcaratum",
+    "cons": "1",
+    "habitat": "热带雨林",
+    "audios": [
+      {
+        "type": "song",
+        "file": "sounds/1067489_song.m4a"
+      },
+      {
+        "type": "song",
+        "file": "sounds/790570_song.m4a"
+      }
+    ],
+    "image": "images/Polyplectron_bicalcaratum.jpg"
+  },
+  {
+    "cn": "黄嘴河燕鸥",
+    "en": "River Tern",
+    "sci": "Sterna aurantia",
+    "cons": "1",
+    "habitat": "湿地河流",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/122995_call.m4a"
+      },
+      {
+        "type": "call",
+        "file": "sounds/279605_call.m4a"
+      }
+    ],
+    "image": "images/Sterna_aurantia.jpg"
+  },
+  {
+    "cn": "白鹇",
+    "en": "Silver Pheasant",
+    "sci": "Lophura nycthemera",
+    "cons": "2",
+    "habitat": "山地森林",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/295164_call.m4a"
+      },
+      {
+        "type": "call",
+        "file": "sounds/302156_call.m4a"
+      }
+    ],
+    "image": "images/Lophura_nycthemera.jpg"
+  },
+  {
+    "cn": "黑鹇",
+    "en": "Kalij Pheasant",
+    "sci": "Lophura leucomelanos",
+    "cons": "2",
+    "habitat": "山地森林",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/1089089_call.m4a"
+      },
+      {
+        "type": "call",
+        "file": "sounds/836603_call.m4a"
+      }
+    ],
+    "image": "images/Lophura_leucomelanos.jpg"
+  },
+  {
+    "cn": "红腿小隼",
+    "en": "Red-legged Falconet",
+    "sci": "Microhierax caerulescens",
+    "cons": "2",
+    "habitat": "森林边缘",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/328314_call.m4a"
+      }
+    ],
+    "image": "images/Microhierax_caerulescens.jpg"
+  },
+  {
+    "cn": "大黄冠啄木鸟",
+    "en": "Greater Yellownape",
+    "sci": "Chrysophlegma flavinucha",
+    "cons": "2",
+    "habitat": "热带雨林",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/955880_call.m4a"
+      },
+      {
+        "type": "call",
+        "file": "sounds/982434_call.m4a"
+      }
+    ],
+    "image": "images/Chrysophlegma_flavinucha.jpg"
+  },
+  {
+    "cn": "凤头雨燕",
+    "en": "Crested Treeswift",
+    "sci": "Hemiprocne coronata",
+    "cons": "2",
+    "habitat": "林缘开阔地",
+    "audios": [
+      {
+        "type": "call",
+        "file": "sounds/104161_call.m4a"
+      },
+      {
+        "type": "call",
+        "file": "sounds/124355_call.m4a"
+      }
+    ],
+    "image": "images/Hemiprocne_coronata.jpg"
+  }
+]
