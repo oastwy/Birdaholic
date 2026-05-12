@@ -261,7 +261,17 @@ def download_xeno_audio(sci: str, save_dir: Path, api_key: str) -> list[dict[str
         file_path = save_dir / filename
         if not file_path.exists():
             file_path.write_bytes(http_bytes(file_url))
-        results.append({"type": normalized, "file": f"sounds/{filename}"})
+        results.append(
+            {
+                "type": normalized,
+                "file": f"sounds/{filename}",
+                "contributor": record.get("rec", ""),
+                "contributor_url": f'https://www.xeno-canto.org/{record.get("id", "")}',
+                "license": record.get("lic", ""),
+                "date": record.get("date", ""),
+                "location": record.get("loc", ""),
+            }
+        )
 
     return results
 

@@ -1,0 +1,264 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
+class ServerMediaService {
+  static const defaultBaseUrl = 'http://124.223.101.188:8080';
+
+  final String baseUrl;
+  final http.Client _client;
+
+  ServerMediaService({
+    this.baseUrl = defaultBaseUrl,
+    http.Client? client,
+  }) : _client = client ?? http.Client();
+
+  Future<ServerSpeciesMedia?> fetchSpeciesMedia(String scientificName) async {
+    final key = scientificName.trim().replaceAll(RegExp(r'\s+'), '_');
+    if (key.isEmpty) return null;
+
+    final uri = Uri.parse('$baseUrl/species/$key/manifest.json');
+    final response = await _client.get(uri);
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw Exception('服务器媒体请求失败: ${response.statusCode}');
+    }
+
+    final data =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    return ServerSpeciesMedia.fromJson(data);
+  }
+
+  Future<_DownloadedFile?> _downloadFile({
+    required String url,
+    required String outputDir,
+  }) async {
+    final uri = _resolveUrl(url);
+
+    final filename = uri.pathSegments.isEmpty ? '' : uri.pathSegments.last;
+    if (filename.isEmpty) return null;
+
+    final file = File('$outputDir/$filename');
+    if (await file.exists() && await file.length() > 0) {
+      return _DownloadedFile(file: file, filename: filename);
+    }
+
+    final partFile = File('${file.path}.part');
+    var existingBytes = await partFile.exists() ? await partFile.length() : 0;
+    final request = http.Request('GET', uri);
+    if (existingBytes > 0) {
+      request.headers['Range'] = 'bytes=$existingBytes-';
+    }
+    final response = await _client.send(request);
+    if (response.statusCode == 200 && existingBytes > 0) {
+      existingBytes = 0;
+      await partFile.delete().catchError((_) => partFile);
+    }
+    if (response.statusCode != 200 && response.statusCode != 206) return null;
+
+    await file.parent.create(recursive: true);
+    final sink = partFile.openWrite(
+      mode: response.statusCode == 206 ? FileMode.append : FileMode.write,
+    );
+    await response.stream.pipe(sink);
+    await partFile.rename(file.path);
+    return _DownloadedFile(file: file, filename: filename);
+  }
+
+  Uri _resolveUrl(String value) {
+    final uri = Uri.parse(value);
+    if (uri.hasScheme) return uri;
+    return Uri.parse(baseUrl).resolve(value);
+  }
+
+  Future<ServerSpeciesDownload?> downloadSpecies({
+    required String cn,
+    required String en,
+    required String sci,
+    required String cons,
+    required String habitat,
+    required String soundsDir,
+    required String imagesDir,
+  }) async {
+    final media = await fetchSpeciesMedia(sci);
+    if (media == null || (!media.hasImage && !media.hasAudio)) return null;
+
+    final audioEntries = <Map<String, String>>[];
+    for (final audio in media.audio.take(2)) {
+      final downloaded = await _downloadFile(
+        url: audio.url,
+        outputDir: soundsDir,
+      );
+      if (downloaded == null) continue;
+      audioEntries.add({
+        'type': audio.type.isEmpty ? 'call' : audio.type,
+        'file': 'sounds/${downloaded.filename}',
+        if (audio.contributor.isNotEmpty) 'contributor': audio.contributor,
+        if (audio.contributorUrl.isNotEmpty)
+          'contributor_url': audio.contributorUrl,
+        if (audio.license.isNotEmpty) 'license': audio.license,
+      });
+    }
+
+    String imagePath = '';
+    String imageCredit = '';
+    String imageLicense = '';
+    if (media.images.isNotEmpty) {
+      final image = media.images.first;
+      final downloaded = await _downloadFile(
+        url: image.url,
+        outputDir: imagesDir,
+      );
+      if (downloaded != null) {
+        imagePath = 'images/${downloaded.filename}';
+        imageCredit =
+            image.contributor.isNotEmpty ? image.contributor : image.source;
+        imageLicense = image.license;
+      }
+    }
+
+    if (audioEntries.isEmpty && imagePath.isEmpty) return null;
+
+    final audioCredits = audioEntries
+        .map((item) => (item['contributor'] ?? '').trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .join(', ');
+
+    return ServerSpeciesDownload(
+      json: {
+        'cn': cn.isNotEmpty ? cn : media.cn,
+        'en': en.isNotEmpty ? en : media.en,
+        'sci': sci,
+        if (cons.isNotEmpty) 'cons': cons,
+        if (habitat.isNotEmpty) 'habitat': habitat,
+        if (media.order.isNotEmpty) 'order': media.order,
+        if (media.family.isNotEmpty) 'family': media.family,
+        if (media.identificationFeatures.isNotEmpty)
+          'identification_features': media.identificationFeatures,
+        'audios': audioEntries,
+        if (imagePath.isNotEmpty) 'image': imagePath,
+        if (imageCredit.isNotEmpty) 'image_credit': imageCredit,
+        if (imageLicense.isNotEmpty) 'image_license': imageLicense,
+        if (audioCredits.isNotEmpty) 'audio_credit': audioCredits,
+      },
+      audioCount: audioEntries.length,
+      hasImage: imagePath.isNotEmpty,
+    );
+  }
+}
+
+class ServerSpeciesMedia {
+  final String sci;
+  final String cn;
+  final String en;
+  final String order;
+  final String family;
+  final String identificationFeatures;
+  final List<ServerImageMedia> images;
+  final List<ServerAudioMedia> audio;
+
+  const ServerSpeciesMedia({
+    required this.sci,
+    required this.cn,
+    required this.en,
+    required this.order,
+    required this.family,
+    required this.identificationFeatures,
+    required this.images,
+    required this.audio,
+  });
+
+  bool get hasImage => images.isNotEmpty;
+  bool get hasAudio => audio.isNotEmpty;
+
+  factory ServerSpeciesMedia.fromJson(Map<String, dynamic> json) {
+    return ServerSpeciesMedia(
+      sci: json['sci'] as String? ?? '',
+      cn: json['cn'] as String? ?? '',
+      en: json['en'] as String? ?? '',
+      order: json['order'] as String? ?? '',
+      family: json['family'] as String? ?? '',
+      identificationFeatures: json['identification_features'] as String? ?? '',
+      images: (json['images'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(ServerImageMedia.fromJson)
+          .where((item) => item.url.isNotEmpty)
+          .toList(),
+      audio: (json['audio'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(ServerAudioMedia.fromJson)
+          .where((item) => item.url.isNotEmpty)
+          .toList(),
+    );
+  }
+}
+
+class ServerImageMedia {
+  final String url;
+  final String contributor;
+  final String source;
+  final String license;
+
+  const ServerImageMedia({
+    required this.url,
+    required this.contributor,
+    required this.source,
+    required this.license,
+  });
+
+  factory ServerImageMedia.fromJson(Map<String, dynamic> json) {
+    return ServerImageMedia(
+      url: json['url'] as String? ?? '',
+      contributor: json['contributor'] as String? ?? '',
+      source: json['source'] as String? ?? '',
+      license: json['license'] as String? ?? '',
+    );
+  }
+}
+
+class ServerAudioMedia {
+  final String url;
+  final String type;
+  final String contributor;
+  final String contributorUrl;
+  final String license;
+
+  const ServerAudioMedia({
+    required this.url,
+    required this.type,
+    required this.contributor,
+    required this.contributorUrl,
+    required this.license,
+  });
+
+  factory ServerAudioMedia.fromJson(Map<String, dynamic> json) {
+    return ServerAudioMedia(
+      url: json['url'] as String? ?? '',
+      type: json['type'] as String? ?? '',
+      contributor: json['contributor'] as String? ?? '',
+      contributorUrl: json['contributor_url'] as String? ?? '',
+      license: json['license'] as String? ?? '',
+    );
+  }
+}
+
+class ServerSpeciesDownload {
+  final Map<String, dynamic> json;
+  final int audioCount;
+  final bool hasImage;
+
+  const ServerSpeciesDownload({
+    required this.json,
+    required this.audioCount,
+    required this.hasImage,
+  });
+}
+
+class _DownloadedFile {
+  final File file;
+  final String filename;
+
+  const _DownloadedFile({required this.file, required this.filename});
+}

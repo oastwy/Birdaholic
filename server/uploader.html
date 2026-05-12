@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Birdaholic 媒体上传</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f5f3ed; color: #1f2a1d; }
+    main { max-width: 980px; margin: 0 auto; padding: 28px 18px 48px; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    p { margin: 0; color: #5c6658; }
+    section { margin-top: 18px; background: #fff; border: 1px solid #ddd8cc; border-radius: 8px; padding: 16px; }
+    label { display: block; font-weight: 700; margin: 0 0 8px; }
+    input, button { font: inherit; }
+    input[type="text"], input[type="password"] { box-sizing: border-box; width: 100%; padding: 11px 12px; border: 1px solid #c9c2b4; border-radius: 6px; }
+    input[type="file"] { width: 100%; padding: 12px; border: 1px dashed #9c917e; border-radius: 8px; background: #fbfaf7; }
+    button { border: 0; border-radius: 6px; padding: 10px 14px; background: #2d5016; color: #fff; cursor: pointer; }
+    button.secondary { background: #665f50; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+    .hint { font-size: 13px; margin-top: 6px; color: #6b7467; }
+    .results { margin-top: 10px; display: grid; gap: 6px; }
+    .species-option { text-align: left; background: #eef4e9; color: #1f3517; border: 1px solid #cbdcbe; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+    th, td { border-bottom: 1px solid #ece7dc; padding: 8px; text-align: left; vertical-align: top; }
+    .ok { color: #2d5016; font-weight: 700; }
+    .bad { color: #a43b2f; font-weight: 700; }
+    .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    pre { white-space: pre-wrap; background: #272822; color: #f8f8f2; padding: 12px; border-radius: 8px; overflow: auto; }
+    @media (max-width: 760px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Birdaholic 媒体上传</h1>
+  <p>批量上传图片和鸟鸣。可先选择一个物种，也可以让服务器从文件名自动识别。</p>
+
+  <section>
+    <div class="row">
+      <div>
+        <label for="token">上传密钥</label>
+        <input id="token" type="password" autocomplete="off" placeholder="请输入上传密钥">
+      </div>
+      <div>
+        <label for="species">指定物种（可选）</label>
+        <input id="species" type="text" placeholder="输入中文名、英文名或学名搜索">
+        <div class="hint">如果不指定，会按每个文件名自动识别。</div>
+      </div>
+    </div>
+    <div id="searchResults" class="results"></div>
+  </section>
+
+  <section>
+    <label for="files">选择文件</label>
+    <input id="files" type="file" multiple accept="image/*,audio/*,.mp3,.m4a,.aac,.wav,.flac">
+    <div class="hint">推荐先用本地预处理脚本压缩并改好文件名，例如 Arborophila_torqueola_song.m4a。</div>
+    <div class="toolbar">
+      <button id="previewBtn" class="secondary">预识别文件名</button>
+      <button id="uploadBtn">上传</button>
+      <span id="status"></span>
+    </div>
+    <table id="previewTable" hidden>
+      <thead><tr><th>文件</th><th>识别结果</th><th>类型</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <label>结果</label>
+    <pre id="output">等待操作...</pre>
+  </section>
+</main>
+
+<script>
+const tokenEl = document.querySelector('#token');
+const speciesEl = document.querySelector('#species');
+const filesEl = document.querySelector('#files');
+const searchResults = document.querySelector('#searchResults');
+const table = document.querySelector('#previewTable');
+const tbody = table.querySelector('tbody');
+const statusEl = document.querySelector('#status');
+const outputEl = document.querySelector('#output');
+let selectedSci = '';
+
+function kindOf(file) {
+  if (file.type.startsWith('image/')) return '图片';
+  if (file.type.startsWith('audio/')) return '音频';
+  const name = file.name.toLowerCase();
+  if (name.match(/\.(jpg|jpeg|png|webp|heic)$/)) return '图片';
+  if (name.match(/\.(mp3|m4a|aac|wav|flac|ogg)$/)) return '音频';
+  return '不支持';
+}
+
+speciesEl.addEventListener('input', async () => {
+  selectedSci = '';
+  const q = speciesEl.value.trim();
+  searchResults.innerHTML = '';
+  if (q.length < 2) return;
+  const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+  const rows = await res.json();
+  for (const row of rows) {
+    const btn = document.createElement('button');
+    btn.className = 'species-option';
+    btn.textContent = `${row.zh || row.en || row.sci} · ${row.sci} · ${row.en || ''}`;
+    btn.onclick = () => {
+      selectedSci = row.sci;
+      speciesEl.value = `${row.zh || row.en} · ${row.sci}`;
+      searchResults.innerHTML = '';
+    };
+    searchResults.appendChild(btn);
+  }
+});
+
+document.querySelector('#previewBtn').onclick = async () => {
+  tbody.innerHTML = '';
+  const files = [...filesEl.files];
+  if (!files.length) return;
+  statusEl.textContent = '识别中...';
+  for (const file of files) {
+    let label = '未识别';
+    try {
+      const res = await fetch('/api/recognize_filename?filename=' + encodeURIComponent(file.name));
+      const data = await res.json();
+      if (data.matched) {
+        label = `${data.species.zh || data.species.en || data.species.sci} · ${data.species.sci}`;
+      }
+    } catch (_) {}
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${file.name}</td><td>${label}</td><td>${kindOf(file)}</td>`;
+    tbody.appendChild(tr);
+  }
+  table.hidden = false;
+  statusEl.textContent = '';
+};
+
+document.querySelector('#uploadBtn').onclick = async () => {
+  const files = [...filesEl.files];
+  if (!files.length) {
+    outputEl.textContent = '请先选择文件。';
+    return;
+  }
+  const form = new FormData();
+  form.append('token', tokenEl.value.trim());
+  if (selectedSci) form.append('sci', selectedSci);
+  for (const file of files) form.append('files', file);
+
+  statusEl.textContent = '上传中...';
+  document.querySelector('#uploadBtn').disabled = true;
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    outputEl.textContent = JSON.stringify(data, null, 2);
+  } catch (error) {
+    outputEl.textContent = String(error);
+  } finally {
+    statusEl.textContent = '';
+    document.querySelector('#uploadBtn').disabled = false;
+  }
+};
+</script>
+</body>
+</html>

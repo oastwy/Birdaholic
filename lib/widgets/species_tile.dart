@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../models/species.dart';
+import '../models/species.dart';
 
 /// 鸟种列表项
 class SpeciesTile extends StatelessWidget {
@@ -8,8 +8,10 @@ class SpeciesTile extends StatelessWidget {
   final bool isFavorite;
   final VoidCallback onFavoriteToggle;
   final VoidCallback? onDelete;
+  final VoidCallback? onDownload;
   final bool showFavorite;
   final bool showDelete;
+  final bool showDownload;
   final bool selected;
   final ValueChanged<bool>? onSelectedChanged;
 
@@ -20,16 +22,21 @@ class SpeciesTile extends StatelessWidget {
     this.isFavorite = false,
     required this.onFavoriteToggle,
     this.onDelete,
+    this.onDownload,
     this.showFavorite = true,
     this.showDelete = true,
+    this.showDownload = false,
     this.selected = false,
     this.onSelectedChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasTrailingActions =
-        showFavorite || (showDelete && onDelete != null);
+    final hasTrailingActions = showFavorite ||
+        (showDelete && onDelete != null) ||
+        (showDownload && onDownload != null);
+    final habitatText =
+        species.habitat.startsWith('ebird:') ? '' : species.habitat;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -78,10 +85,13 @@ class SpeciesTile extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        if (species.habitat.isNotEmpty)
+                        if (habitatText.isNotEmpty)
                           Text(
-                            species.habitat,
-                            style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                            habitatText,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[500],
+                            ),
                           ),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -89,18 +99,20 @@ class SpeciesTile extends StatelessWidget {
                             vertical: 1,
                           ),
                           decoration: BoxDecoration(
-                            color: species.hasAudio
-                                ? Colors.green[50]
-                                : Colors.grey[100],
+                            color:
+                                species.hasAudio
+                                    ? Colors.green[50]
+                                    : Colors.grey[100],
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             species.hasAudio ? '已下载音频' : '未下载',
                             style: TextStyle(
                               fontSize: 10,
-                              color: species.hasAudio
-                                  ? Colors.green[700]
-                                  : Colors.grey[500],
+                              color:
+                                  species.hasAudio
+                                      ? Colors.green[700]
+                                      : Colors.grey[500],
                             ),
                           ),
                         ),
@@ -113,6 +125,12 @@ class SpeciesTile extends StatelessWidget {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (showDownload && onDownload != null)
+                      IconButton(
+                        icon: const Icon(Icons.cloud_download_outlined),
+                        tooltip: '从服务器下载',
+                        onPressed: onDownload,
+                      ),
                     if (showFavorite)
                       IconButton(
                         icon: Icon(
@@ -123,7 +141,10 @@ class SpeciesTile extends StatelessWidget {
                       ),
                     if (showDelete && onDelete != null)
                       IconButton(
-                        icon: Icon(Icons.delete_outline, color: Colors.red[300]),
+                        icon: Icon(
+                          Icons.delete_outline,
+                          color: Colors.red[300],
+                        ),
                         onPressed: onDelete,
                       ),
                   ],

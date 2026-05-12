@@ -5,7 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 /// 音频播放器控件
 /// 显示播放/暂停按钮、音频类型切换标签
 class AudioPlayerWidget extends StatefulWidget {
-  final List<String> audioPaths;  // 音频文件绝对路径列表
+  final List<String> audioPaths; // 音频文件绝对路径列表
   final List<String> audioLabels; // 标签列表，如 ["鸣叫 call", "鸣唱 song"]
   final VoidCallback? onPlayStarted;
 
@@ -45,6 +45,17 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   void dispose() {
     _player.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant AudioPlayerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.audioPaths.join('|') != widget.audioPaths.join('|')) {
+      stop();
+      _currentIndex = 0;
+      _duration = Duration.zero;
+      _position = Duration.zero;
+    }
   }
 
   Future<void> _play(int index) async {
@@ -116,27 +127,25 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           ),
         // 播放控制
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // 播放/暂停按钮
             SizedBox(
-              width: 56,
-              height: 56,
+              width: 44,
+              height: 44,
               child: FloatingActionButton(
                 heroTag: 'play_btn',
                 backgroundColor: Colors.green[700],
                 onPressed: _togglePlay,
                 child: Icon(
                   _isPlaying ? Icons.pause : Icons.play_arrow,
-                  size: 32,
+                  size: 26,
                   color: Colors.white,
                 ),
               ),
             ),
-            const SizedBox(width: 20),
-            // 进度
-            SizedBox(
-              width: 160,
+            const SizedBox(width: 8),
+            // 进度（自适应宽度）
+            Expanded(
               child: Column(
                 children: [
                   Slider(
@@ -155,9 +164,11 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(_formatDuration(_position),
-                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.grey)),
                       Text(_formatDuration(_duration),
-                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.grey)),
                     ],
                   ),
                 ],
@@ -174,5 +185,14 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     if (widget.audioPaths.isNotEmpty) {
       _play(0);
     }
+  }
+
+  Future<void> stop() async {
+    await _player.stop();
+    if (!mounted) return;
+    setState(() {
+      _isPlaying = false;
+      _position = Duration.zero;
+    });
   }
 }

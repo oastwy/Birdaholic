@@ -9,7 +9,8 @@ import 'progress_detail_screen.dart';
 class ProgressScreen extends StatefulWidget {
   final PackManager packManager;
   final StorageService storage;
-  final void Function(String filter, StudyMode mode) onStartSession;
+  final void Function(String filter, StudyMode mode, PromptMode promptMode)
+      onStartSession;
   final void Function(Species species) onJumpToFlashcard;
   final int refreshToken;
   final bool isActive;
@@ -79,6 +80,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         .length;
     final unfamiliarNames = widget.storage.getUnfamiliarSpecies();
     final weakSpecies = _buildWeakSpecies(masteryMap);
+    final checkInDates = widget.storage.getCheckInDates();
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -139,8 +141,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 Text(
                   _species.isEmpty
                       ? '当前数据包还没有鸟种'
-                      : '已加载 ${_species.length} 种鸟，直接开始整组学习或优先练音频与不熟悉物种。',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), height: 1.45),
+                      : '已加载 ${_species.length} 种鸟，可用音频或图片来做判断题和选择题。',
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9), height: 1.45),
                 ),
                 const SizedBox(height: 14),
                 Wrap(
@@ -148,19 +151,40 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   runSpacing: 10,
                   children: [
                     _heroAction(
-                      icon: Icons.play_circle_fill,
-                      label: '整组学习',
-                      onTap: () => widget.onStartSession('all', StudyMode.preview),
-                    ),
-                    _heroAction(
                       icon: Icons.hearing,
-                      label: '音频强化',
-                      onTap: () => widget.onStartSession('audio', StudyMode.review),
+                      label: '音频判断',
+                      onTap: () => widget.onStartSession(
+                        'all',
+                        StudyMode.review,
+                        PromptMode.audio,
+                      ),
                     ),
                     _heroAction(
-                      icon: Icons.local_fire_department,
-                      label: '复习不熟悉',
-                      onTap: () => widget.onStartSession('unfamiliar', StudyMode.review),
+                      icon: Icons.image_search,
+                      label: '图片判断',
+                      onTap: () => widget.onStartSession(
+                        'all',
+                        StudyMode.review,
+                        PromptMode.image,
+                      ),
+                    ),
+                    _heroAction(
+                      icon: Icons.checklist_rtl,
+                      label: '音频选择',
+                      onTap: () => widget.onStartSession(
+                        'all',
+                        StudyMode.quiz,
+                        PromptMode.audio,
+                      ),
+                    ),
+                    _heroAction(
+                      icon: Icons.photo_library_outlined,
+                      label: '图片选择',
+                      onTap: () => widget.onStartSession(
+                        'all',
+                        StudyMode.quiz,
+                        PromptMode.image,
+                      ),
                     ),
                   ],
                 ),
@@ -170,7 +194,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(child: _compactStatCard('已学习', '$studied', Colors.green)),
+              Expanded(
+                  child: _compactStatCard('已学习', '$studied', Colors.green)),
               const SizedBox(width: 10),
               Expanded(
                 child: _compactStatCard(
@@ -181,12 +206,17 @@ class _ProgressScreenState extends State<ProgressScreen> {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _compactStatCard('不熟悉', '${unfamiliarNames.length}', Colors.orange),
+                child: _compactStatCard(
+                    '不熟悉', '${unfamiliarNames.length}', Colors.orange),
               ),
               const SizedBox(width: 10),
-              Expanded(child: _compactStatCard('总答题', '${stats.total}', Colors.purple)),
+              Expanded(
+                  child:
+                      _compactStatCard('总答题', '${stats.total}', Colors.purple)),
             ],
           ),
+          const SizedBox(height: 10),
+          _checkInCalendar(checkInDates),
           const SizedBox(height: 10),
           OutlinedButton.icon(
             onPressed: () async {
@@ -228,7 +258,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
               final mastery = entry.$2;
               return _speciesCard(
                 species: species,
-                subtitle: '不认识 ${mastery.unknownCount} 次 · 连续认识 ${mastery.knownStreak} 次',
+                subtitle:
+                    '不认识 ${mastery.unknownCount} 次 · 连续认识 ${mastery.knownStreak} 次',
                 chipLabel: mastery.unfamiliar ? '建议复习' : '观察中',
                 chipColor: mastery.unfamiliar ? Colors.orange : Colors.blueGrey,
               );
@@ -236,6 +267,86 @@ class _ProgressScreenState extends State<ProgressScreen> {
         ],
       ),
     );
+  }
+
+  Widget _checkInCalendar(Set<String> dates) {
+    final today = DateTime.now();
+    final days = List.generate(14, (index) {
+      final date = today.subtract(Duration(days: 13 - index));
+      final key = date.toIso8601String().substring(0, 10);
+      return (date, dates.contains(key));
+    });
+    final streak = _currentStreak(dates);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.calendar_month_outlined, size: 20),
+                const SizedBox(width: 8),
+                const Text('打卡日历',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Text(
+                  '连续 $streak 天',
+                  style: TextStyle(
+                    color: streak > 0 ? Colors.green[700] : Colors.grey[600],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: days.map((item) {
+                final date = item.$1;
+                final checked = item.$2;
+                return Column(
+                  children: [
+                    Text(
+                      '${date.day}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 5),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: checked
+                            ? const Color(0xFF2d5016)
+                            : Colors.grey[200],
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: checked
+                          ? const Icon(Icons.check,
+                              color: Colors.white, size: 13)
+                          : null,
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int _currentStreak(Set<String> dates) {
+    var streak = 0;
+    var cursor = DateTime.now();
+    while (true) {
+      final key = cursor.toIso8601String().substring(0, 10);
+      if (!dates.contains(key)) return streak;
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
   }
 
   List<(Species, SpeciesMastery)> _buildWeakSpecies(
@@ -284,9 +395,16 @@ class _ProgressScreenState extends State<ProgressScreen> {
         children: [
           Text(title, style: TextStyle(fontSize: 12, color: color)),
           const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                  fontSize: 22, fontWeight: FontWeight.bold, color: color),
+            ),
           ),
         ],
       ),
@@ -300,7 +418,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }) {
     return Row(
       children: [
-        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const Spacer(),
         if (actionLabel != null && onAction != null)
           TextButton(onPressed: onAction, child: Text(actionLabel)),
@@ -320,7 +439,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Text(subtitle, style: TextStyle(color: Colors.grey[600], height: 1.4)),
+          Text(subtitle,
+              style: TextStyle(color: Colors.grey[600], height: 1.4)),
         ],
       ),
     );
@@ -336,7 +456,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        title: Text(species.cn, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(species.cn,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
@@ -355,7 +476,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
               ),
               child: Text(
                 chipLabel,
-                style: TextStyle(fontSize: 11, color: chipColor, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                    fontSize: 11,
+                    color: chipColor,
+                    fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(height: 8),

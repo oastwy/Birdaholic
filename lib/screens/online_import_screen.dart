@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../models/avilist_species.dart';
 import '../services/avilist_service.dart';
 import '../services/download_task_service.dart';
+import '../services/ebird_service.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
@@ -28,23 +29,27 @@ class OnlineImportScreen extends StatefulWidget {
 }
 
 class _OnlineImportScreenState extends State<OnlineImportScreen> {
-  static const _exampleChecklistAsset = 'assets/data/ebird_sample_checklist.csv';
-  static const _chinaChecklistAsset = 'assets/data/china_birds.json';
+  static const _exampleChecklistAsset =
+      'assets/data/ebird_sample_checklist.csv';
+  static const _chinaChecklistAsset = 'assets/data/world_birds.json';
 
   final AviListService _aviListService = AviListService();
   final _searchController = TextEditingController();
   final _manualInputController = TextEditingController();
   Map<String, Map<String, String>> _chinaBirdBySci = {};
   Map<String, Map<String, String>> _chinaBirdByEnglish = {};
+  Map<String, Map<String, String>> _chinaBirdByCode = {};
 
   List<SpeciesEntry> _speciesList = [];
   List<AviListSpecies> _searchResults = [];
+  List<EbirdLocationPreset> _locationResults = EBirdService.presets;
   bool _loading = false;
   bool _searching = false;
   bool _aviListReady = false;
 
   final _packNameController = TextEditingController(text: 'AviList 鸟鸣包');
   final _regionController = TextEditingController(text: '自选物种');
+  final _locationController = TextEditingController();
 
   @override
   void initState() {
@@ -58,6 +63,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
     _manualInputController.dispose();
     _packNameController.dispose();
     _regionController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -70,9 +76,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('AviList 载入失败: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('AviList 载入失败: $e')));
       }
     }
   }
@@ -96,10 +102,19 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
           'protection': (item['protection'] as String? ?? '').trim(),
         },
     }..remove('');
+    _chinaBirdByCode = {
+      for (final item in data.cast<Map<String, dynamic>>())
+        ((item['code'] as String? ?? '').trim().toLowerCase()): {
+          'zh': (item['zh'] as String? ?? '').trim(),
+          'en': (item['en'] as String? ?? '').trim(),
+          'sci': (item['sci'] as String? ?? '').trim(),
+          'protection': (item['protection'] as String? ?? '').trim(),
+        },
+    }..remove('');
   }
 
   Future<void> _importFromFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['txt', 'csv', 'json'],
     );
@@ -123,9 +138,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('解析失败: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('解析失败: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -160,7 +175,8 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
         .toList();
     if (rows.isEmpty) return [];
 
-    final header = rows.first.map((value) => value.trim().toLowerCase()).toList();
+    final header =
+        rows.first.map((value) => value.trim().toLowerCase()).toList();
     final sciIndex = header.indexOf('scientific name');
     final enIndex = header.indexOf('english name');
     final cnIndex = header.indexOf('中文名');
@@ -173,16 +189,20 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
 
     final results = <SpeciesEntry>[];
     for (final row in rows.skip(1)) {
-      final sci = sciIndex >= 0 && sciIndex < row.length ? row[sciIndex].trim() : '';
-      final en = enIndex >= 0 && enIndex < row.length ? row[enIndex].trim() : '';
-      final cn = cnIndex >= 0 && cnIndex < row.length ? row[cnIndex].trim() : '';
+      final sci =
+          sciIndex >= 0 && sciIndex < row.length ? row[sciIndex].trim() : '';
+      final en =
+          enIndex >= 0 && enIndex < row.length ? row[enIndex].trim() : '';
+      final cn =
+          cnIndex >= 0 && cnIndex < row.length ? row[cnIndex].trim() : '';
       final note = locationIndex >= 0 && locationIndex < row.length
           ? row[locationIndex].trim()
           : noteIndex >= 0 && noteIndex < row.length
               ? row[noteIndex].trim()
               : '';
 
-      final resolvedSci = sci.isNotEmpty ? sci : _resolveEnglishName(sci: '', en: en);
+      final resolvedSci =
+          sci.isNotEmpty ? sci : _resolveEnglishName(sci: '', en: en);
       if (!_looksLikeScientificName(resolvedSci)) continue;
 
       final resolvedEn = _resolveEnglishName(sci: resolvedSci, en: en);
@@ -192,7 +212,8 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
           en: resolvedEn,
           sci: resolvedSci,
           cons: _normalizeProtection(
-            _lookupChinaBird(sci: resolvedSci, en: resolvedEn)?['protection'] ?? '',
+            _lookupChinaBird(sci: resolvedSci, en: resolvedEn)?['protection'] ??
+                '',
           ),
           habitat: note,
         ),
@@ -235,13 +256,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
             '')
         .trim();
 
-    return SpeciesEntry(
-      cn: cn,
-      en: en,
-      sci: sci,
-      cons: cons,
-      habitat: habitat,
-    );
+    return SpeciesEntry(cn: cn, en: en, sci: sci, cons: cons, habitat: habitat);
   }
 
   Map<String, String>? _lookupChinaBird({
@@ -266,10 +281,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
     return sci;
   }
 
-  String _resolveEnglishName({
-    required String sci,
-    required String en,
-  }) {
+  String _resolveEnglishName({required String sci, required String en}) {
     if (en.isNotEmpty) return en;
     final matched = _lookupChinaBird(sci: sci, en: en);
     final resolved = matched?['en'] ?? '';
@@ -322,19 +334,18 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
 
       AviListSpecies? matched;
       for (final candidate in columns) {
-        matched = bySci[candidate.toLowerCase()] ?? byEnglish[candidate.toLowerCase()];
+        matched = bySci[candidate.toLowerCase()] ??
+            byEnglish[candidate.toLowerCase()];
         if (matched != null) break;
       }
       final raw = columns.first;
       final note = matched == null
           ? (columns.length > 1 ? columns.skip(1).join(' / ') : '')
-          : columns
-              .where((value) {
-                final lowered = value.toLowerCase();
-                return lowered != matched!.sci.toLowerCase() &&
-                    lowered != matched.en.toLowerCase();
-              })
-              .join(' / ');
+          : columns.where((value) {
+              final lowered = value.toLowerCase();
+              return lowered != matched!.sci.toLowerCase() &&
+                  lowered != matched.en.toLowerCase();
+            }).join(' / ');
       if (matched != null) {
         final cn = _resolveChineseName(
           sci: matched.sci,
@@ -347,7 +358,11 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
             en: matched.en,
             sci: matched.sci,
             cons: _normalizeProtection(
-              _lookupChinaBird(sci: matched.sci, en: matched.en)?['protection'] ?? '',
+              _lookupChinaBird(
+                    sci: matched.sci,
+                    en: matched.en,
+                  )?['protection'] ??
+                  '',
             ),
             habitat: note.isNotEmpty ? note : matched.range,
           ),
@@ -409,7 +424,8 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
   }
 
   bool _isHeaderRow(List<String> columns) {
-    final normalized = columns.map((value) => value.trim().toLowerCase()).toSet();
+    final normalized =
+        columns.map((value) => value.trim().toLowerCase()).toSet();
     return normalized.contains('中文名') ||
         normalized.contains('cn') ||
         normalized.contains('zh') ||
@@ -419,7 +435,8 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
         normalized.contains('备注');
   }
 
-  bool _containsChinese(String value) => RegExp(r'[\u4e00-\u9fff]').hasMatch(value);
+  bool _containsChinese(String value) =>
+      RegExp(r'[\u4e00-\u9fff]').hasMatch(value);
 
   bool _looksLikeScientificName(String value) {
     final parts = value.trim().split(RegExp(r'\s+'));
@@ -437,9 +454,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
       _speciesList = _dedupeEntries([..._speciesList, ...parsed]);
     });
     _manualInputController.clear();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已加入 ${parsed.length} 个物种')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已加入 ${parsed.length} 个物种')));
   }
 
   Future<void> _loadExample() async {
@@ -456,9 +473,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('加载示例清单失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('加载示例清单失败: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -473,14 +490,14 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
       setState(() {
         _speciesList = _dedupeEntries([..._speciesList, ...parsed]);
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已加入中国名录 ${parsed.length} 种')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已加入中国名录 ${parsed.length} 种')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('加载中国名录失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('加载中国名录失败: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -502,12 +519,64 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
     });
   }
 
+  void _searchLocationPresets(String value) {
+    setState(() {
+      _locationResults = EBirdService.searchPresets(value);
+    });
+  }
+
+  Future<void> _loadEBirdLocation(String query) async {
+    final apiKey = widget.storage.getEBirdApiKey();
+    if (apiKey.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先在数据包页填写 eBird API key')));
+      return;
+    }
+
+    final normalized = query.trim();
+    if (normalized.isEmpty) return;
+
+    setState(() => _loading = true);
+    try {
+      final service = EBirdService(apiKey: apiKey);
+      final codes = await service.fetchSpeciesCodes(normalized);
+      final parsed = codes
+          .map((code) {
+            final item = _chinaBirdByCode[code];
+            if (item == null) return null;
+            final sci = item['sci'] ?? '';
+            final en = item['en'] ?? '';
+            return SpeciesEntry(
+              cn: item['zh'] ?? en,
+              en: en,
+              sci: sci,
+              cons: _normalizeProtection(item['protection'] ?? ''),
+              habitat: normalized,
+            );
+          })
+          .whereType<SpeciesEntry>()
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _speciesList = _dedupeEntries([..._speciesList, ...parsed]);
+        _regionController.text = normalized;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已加入地点「$normalized」的 ${parsed.length} 种鸟')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('地点导入失败: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   void _addFromAviList(AviListSpecies species) {
-    final cn = _resolveChineseName(
-      sci: species.sci,
-      en: species.en,
-      cn: '',
-    );
+    final cn = _resolveChineseName(sci: species.sci, en: species.en, cn: '');
     final entry = SpeciesEntry(
       cn: cn,
       en: species.en,
@@ -520,9 +589,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
     setState(() {
       _speciesList = _dedupeEntries([..._speciesList, entry]);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已加入: $cn')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已加入: $cn')));
   }
 
   List<SpeciesEntry> _dedupeEntries(List<SpeciesEntry> entries) {
@@ -539,19 +608,12 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
 
   Future<void> _startDownload() async {
     if (_speciesList.isEmpty) return;
-    final apiKey = widget.storage.getXenoCantoApiKey();
-    if (apiKey.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先在数据包页填写你的 Xeno-Canto API key')),
-      );
-      return;
-    }
 
     final packName = _packNameController.text.trim();
     if (packName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入数据包名称')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入数据包名称')));
       return;
     }
 
@@ -578,10 +640,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('下载失败: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('下载失败: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -608,11 +667,17 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
           Card(
             color: Colors.blue[50],
             child: Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 tilePadding: const EdgeInsets.symmetric(horizontal: 12),
                 childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                leading: Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                leading: Icon(
+                  Icons.info_outline,
+                  color: Colors.blue[700],
+                  size: 20,
+                ),
                 title: Text(
                   '使用说明',
                   style: TextStyle(
@@ -626,10 +691,11 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                 ),
                 children: [
                   Text(
-                    '1. 先在“数据包”页填写自己的 Xeno-Canto API key\n'
-                    '2. 这里可直接输入、搜索，或导入 txt / csv / json\n'
-                    '3. eBird 示例清单和中国名录都可以一键加入\n'
-                    '4. 下载会在后台继续进行，完成后自动生成并激活数据包',
+                    '1. 会优先从 Birdaholic 服务器下载已优化媒体\n'
+                    '2. 如需按地点导入，请在“数据包”页填写 eBird API key\n'
+                    '3. 这里可直接输入、搜索，或导入 txt / csv / json\n'
+                    '4. 填写 Xeno-Canto API key 后，可补充服务器暂无的鸟鸣\n'
+                    '5. 下载会在后台继续进行，完成后自动生成并激活数据包',
                     style: TextStyle(fontSize: 13, color: Colors.blue[900]),
                   ),
                 ],
@@ -642,7 +708,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
             decoration: InputDecoration(
               labelText: '数据包名称',
               prefixIcon: const Icon(Icons.label),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -651,7 +719,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
             decoration: InputDecoration(
               labelText: '地区（可选）',
               prefixIcon: const Icon(Icons.location_on),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -691,6 +761,47 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '按 eBird 地点加入',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _locationController,
+                    onChanged: _searchLocationPresets,
+                    decoration: InputDecoration(
+                      hintText: '输入中国、云南、那邦，或直接输入 eBird 代码',
+                      prefixIcon: const Icon(Icons.place_outlined),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onSubmitted: _loadEBirdLocation,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _locationResults.take(5).map((item) {
+                      return ActionChip(
+                        label: Text(item.label),
+                        onPressed: _loading
+                            ? null
+                            : () => _loadEBirdLocation(item.code),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           _buildAviListSearch(),
           const SizedBox(height: 16),
           Row(
@@ -702,15 +813,22 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Icon(Icons.file_upload),
-                  label: Text(_loading ? '解析中...' : '导入清单 (.txt / .csv / .json)'),
+                  label: Text(
+                    _loading ? '解析中...' : '导入清单 (.txt / .csv / .json)',
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2d5016),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -739,7 +857,10 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
               children: [
                 Text(
                   '待下载 ${_speciesList.length} 个物种',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
                 ),
                 const Spacer(),
                 TextButton(
@@ -760,13 +881,20 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: _speciesList.length,
-                separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey[200]),
+                separatorBuilder: (_, __) =>
+                    Divider(height: 1, color: Colors.grey[200]),
                 itemBuilder: (context, i) {
                   final s = _speciesList[i];
                   return ListTile(
                     dense: true,
-                    leading: Text('${i + 1}', style: TextStyle(color: Colors.grey[600])),
-                    title: Text(s.cn, style: const TextStyle(fontWeight: FontWeight.w500)),
+                    leading: Text(
+                      '${i + 1}',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                    title: Text(
+                      s.cn,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
                     subtitle: Text(
                       '${s.sci}\n${s.en}',
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
@@ -790,7 +918,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                   backgroundColor: Colors.green[700],
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
@@ -844,7 +974,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                           _searchAviList('');
                         },
                       ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -858,7 +990,8 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: LinearProgressIndicator(),
               )
-            else if (_searchController.text.trim().isNotEmpty && _searchResults.isEmpty)
+            else if (_searchController.text.trim().isNotEmpty &&
+                _searchResults.isEmpty)
               Text(
                 '没有匹配结果，试试更完整的英文名或学名。',
                 style: TextStyle(color: Colors.grey[600]),
@@ -873,11 +1006,13 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: _searchResults.length,
-                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey[200]),
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: Colors.grey[200]),
                   itemBuilder: (context, index) {
                     final species = _searchResults[index];
                     final alreadyAdded = _speciesList.any(
-                      (entry) => entry.sci.toLowerCase() == species.sci.toLowerCase(),
+                      (entry) =>
+                          entry.sci.toLowerCase() == species.sci.toLowerCase(),
                     );
                     final cn = _resolveChineseName(
                       sci: species.sci,
@@ -893,7 +1028,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                       ),
                       isThreeLine: true,
                       trailing: FilledButton(
-                        onPressed: alreadyAdded ? null : () => _addFromAviList(species),
+                        onPressed: alreadyAdded
+                            ? null
+                            : () => _addFromAviList(species),
                         child: Text(alreadyAdded ? '已加入' : '加入'),
                       ),
                     );

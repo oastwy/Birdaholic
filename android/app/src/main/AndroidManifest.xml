@@ -3,6 +3,9 @@
 
     <!-- 网络权限（仅用于在线搜索，离线使用不需要） -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 定位权限（用于按当前位置查询附近鸟种） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- 存储权限（读取用户选择的数据包文件） -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />

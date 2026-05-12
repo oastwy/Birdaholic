@@ -47,3 +47,19 @@ app.*.map.json
 # Large generated and distributable assets
 data_packs/*.zip
 *.apk
+
+# Local build and environment directories (not for version control)
+.birdnet_engine_venv/
+dist/
+server_media_library/
+server_media_library_optimized/
+upload_batch/
+import_lists/
+models/
+
+# Android local SDK path config
+android/local.properties
+
+# Duplicate flutter plugin files (with spaces in name)
+.flutter-plugins 2
+.flutter-plugins-dependencies 2

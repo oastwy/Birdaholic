@@ -10,6 +10,8 @@ import 'xeno_canto_service.dart';
 
 enum DownloadTaskStatus { idle, running, completed, failed }
 
+enum DownloadTaskKind { speciesPack, remotePack }
+
 class DownloadTaskSnapshot {
   final DownloadTaskStatus status;
   final String packName;
@@ -18,6 +20,10 @@ class DownloadTaskSnapshot {
   final String currentSpecies;
   final List<DownloadResult> results;
   final String? message;
+  final DownloadTaskKind kind;
+  final int bytesReceived;
+  final int bytesTotal;
+  final double bytesPerSecond;
 
   const DownloadTaskSnapshot({
     this.status = DownloadTaskStatus.idle,
@@ -27,17 +33,65 @@ class DownloadTaskSnapshot {
     this.currentSpecies = '',
     this.results = const [],
     this.message,
+    this.kind = DownloadTaskKind.speciesPack,
+    this.bytesReceived = 0,
+    this.bytesTotal = 0,
+    this.bytesPerSecond = 0,
   });
 
   bool get isRunning => status == DownloadTaskStatus.running;
   bool get isFinished =>
-      status == DownloadTaskStatus.completed || status == DownloadTaskStatus.failed;
+      status == DownloadTaskStatus.completed ||
+      status == DownloadTaskStatus.failed;
 
   int get successCount => results.where((result) => result.success).length;
   int get skippedCount => results.where((result) => result.skipped).length;
   int get failedCount => results.where((result) => result.failed).length;
 
-  double get progress => total == 0 ? 0 : current / total;
+  double get progress {
+    if (kind == DownloadTaskKind.remotePack) {
+      return bytesTotal == 0 ? 0 : bytesReceived / bytesTotal;
+    }
+    return total == 0 ? 0 : current / total;
+  }
+
+  String get speedLabel {
+    if (bytesPerSecond <= 0) return '';
+    return '${_formatBytes(bytesPerSecond.round())}/s';
+  }
+
+  String get etaLabel {
+    if (bytesPerSecond <= 0 || bytesTotal <= 0) return '';
+    final remaining = bytesTotal - bytesReceived;
+    if (remaining <= 0) return '马上完成';
+    final seconds = (remaining / bytesPerSecond).ceil();
+    if (seconds < 60) return '约 ${seconds}s';
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    if (minutes < 60) {
+      return rest == 0 ? '约 ${minutes}m' : '约 ${minutes}m ${rest}s';
+    }
+    final hours = minutes ~/ 60;
+    return '约 ${hours}h ${minutes % 60}m';
+  }
+
+  String get byteProgressLabel {
+    if (bytesTotal <= 0) return _formatBytes(bytesReceived);
+    return '${_formatBytes(bytesReceived)} / ${_formatBytes(bytesTotal)}';
+  }
+
+  static String _formatBytes(int value) {
+    if (value >= 1024 * 1024 * 1024) {
+      return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+    }
+    if (value >= 1024 * 1024) {
+      return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    if (value >= 1024) {
+      return '${(value / 1024).toStringAsFixed(0)} KB';
+    }
+    return '$value B';
+  }
 
   DownloadTaskSnapshot copyWith({
     DownloadTaskStatus? status,
@@ -47,6 +101,10 @@ class DownloadTaskSnapshot {
     String? currentSpecies,
     List<DownloadResult>? results,
     String? message,
+    DownloadTaskKind? kind,
+    int? bytesReceived,
+    int? bytesTotal,
+    double? bytesPerSecond,
   }) {
     return DownloadTaskSnapshot(
       status: status ?? this.status,
@@ -56,6 +114,10 @@ class DownloadTaskSnapshot {
       currentSpecies: currentSpecies ?? this.currentSpecies,
       results: results ?? this.results,
       message: message,
+      kind: kind ?? this.kind,
+      bytesReceived: bytesReceived ?? this.bytesReceived,
+      bytesTotal: bytesTotal ?? this.bytesTotal,
+      bytesPerSecond: bytesPerSecond ?? this.bytesPerSecond,
     );
   }
 }
@@ -84,14 +146,10 @@ class DownloadTaskService extends ChangeNotifier {
     required String region,
     required PackManager packManager,
     required StorageService storage,
+    bool allowApiFallback = true,
     VoidCallback? onPackActivated,
   }) {
     if (_runningTask != null) return false;
-
-    final apiKey = storage.getXenoCantoApiKey();
-    if (apiKey.isEmpty) {
-      throw Exception('请先填写 Xeno-Canto API key');
-    }
 
     _snapshot = DownloadTaskSnapshot(
       status: DownloadTaskStatus.running,
@@ -106,11 +164,77 @@ class DownloadTaskService extends ChangeNotifier {
       speciesList: speciesList,
       packName: packName,
       region: region,
-      apiKey: apiKey,
+      apiKey: allowApiFallback ? storage.getXenoCantoApiKey() : '',
       packManager: packManager,
+      allowApiFallback: allowApiFallback,
       onPackActivated: onPackActivated,
     );
     return true;
+  }
+
+  bool startRemotePack({
+    required RemotePackInfo info,
+    required PackManager packManager,
+    VoidCallback? onPackActivated,
+  }) {
+    if (_runningTask != null) return false;
+
+    final startedAt = DateTime.now();
+    _snapshot = DownloadTaskSnapshot(
+      status: DownloadTaskStatus.running,
+      kind: DownloadTaskKind.remotePack,
+      packName: info.label,
+      bytesTotal: info.sizeBytes,
+      message: null,
+    );
+    notifyListeners();
+
+    _runningTask = _runRemotePack(
+      info: info,
+      packManager: packManager,
+      startedAt: startedAt,
+      onPackActivated: onPackActivated,
+    );
+    return true;
+  }
+
+  Future<void> _runRemotePack({
+    required RemotePackInfo info,
+    required PackManager packManager,
+    required DateTime startedAt,
+    VoidCallback? onPackActivated,
+  }) async {
+    try {
+      final pack = await packManager.downloadAndInstallRemotePack(
+        info,
+        onProgress: (received, total) {
+          final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+          final speed = elapsedMs <= 0 ? 0.0 : received * 1000 / elapsedMs;
+          _snapshot = _snapshot.copyWith(
+            bytesReceived: received,
+            bytesTotal: total,
+            bytesPerSecond: speed,
+          );
+          notifyListeners();
+        },
+      );
+      onPackActivated?.call();
+      _snapshot = _snapshot.copyWith(
+        status: DownloadTaskStatus.completed,
+        bytesReceived: _snapshot.bytesTotal,
+        message:
+            '已安装「${pack.name}」：${pack.speciesCount} 种鸟 · ${pack.audioCount} 音频 · ${pack.imageCount} 张图',
+      );
+      notifyListeners();
+    } catch (e) {
+      _snapshot = _snapshot.copyWith(
+        status: DownloadTaskStatus.failed,
+        message: '下载失败: $e',
+      );
+      notifyListeners();
+    } finally {
+      _runningTask = null;
+    }
   }
 
   Future<void> _run({
@@ -119,6 +243,7 @@ class DownloadTaskService extends ChangeNotifier {
     required String region,
     required String apiKey,
     required PackManager packManager,
+    required bool allowApiFallback,
     VoidCallback? onPackActivated,
   }) async {
     final xc = XenoCantoService(apiKey: apiKey);
@@ -126,6 +251,7 @@ class DownloadTaskService extends ChangeNotifier {
     final downloader = PackDownloaderV2(
       xcService: xc,
       wikimediaService: wm,
+      allowApiFallback: allowApiFallback,
       onProgress: (current, total, name) {
         _snapshot = _snapshot.copyWith(
           current: current,
@@ -151,13 +277,18 @@ class DownloadTaskService extends ChangeNotifier {
       await packManager.setActivePack(packDir);
       onPackActivated?.call();
 
-      final hasSuccess = _snapshot.successCount > 0 || _snapshot.skippedCount > 0;
+      final hasSuccess =
+          _snapshot.successCount > 0 || _snapshot.skippedCount > 0;
       _snapshot = _snapshot.copyWith(
-        status: hasSuccess ? DownloadTaskStatus.completed : DownloadTaskStatus.failed,
+        status: hasSuccess
+            ? DownloadTaskStatus.completed
+            : DownloadTaskStatus.failed,
         current: _snapshot.total,
         message: hasSuccess
-            ? '下载完成：成功 ${_snapshot.successCount}，跳过 ${_snapshot.skippedCount}，失败 ${_snapshot.failedCount}'
-            : '下载失败，请检查物种学名、网络和 API key',
+            ? '服务器下载完成：成功 ${_snapshot.successCount}，跳过 ${_snapshot.skippedCount}，失败 ${_snapshot.failedCount}'
+            : allowApiFallback
+                ? '下载失败，请检查物种学名、网络和 API key'
+                : '服务器暂无这些物种的数据，或网络连接失败',
       );
       notifyListeners();
     } catch (e) {

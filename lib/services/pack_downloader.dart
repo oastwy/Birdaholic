@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'inaturalist_service.dart';
+import 'server_media_service.dart';
 import 'xeno_canto_service.dart';
 import 'wikimedia_service.dart';
 
@@ -10,9 +12,9 @@ enum DownloadStatus { success, skipped, failed }
 
 /// 物种清单条目
 class SpeciesEntry {
-  final String cn;   // 中文名
-  final String en;   // 英文名
-  final String sci;  // 学名
+  final String cn; // 中文名
+  final String en; // 英文名
+  final String sci; // 学名
   final String cons; // 保护等级: "1" | "2" | ""
   final String habitat;
 
@@ -35,12 +37,12 @@ class SpeciesEntry {
   }
 
   Map<String, dynamic> toJson() => {
-    'cn': cn,
-    'en': en,
-    'sci': sci,
-    if (cons.isNotEmpty) 'cons': cons,
-    if (habitat.isNotEmpty) 'habitat': habitat,
-  };
+        'cn': cn,
+        'en': en,
+        'sci': sci,
+        if (cons.isNotEmpty) 'cons': cons,
+        if (habitat.isNotEmpty) 'habitat': habitat,
+      };
 }
 
 /// 单个物种的下载结果
@@ -258,6 +260,9 @@ class PackDownloader {
 class PackDownloaderV2 {
   final XenoCantoService xcService;
   final WikimediaService wikimediaService;
+  final INaturalistService iNaturalistService;
+  final ServerMediaService serverMediaService;
+  final bool allowApiFallback;
 
   void Function(int current, int total, String speciesName)? onProgress;
   void Function(DownloadResult result)? onSpeciesComplete;
@@ -265,9 +270,13 @@ class PackDownloaderV2 {
   PackDownloaderV2({
     required this.xcService,
     required this.wikimediaService,
+    INaturalistService? iNaturalistService,
+    ServerMediaService? serverMediaService,
+    this.allowApiFallback = true,
     this.onProgress,
     this.onSpeciesComplete,
-  });
+  })  : iNaturalistService = iNaturalistService ?? INaturalistService(),
+        serverMediaService = serverMediaService ?? ServerMediaService();
 
   /// 从物种清单创建数据包
   Future<String> createPack({
@@ -310,7 +319,8 @@ class PackDownloaderV2 {
       onProgress?.call(completed, total, entry.cn);
 
       if (existing != null &&
-          ((existing['audios'] as List<dynamic>?)?.isNotEmpty ?? false)) {
+          (((existing['audios'] as List<dynamic>?)?.isNotEmpty ?? false) ||
+              ((existing['image'] as String?)?.isNotEmpty ?? false))) {
         onSpeciesComplete?.call(
           DownloadResult(
             species: entry,
@@ -326,7 +336,8 @@ class PackDownloaderV2 {
       DownloadResult result;
       Map<String, dynamic> speciesJson;
       try {
-        final r = await _downloadSpeciesV2(entry, soundsDir.path, imagesDir.path);
+        final r =
+            await _downloadSpeciesV2(entry, soundsDir.path, imagesDir.path);
         result = r.result;
         speciesJson = r.json;
       } catch (e) {
@@ -343,8 +354,8 @@ class PackDownloaderV2 {
         };
       }
 
-      // 只有音频下载成功的才加入数据包
-      if (result.audioCount > 0) {
+      // 服务器媒体库可能只有图片；图片题和学习模式也可以使用。
+      if (result.audioCount > 0 || result.hasImage) {
         totalAudio += result.audioCount;
         if (result.hasImage) totalImage++;
         if (existing != null) {
@@ -396,10 +407,9 @@ class PackDownloaderV2 {
       return decoded
           .map((item) => Map<String, dynamic>.from(item as Map))
           .where((item) {
-            final sci = ((item['sci'] as String?) ?? '').trim().toLowerCase();
-            return requestedSciSet.contains(sci);
-          })
-          .toList();
+        final sci = ((item['sci'] as String?) ?? '').trim().toLowerCase();
+        return requestedSciSet.contains(sci);
+      }).toList();
     } catch (_) {
       return [];
     }
@@ -424,7 +434,7 @@ class PackDownloaderV2 {
       'species_count': speciesData.length,
       'audio_count': totalAudio,
       'image_count': totalImage,
-      'source': 'Xeno-Canto + Wikimedia Commons',
+      'source': 'Xeno-Canto + iNaturalist + Wikimedia Commons',
     };
     await File('$packDir/manifest.json')
         .writeAsString(const JsonEncoder.withIndent('  ').convert(manifestV2));
@@ -435,14 +445,37 @@ class PackDownloaderV2 {
     String soundsDir,
     String imagesDir,
   ) async {
-    // 搜索 XC
-    final recordings = await xcService.searchBySpecies(entry.sci);
-    if (recordings.isEmpty) {
+    try {
+      final serverDownload = await serverMediaService.downloadSpecies(
+        cn: entry.cn,
+        en: entry.en,
+        sci: entry.sci,
+        cons: entry.cons,
+        habitat: entry.habitat,
+        soundsDir: soundsDir,
+        imagesDir: imagesDir,
+      );
+      if (serverDownload != null) {
+        return _SpeciesDownload(
+          result: DownloadResult(
+            species: entry,
+            status: DownloadStatus.success,
+            audioCount: serverDownload.audioCount,
+            hasImage: serverDownload.hasImage,
+          ),
+          json: serverDownload.json,
+        );
+      }
+    } catch (_) {
+      // 服务器媒体库不可用时，继续尝试原来的第三方来源。
+    }
+
+    if (!allowApiFallback) {
       return _SpeciesDownload(
         result: DownloadResult(
           species: entry,
           status: DownloadStatus.failed,
-          error: '无可用录音',
+          error: '服务器暂无该物种媒体',
         ),
         json: {
           'cn': entry.cn,
@@ -455,51 +488,86 @@ class PackDownloaderV2 {
       );
     }
 
-    final best = xcService.pickBestRecordings(recordings);
     final audioEntries = <Map<String, String>>[];
     int audioCount = 0;
 
-    // 下载 song
-    final songRec = best['song'];
-    if (songRec != null) {
-      final path = await xcService.downloadAudio(songRec, soundsDir);
-      if (path != null) {
-        audioEntries.add({
-          'type': 'song',
-          'file': 'sounds/${path.split('/').last}',
-        });
-        audioCount++;
-      }
-    }
+    // 搜索并下载 XC 音频；失败时仍继续尝试图片来源。
+    try {
+      final recordings = await xcService.searchBySpecies(entry.sci);
+      final best = xcService.pickBestRecordings(recordings);
 
-    // 下载 call
-    final callRec = best['call'];
-    if (callRec != null) {
-      final path = await xcService.downloadAudio(callRec, soundsDir);
-      if (path != null) {
-        audioEntries.add({
-          'type': 'call',
-          'file': 'sounds/${path.split('/').last}',
-        });
-        audioCount++;
+      final songRec = best['song'];
+      if (songRec != null) {
+        final path = await xcService.downloadAudio(songRec, soundsDir);
+        if (path != null) {
+          audioEntries.add({
+            'type': 'song',
+            'file': 'sounds/${path.split('/').last}',
+            if (songRec.rec.trim().isNotEmpty) 'contributor': songRec.rec,
+            if (songRec.id.trim().isNotEmpty)
+              'contributor_url': 'https://xeno-canto.org/${songRec.id}',
+            if (songRec.license.trim().isNotEmpty) 'license': songRec.license,
+          });
+          audioCount++;
+        }
       }
-    }
+
+      final callRec = best['call'];
+      if (callRec != null) {
+        final path = await xcService.downloadAudio(callRec, soundsDir);
+        if (path != null) {
+          audioEntries.add({
+            'type': 'call',
+            'file': 'sounds/${path.split('/').last}',
+            if (callRec.rec.trim().isNotEmpty) 'contributor': callRec.rec,
+            if (callRec.id.trim().isNotEmpty)
+              'contributor_url': 'https://xeno-canto.org/${callRec.id}',
+            if (callRec.license.trim().isNotEmpty) 'license': callRec.license,
+          });
+          audioCount++;
+        }
+      }
+    } catch (_) {}
 
     // 下载图片
     bool hasImage = false;
+    String imageCredit = '';
     final sciSlug = entry.sci.replaceAll(RegExp(r'\s+'), '_');
     try {
-      final imagePath = await wikimediaService.searchAndDownload(
+      final photo = await iNaturalistService.searchAndDownload(
         entry.sci,
         '$imagesDir/$sciSlug.jpg',
       );
-      hasImage = imagePath != null;
+      if (photo != null) {
+        hasImage = true;
+        imageCredit = photo.attribution;
+      }
     } catch (_) {}
+
+    if (!hasImage) {
+      try {
+        final imagePath = await wikimediaService.searchAndDownload(
+          entry.sci,
+          '$imagesDir/$sciSlug.jpg',
+        );
+        hasImage = imagePath != null;
+        if (hasImage) imageCredit = 'Wikimedia Commons';
+      } catch (_) {}
+    }
+
+    final audioCredit = audioEntries
+        .map((item) => (item['contributor'] ?? '').trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .join(', ');
 
     return _SpeciesDownload(
       result: DownloadResult(
         species: entry,
-        status: audioCount > 0 ? DownloadStatus.success : DownloadStatus.failed,
+        status: audioCount > 0 || hasImage
+            ? DownloadStatus.success
+            : DownloadStatus.failed,
+        error: audioCount > 0 || hasImage ? null : '无可用音频或图片',
         audioCount: audioCount,
         hasImage: hasImage,
       ),
@@ -511,6 +579,8 @@ class PackDownloaderV2 {
         if (entry.habitat.isNotEmpty) 'habitat': entry.habitat,
         'audios': audioEntries,
         if (hasImage) 'image': 'images/$sciSlug.jpg',
+        if (imageCredit.isNotEmpty) 'image_credit': imageCredit,
+        if (audioCredit.isNotEmpty) 'audio_credit': audioCredit,
       },
     );
   }

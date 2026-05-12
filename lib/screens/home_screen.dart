@@ -5,6 +5,7 @@ import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import '../services/download_task_service.dart';
 import '../widgets/bird_card.dart';
+import 'about_screen.dart';
 import 'favorites_screen.dart';
 import 'flashcard_screen.dart';
 import 'pack_manage_screen.dart';
@@ -30,9 +31,10 @@ class HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _packVersion = 0;
   final _flashcardKey = GlobalKey<FlashcardScreenState>();
-  DownloadTaskStatus _lastTaskStatus = DownloadTaskService.instance.snapshot.status;
+  DownloadTaskStatus _lastTaskStatus =
+      DownloadTaskService.instance.snapshot.status;
 
-  static const _titles = ['开始学习', '闪卡学习', '鸟种列表', '收藏夹', '数据包'];
+  static const _titles = ['开始学习', '闪卡学习', '鸟种列表', '收藏夹', '数据包', '关于鸟瘾'];
 
   /// 从列表页跳转到闪卡
   void jumpToFlashcard(Species species) {
@@ -43,10 +45,14 @@ class HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _startSession(String filter, StudyMode mode) {
+  void _startSession(String filter, StudyMode mode, PromptMode promptMode) {
     setState(() => _tab = 1);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _flashcardKey.currentState?.startSession(filter: filter, mode: mode);
+      _flashcardKey.currentState?.startSession(
+        filter: filter,
+        mode: mode,
+        promptMode: promptMode,
+      );
     });
   }
 
@@ -94,8 +100,9 @@ class HomeScreenState extends State<HomeScreen> {
           },
           child: Scaffold(
             appBar: AppBar(
-              title: Text(_titles[_tab]),
+              title: _tab == 1 ? null : Text(_titles[_tab]),
               centerTitle: true,
+              toolbarHeight: _tab == 1 ? 44 : null,
             ),
             body: Column(
               children: [
@@ -111,8 +118,12 @@ class HomeScreenState extends State<HomeScreen> {
                         child: Row(
                           children: [
                             Icon(
-                              task.isFinished ? Icons.task_alt : Icons.cloud_download,
-                              color: task.isFinished ? Colors.green[700] : Colors.blue[700],
+                              task.isFinished
+                                  ? Icons.task_alt
+                                  : Icons.cloud_download,
+                              color: task.isFinished
+                                  ? Colors.green[700]
+                                  : Colors.blue[700],
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -122,20 +133,39 @@ class HomeScreenState extends State<HomeScreen> {
                                   Text(
                                     task.isFinished
                                         ? (task.message ?? '后台下载已完成')
-                                        : '后台下载中：${task.packName} (${task.current}/${task.total})',
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                        : task.kind ==
+                                                DownloadTaskKind.remotePack
+                                            ? '后台下载中：${task.packName} · ${task.byteProgressLabel}'
+                                            : '后台下载中：${task.packName} (${task.current}/${task.total})',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600),
                                   ),
+                                  if (!task.isFinished &&
+                                      task.kind ==
+                                          DownloadTaskKind.remotePack &&
+                                      task.speedLabel.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '${task.speedLabel} · 剩余 ${task.etaLabel}',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[700]),
+                                      ),
+                                    ),
                                   if (!task.isFinished)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 6),
-                                      child: LinearProgressIndicator(value: task.progress),
+                                      child: LinearProgressIndicator(
+                                          value: task.progress),
                                     ),
                                 ],
                               ),
                             ),
                             if (task.isFinished)
                               IconButton(
-                                onPressed: DownloadTaskService.instance.clearFinished,
+                                onPressed:
+                                    DownloadTaskService.instance.clearFinished,
                                 icon: const Icon(Icons.close),
                               ),
                           ],
@@ -182,6 +212,7 @@ class HomeScreenState extends State<HomeScreen> {
                         storage: widget.storage,
                         onPackChanged: _handlePackChanged,
                       ),
+                      const AboutScreen(),
                     ],
                   ),
                 ),
@@ -213,6 +244,10 @@ class HomeScreenState extends State<HomeScreen> {
                 BottomNavigationBarItem(
                   icon: Icon(Icons.folder_zip),
                   label: '数据包',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.info_outline),
+                  label: '关于',
                 ),
               ],
             ),
