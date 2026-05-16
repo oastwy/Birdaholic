@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../services/storage.dart';
+import '../services/pack_manager.dart';
 import 'about_screen.dart';
+import 'pack_manage_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final StorageService storage;
+  final PackManager packManager;
   final VoidCallback? onSettingsChanged;
+  final VoidCallback? onPackChanged;
 
   const SettingsScreen({
     super.key,
     required this.storage,
+    required this.packManager,
     this.onSettingsChanged,
+    this.onPackChanged,
   });
 
   @override
@@ -136,6 +142,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.folder_zip, color: Color(0xFF2d5016)),
+            title: const Text('数据包管理'),
+            subtitle: const Text('安装中国常见鸟 100、按中国名录下载、导入/更新/删除数据包'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('数据包管理')),
+                    body: PackManageScreen(
+                      packManager: widget.packManager,
+                      storage: widget.storage,
+                      onPackChanged: widget.onPackChanged,
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(height: 10),

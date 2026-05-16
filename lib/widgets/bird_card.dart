@@ -38,6 +38,7 @@ class BirdCard extends StatefulWidget {
   // 管理员难度评分
   final bool isAdmin;
   final ValueChanged<int>? onDifficultyChanged;
+  final void Function(String imageFile, int difficulty)? onImageDifficultyChanged;
 
   const BirdCard({
     super.key,
@@ -56,6 +57,7 @@ class BirdCard extends StatefulWidget {
     this.onLearnMore,
     this.isAdmin = false,
     this.onDifficultyChanged,
+    this.onImageDifficultyChanged,
   });
 
   @override
@@ -73,10 +75,24 @@ class BirdCardState extends State<BirdCard>
   List<_ImageEntry> get _allImages {
     final result = <_ImageEntry>[];
     if (widget.imagePath != null && File(widget.imagePath!).existsSync()) {
+      final sourceFile = widget.species.imageFiles.isNotEmpty
+          ? widget.species.imageFiles.first
+          : null;
+      SpeciesImageInfo? sourceImage;
+      if (sourceFile != null) {
+        for (final image in widget.species.images) {
+          if (image.file == sourceFile) {
+            sourceImage = image;
+            break;
+          }
+        }
+      }
       result.add(_ImageEntry(
         path: widget.imagePath!,
         isNetwork: false,
         credit: widget.species.imageCredit,
+        sourceFile: sourceFile,
+        difficulty: sourceImage?.difficulty ?? widget.species.difficulty,
       ));
     }
     for (var i = 0; i < widget.extraImagePaths.length; i++) {
@@ -462,7 +478,13 @@ class BirdCardState extends State<BirdCard>
   }
 
   Widget _difficultyRow() {
-    final diff = widget.species.difficulty;
+    final images = _allImages;
+    final currentImage = images.isNotEmpty
+        ? images[_imagePageIndex.clamp(0, images.length - 1)]
+        : null;
+    final diff = widget.promptMode == PromptMode.image && currentImage != null
+        ? currentImage.difficulty
+        : widget.species.difficulty;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
@@ -472,7 +494,19 @@ class BirdCardState extends State<BirdCard>
           ...List.generate(5, (i) {
             final filled = i < diff;
             return GestureDetector(
-              onTap: () => widget.onDifficultyChanged?.call(i + 1),
+              onTap: () {
+                final value = i + 1;
+                if (widget.promptMode == PromptMode.image &&
+                    currentImage?.sourceFile != null &&
+                    widget.onImageDifficultyChanged != null) {
+                  widget.onImageDifficultyChanged!(
+                    currentImage!.sourceFile!,
+                    value,
+                  );
+                } else {
+                  widget.onDifficultyChanged?.call(value);
+                }
+              },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Icon(
@@ -567,9 +601,13 @@ class _ImageEntry {
   final String path;
   final bool isNetwork;
   final String credit;
+  final String? sourceFile;
+  final int difficulty;
   const _ImageEntry({
     required this.path,
     required this.isNetwork,
     required this.credit,
+    this.sourceFile,
+    this.difficulty = 1,
   });
 }

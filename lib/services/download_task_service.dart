@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../services/pack_downloader.dart';
+import 'download_cancel.dart';
 import 'pack_manager.dart';
 import 'storage.dart';
 import 'wikimedia_service.dart';
 import 'xeno_canto_service.dart';
 
-enum DownloadTaskStatus { idle, running, completed, failed }
+enum DownloadTaskStatus { idle, running, completed, failed, canceled }
 
 enum DownloadTaskKind { speciesPack, remotePack }
 
@@ -44,7 +45,8 @@ class DownloadTaskSnapshot {
   bool get isRunning => status == DownloadTaskStatus.running;
   bool get isFinished =>
       status == DownloadTaskStatus.completed ||
-      status == DownloadTaskStatus.failed;
+      status == DownloadTaskStatus.failed ||
+      status == DownloadTaskStatus.canceled;
 
   int get successCount => results.where((result) => result.success).length;
   int get skippedCount => results.where((result) => result.skipped).length;
@@ -135,8 +137,16 @@ class DownloadTaskService extends ChangeNotifier {
   DownloadTaskSnapshot get snapshot => _snapshot;
 
   Future<void>? _runningTask;
+  bool _cancelRequested = false;
 
   bool get isRunning => _snapshot.isRunning;
+
+  void cancel() {
+    if (!isRunning) return;
+    _cancelRequested = true;
+    _snapshot = _snapshot.copyWith(statusMessage: '正在取消…');
+    notifyListeners();
+  }
 
   void clearFinished() {
     if (!_snapshot.isFinished) return;
@@ -154,6 +164,7 @@ class DownloadTaskService extends ChangeNotifier {
     VoidCallback? onPackActivated,
   }) {
     if (_runningTask != null) return false;
+    _cancelRequested = false;
 
     _snapshot = DownloadTaskSnapshot(
       status: DownloadTaskStatus.running,
@@ -172,6 +183,7 @@ class DownloadTaskService extends ChangeNotifier {
       packManager: packManager,
       allowApiFallback: allowApiFallback,
       onPackActivated: onPackActivated,
+      shouldCancel: () => _cancelRequested,
     );
     return true;
   }
@@ -182,6 +194,7 @@ class DownloadTaskService extends ChangeNotifier {
     VoidCallback? onPackActivated,
   }) {
     if (_runningTask != null) return false;
+    _cancelRequested = false;
 
     final startedAt = DateTime.now();
     _snapshot = DownloadTaskSnapshot(
@@ -198,6 +211,7 @@ class DownloadTaskService extends ChangeNotifier {
       packManager: packManager,
       startedAt: startedAt,
       onPackActivated: onPackActivated,
+      shouldCancel: () => _cancelRequested,
     );
     return true;
   }
@@ -207,10 +221,12 @@ class DownloadTaskService extends ChangeNotifier {
     required PackManager packManager,
     required DateTime startedAt,
     VoidCallback? onPackActivated,
+    required bool Function() shouldCancel,
   }) async {
     try {
       final pack = await packManager.downloadAndInstallRemotePack(
         info,
+        shouldCancel: shouldCancel,
         onProgress: (received, total) {
           final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
           final speed = elapsedMs <= 0 ? 0.0 : received * 1000 / elapsedMs;
@@ -234,6 +250,13 @@ class DownloadTaskService extends ChangeNotifier {
             '已安装「${pack.name}」：${pack.speciesCount} 种鸟 · ${pack.audioCount} 音频 · ${pack.imageCount} 张图',
       );
       notifyListeners();
+    } on DownloadCanceledException {
+      _snapshot = _snapshot.copyWith(
+        status: DownloadTaskStatus.canceled,
+        message: '已取消下载，可稍后重新开始并续传。',
+        statusMessage: '已取消',
+      );
+      notifyListeners();
     } catch (e) {
       _snapshot = _snapshot.copyWith(
         status: DownloadTaskStatus.failed,
@@ -242,6 +265,7 @@ class DownloadTaskService extends ChangeNotifier {
       notifyListeners();
     } finally {
       _runningTask = null;
+      _cancelRequested = false;
     }
   }
 
@@ -253,6 +277,7 @@ class DownloadTaskService extends ChangeNotifier {
     required PackManager packManager,
     required bool allowApiFallback,
     VoidCallback? onPackActivated,
+    required bool Function() shouldCancel,
   }) async {
     final xc = XenoCantoService(apiKey: apiKey);
     final wm = WikimediaService();
@@ -274,6 +299,7 @@ class DownloadTaskService extends ChangeNotifier {
         );
         notifyListeners();
       },
+      shouldCancel: shouldCancel,
     );
 
     try {
@@ -299,6 +325,14 @@ class DownloadTaskService extends ChangeNotifier {
                 : '服务器暂无这些物种的数据，或网络连接失败',
       );
       notifyListeners();
+    } on DownloadCanceledException {
+      _snapshot = _snapshot.copyWith(
+        status: DownloadTaskStatus.canceled,
+        current: _snapshot.current,
+        message: '已取消下载，已完成的物种会保留。',
+        statusMessage: '已取消',
+      );
+      notifyListeners();
     } catch (e) {
       _snapshot = _snapshot.copyWith(
         status: DownloadTaskStatus.failed,
@@ -307,6 +341,7 @@ class DownloadTaskService extends ChangeNotifier {
       notifyListeners();
     } finally {
       _runningTask = null;
+      _cancelRequested = false;
     }
   }
 }

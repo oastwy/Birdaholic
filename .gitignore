@@ -46,7 +46,9 @@ app.*.map.json
 
 # Large generated and distributable assets
 data_packs/*.zip
+!data_packs/china_common_100_v1.0_opt.zip
 *.apk
+!releases/*.apk
 
 # Local build and environment directories (not for version control)
 .birdnet_engine_venv/

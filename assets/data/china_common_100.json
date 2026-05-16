@@ -1,0 +1,802 @@
+[
+  {
+    "cn": "麻雀",
+    "en": "麻雀",
+    "sci": "Passer montanus",
+    "order": "雀形目",
+    "family": "雀科",
+    "code": ""
+  },
+  {
+    "cn": "白头鹎",
+    "en": "白頭翁",
+    "sci": "Pycnonotus sinensis",
+    "order": "雀形目",
+    "family": "鹎科",
+    "code": ""
+  },
+  {
+    "cn": "八哥",
+    "en": "八哥(冠八哥)",
+    "sci": "Acridotheres cristatellus",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": ""
+  },
+  {
+    "cn": "珠颈斑鸠",
+    "en": "珠頸斑鳩",
+    "sci": "Spilopelia chinensis",
+    "order": "鸽形目",
+    "family": "鸠鸽科",
+    "code": ""
+  },
+  {
+    "cn": "山斑鸠",
+    "en": "金背鳩",
+    "sci": "Streptopelia orientalis",
+    "order": "鸽形目",
+    "family": "鸠鸽科",
+    "code": ""
+  },
+  {
+    "cn": "原鸽",
+    "en": "原鴿",
+    "sci": "Columba livia",
+    "order": "鸽形目",
+    "family": "鸠鸽科",
+    "code": ""
+  },
+  {
+    "cn": "喜鹊",
+    "en": "喜鵲",
+    "sci": "Pica serica",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": ""
+  },
+  {
+    "cn": "灰喜鹊",
+    "en": "灰喜鵲",
+    "sci": "Cyanopica cyanus",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": ""
+  },
+  {
+    "cn": "大嘴乌鸦",
+    "en": "巨嘴鴉",
+    "sci": "Corvus macrorhynchos",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": ""
+  },
+  {
+    "cn": "大杜鹃",
+    "en": "大杜鵑",
+    "sci": "Cuculus canorus",
+    "order": "鹃形目",
+    "family": "杜鹃科",
+    "code": ""
+  },
+  {
+    "cn": "褐翅鸦鹃",
+    "en": "褐翅鴉鵑",
+    "sci": "Centropus sinensis",
+    "order": "鹃形目",
+    "family": "杜鹃科",
+    "code": ""
+  },
+  {
+    "cn": "家燕",
+    "en": "家燕",
+    "sci": "Hirundo rustica",
+    "order": "雀形目",
+    "family": "燕科",
+    "code": ""
+  },
+  {
+    "cn": "金腰燕",
+    "en": "東方金腰燕",
+    "sci": "Cecropis daurica",
+    "order": "雀形目",
+    "family": "燕科",
+    "code": ""
+  },
+  {
+    "cn": "白鹡鸰",
+    "en": "白鶺鴒",
+    "sci": "Motacilla alba",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": ""
+  },
+  {
+    "cn": "灰鹡鸰",
+    "en": "灰鶺鴒",
+    "sci": "Motacilla cinerea",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": ""
+  },
+  {
+    "cn": "田鹨",
+    "en": "大花鷚",
+    "sci": "Anthus richardi",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": ""
+  },
+  {
+    "cn": "黑短脚鹎",
+    "en": "紅嘴黑鵯",
+    "sci": "Hypsipetes leucocephalus",
+    "order": "雀形目",
+    "family": "鹎科",
+    "code": ""
+  },
+  {
+    "cn": "暗绿绣眼鸟",
+    "en": "斯氏繡眼(綠繡眼)",
+    "sci": "Zosterops simplex",
+    "order": "雀形目",
+    "family": "绣眼鸟科",
+    "code": ""
+  },
+  {
+    "cn": "大山雀",
+    "en": "Japanese Tit",
+    "sci": "Parus minor",
+    "order": "雀形目",
+    "family": "山雀科",
+    "code": ""
+  },
+  {
+    "cn": "棕头鸦雀",
+    "en": "粉紅鸚嘴",
+    "sci": "Sinosuthora webbiana",
+    "order": "雀形目",
+    "family": "鸦雀科",
+    "code": ""
+  },
+  {
+    "cn": "画眉",
+    "en": "大陸畫眉",
+    "sci": "Garrulax canorus",
+    "order": "雀形目",
+    "family": "噪鹛科",
+    "code": ""
+  },
+  {
+    "cn": "棕颈钩嘴鹛",
+    "en": "Streak-breasted Scimitar-Babbler",
+    "sci": "Erythrogenys ruficollis",
+    "order": "雀形目",
+    "family": "林鹛科",
+    "code": ""
+  },
+  {
+    "cn": "乌鸫",
+    "en": "中國黑鶇",
+    "sci": "Turdus mandarinus",
+    "order": "雀形目",
+    "family": "鸫科",
+    "code": ""
+  },
+  {
+    "cn": "欧乌鸫",
+    "en": "Eurasian Blackbird",
+    "sci": "Turdus merula",
+    "order": "雀形目",
+    "family": "鸫科",
+    "code": ""
+  },
+  {
+    "cn": "北红尾鸲",
+    "en": "黃尾鴝",
+    "sci": "Phoenicurus auroreus",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": ""
+  },
+  {
+    "cn": "鹊鸲",
+    "en": "鵲鴝",
+    "sci": "Copsychus saularis",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": ""
+  },
+  {
+    "cn": "黑喉石䳭",
+    "en": "Siberian Stonechat",
+    "sci": "Saxicola maurus",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": ""
+  },
+  {
+    "cn": "北灰鹟",
+    "en": "寬嘴鶲",
+    "sci": "Muscicapa dauurica",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": ""
+  },
+  {
+    "cn": "白眉姬鹟",
+    "en": "白眉鶲",
+    "sci": "Ficedula zanthopygia",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": ""
+  },
+  {
+    "cn": "黄眉柳莺",
+    "en": "黃眉柳鶯",
+    "sci": "Phylloscopus inornatus",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": ""
+  },
+  {
+    "cn": "东方大苇莺",
+    "en": "東方大葦鶯",
+    "sci": "Acrocephalus orientalis",
+    "order": "雀形目",
+    "family": "苇莺科",
+    "code": ""
+  },
+  {
+    "cn": "长尾缝叶莺",
+    "en": "長尾縫葉鶯",
+    "sci": "Orthotomus sutorius",
+    "order": "雀形目",
+    "family": "扇尾莺科",
+    "code": ""
+  },
+  {
+    "cn": "棕扇尾莺",
+    "en": "棕扇尾鶯",
+    "sci": "Cisticola juncidis",
+    "order": "雀形目",
+    "family": "扇尾莺科",
+    "code": ""
+  },
+  {
+    "cn": "纯色山鹪莺",
+    "en": "褐頭鷦鶯",
+    "sci": "Prinia inornata",
+    "order": "雀形目",
+    "family": "扇尾莺科",
+    "code": ""
+  },
+  {
+    "cn": "棕背伯劳",
+    "en": "棕背伯勞",
+    "sci": "Lanius schach",
+    "order": "雀形目",
+    "family": "伯劳科",
+    "code": ""
+  },
+  {
+    "cn": "黑卷尾",
+    "en": "大卷尾",
+    "sci": "Dicrurus macrocercus",
+    "order": "雀形目",
+    "family": "卷尾科",
+    "code": ""
+  },
+  {
+    "cn": "黑枕黄鹂",
+    "en": "黃鸝",
+    "sci": "Oriolus chinensis",
+    "order": "雀形目",
+    "family": "黄鹂科",
+    "code": ""
+  },
+  {
+    "cn": "灰背椋鸟",
+    "en": "灰背椋鳥",
+    "sci": "Sturnia sinensis",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": ""
+  },
+  {
+    "cn": "家八哥",
+    "en": "家八哥",
+    "sci": "Acridotheres tristis",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": ""
+  },
+  {
+    "cn": "斑文鸟",
+    "en": "斑文鳥",
+    "sci": "Lonchura punctulata",
+    "order": "雀形目",
+    "family": "梅花雀科",
+    "code": ""
+  },
+  {
+    "cn": "金翅雀",
+    "en": "金翅雀",
+    "sci": "Chloris sinica",
+    "order": "雀形目",
+    "family": "燕雀科",
+    "code": ""
+  },
+  {
+    "cn": "黄雀",
+    "en": "黃雀",
+    "sci": "Spinus spinus",
+    "order": "雀形目",
+    "family": "燕雀科",
+    "code": ""
+  },
+  {
+    "cn": "黄喉鹀",
+    "en": "黃喉鵐",
+    "sci": "Emberiza elegans",
+    "order": "雀形目",
+    "family": "鹀科",
+    "code": ""
+  },
+  {
+    "cn": "三道眉草鹀",
+    "en": "草鵐",
+    "sci": "Emberiza cioides",
+    "order": "雀形目",
+    "family": "鹀科",
+    "code": ""
+  },
+  {
+    "cn": "白鹭",
+    "en": "小白鷺",
+    "sci": "Egretta garzetta",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "苍鹭",
+    "en": "蒼鷺",
+    "sci": "Ardea cinerea",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "大白鹭",
+    "en": "大白鷺",
+    "sci": "Ardea alba",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "牛背鹭",
+    "en": "Eastern Cattle Egret",
+    "sci": "Bubulcus coromandus",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "夜鹭",
+    "en": "夜鷺",
+    "sci": "Nycticorax nycticorax",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "池鹭",
+    "en": "池鷺",
+    "sci": "Ardeola bacchus",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "黄斑苇鳽",
+    "en": "Yellow Bittern",
+    "sci": "Ixobrychus sinensis",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": ""
+  },
+  {
+    "cn": "普通鸬鹚",
+    "en": "鸕鷀",
+    "sci": "Phalacrocorax carbo",
+    "order": "鲣鸟目",
+    "family": "鸬鹚科",
+    "code": ""
+  },
+  {
+    "cn": "斑嘴鸭",
+    "en": "花嘴鴨",
+    "sci": "Anas zonorhyncha",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": ""
+  },
+  {
+    "cn": "绿翅鸭",
+    "en": "小水鴨",
+    "sci": "Anas crecca",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": ""
+  },
+  {
+    "cn": "绿头鸭",
+    "en": "綠頭鴨",
+    "sci": "Anas platyrhynchos",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": ""
+  },
+  {
+    "cn": "小䴙䴘",
+    "en": "小鸊鷉",
+    "sci": "Tachybaptus ruficollis",
+    "order": "䴙䴘目",
+    "family": "䴙䴘科",
+    "code": ""
+  },
+  {
+    "cn": "凤头䴙䴘",
+    "en": "冠鸊鷉",
+    "sci": "Podiceps cristatus",
+    "order": "䴙䴘目",
+    "family": "䴙䴘科",
+    "code": ""
+  },
+  {
+    "cn": "白胸苦恶鸟",
+    "en": "白腹秧雞",
+    "sci": "Amaurornis phoenicurus",
+    "order": "鹤形目",
+    "family": "秧鸡科",
+    "code": ""
+  },
+  {
+    "cn": "黑水鸡",
+    "en": "紅冠水雞",
+    "sci": "Gallinula chloropus",
+    "order": "鹤形目",
+    "family": "秧鸡科",
+    "code": ""
+  },
+  {
+    "cn": "白骨顶",
+    "en": "白冠雞",
+    "sci": "Fulica atra",
+    "order": "鹤形目",
+    "family": "秧鸡科",
+    "code": ""
+  },
+  {
+    "cn": "凤头麦鸡",
+    "en": "小辮鴴",
+    "sci": "Vanellus vanellus",
+    "order": "鸻形目",
+    "family": "鸻科",
+    "code": ""
+  },
+  {
+    "cn": "金眶鸻",
+    "en": "Little Ringed Plover",
+    "sci": "Charadrius dubius",
+    "order": "鸻形目",
+    "family": "鸻科",
+    "code": ""
+  },
+  {
+    "cn": "矶鹬",
+    "en": "磯鷸",
+    "sci": "Actitis hypoleucos",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": ""
+  },
+  {
+    "cn": "青脚鹬",
+    "en": "青足鷸",
+    "sci": "Tringa nebularia",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": ""
+  },
+  {
+    "cn": "扇尾沙锥",
+    "en": "田鷸",
+    "sci": "Gallinago gallinago",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": ""
+  },
+  {
+    "cn": "红嘴鸥",
+    "en": "紅嘴鷗",
+    "sci": "Chroicocephalus ridibundus",
+    "order": "鸻形目",
+    "family": "鸥科",
+    "code": ""
+  },
+  {
+    "cn": "西伯利亚银鸥",
+    "en": "西伯利亞銀鷗",
+    "sci": "Larus vegae",
+    "order": "鸻形目",
+    "family": "鸥科",
+    "code": ""
+  },
+  {
+    "cn": "普通燕鸥",
+    "en": "燕鷗",
+    "sci": "Sterna hirundo",
+    "order": "鸻形目",
+    "family": "鸥科",
+    "code": ""
+  },
+  {
+    "cn": "黑鸢",
+    "en": "黑鳶",
+    "sci": "Milvus migrans",
+    "order": "鹰形目",
+    "family": "鹰科",
+    "code": ""
+  },
+  {
+    "cn": "雀鹰",
+    "en": "北雀鷹",
+    "sci": "Accipiter nisus",
+    "order": "鹰形目",
+    "family": "鹰科",
+    "code": ""
+  },
+  {
+    "cn": "普通鵟",
+    "en": "東方鵟",
+    "sci": "Buteo japonicus",
+    "order": "鹰形目",
+    "family": "鹰科",
+    "code": ""
+  },
+  {
+    "cn": "红隼",
+    "en": "紅隼",
+    "sci": "Falco tinnunculus",
+    "order": "隼形目",
+    "family": "隼科",
+    "code": ""
+  },
+  {
+    "cn": "游隼",
+    "en": "遊隼",
+    "sci": "Falco peregrinus",
+    "order": "隼形目",
+    "family": "隼科",
+    "code": ""
+  },
+  {
+    "cn": "仓鸮",
+    "en": "Eastern Barn Owl",
+    "sci": "Tyto javanica",
+    "order": "鸮形目",
+    "family": "草鸮科",
+    "code": ""
+  },
+  {
+    "cn": "红角鸮",
+    "en": "東方角鴞",
+    "sci": "Otus sunia",
+    "order": "鸮形目",
+    "family": "鸱鸮科",
+    "code": ""
+  },
+  {
+    "cn": "纵纹腹小鸮",
+    "en": "縱紋腹小鴞",
+    "sci": "Athene noctua",
+    "order": "鸮形目",
+    "family": "鸱鸮科",
+    "code": ""
+  },
+  {
+    "cn": "普通翠鸟",
+    "en": "翠鳥",
+    "sci": "Alcedo atthis",
+    "order": "佛法僧目",
+    "family": "翠鸟科",
+    "code": ""
+  },
+  {
+    "cn": "白胸翡翠",
+    "en": "蒼翡翠",
+    "sci": "Halcyon smyrnensis",
+    "order": "佛法僧目",
+    "family": "翠鸟科",
+    "code": ""
+  },
+  {
+    "cn": "绿喉蜂虎",
+    "en": "Asian Green Bee-eater",
+    "sci": "Merops orientalis",
+    "order": "佛法僧目",
+    "family": "蜂虎科",
+    "code": ""
+  },
+  {
+    "cn": "戴胜",
+    "en": "戴勝",
+    "sci": "Upupa epops",
+    "order": "犀鸟目",
+    "family": "戴胜科",
+    "code": ""
+  },
+  {
+    "cn": "台湾拟啄木鸟",
+    "en": "五色鳥",
+    "sci": "Psilopogon nuchalis",
+    "order": "啄木鸟目",
+    "family": "拟啄木鸟科",
+    "code": ""
+  },
+  {
+    "cn": "大斑啄木鸟",
+    "en": "Great Spotted Woodpecker",
+    "sci": "Dendrocopos major",
+    "order": "啄木鸟目",
+    "family": "啄木鸟科",
+    "code": ""
+  },
+  {
+    "cn": "灰头绿啄木鸟",
+    "en": "綠啄木",
+    "sci": "Picus canus",
+    "order": "啄木鸟目",
+    "family": "啄木鸟科",
+    "code": ""
+  },
+  {
+    "cn": "灰胸竹鸡",
+    "en": "灰胸竹雞",
+    "sci": "Bambusicola thoracicus",
+    "order": "鸡形目",
+    "family": "雉科",
+    "code": ""
+  },
+  {
+    "cn": "鹌鹑",
+    "en": "鵪鶉",
+    "sci": "Coturnix japonica",
+    "order": "鸡形目",
+    "family": "雉科",
+    "code": ""
+  },
+  {
+    "cn": "环颈雉",
+    "en": "環頸雉",
+    "sci": "Phasianus colchicus",
+    "order": "鸡形目",
+    "family": "雉科",
+    "code": ""
+  },
+  {
+    "cn": "红腹锦鸡",
+    "en": "紅腹錦雞",
+    "sci": "Chrysolophus pictus",
+    "order": "鸡形目",
+    "family": "雉科",
+    "code": ""
+  },
+  {
+    "cn": "灰树鹊",
+    "en": "樹鵲",
+    "sci": "Dendrocitta formosae",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": ""
+  },
+  {
+    "cn": "松鸦",
+    "en": "松鴉",
+    "sci": "Garrulus glandarius",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": ""
+  },
+  {
+    "cn": "灰喉山椒鸟",
+    "en": "灰喉山椒鳥",
+    "sci": "Pericrocotus solaris",
+    "order": "雀形目",
+    "family": "山椒鸟科",
+    "code": ""
+  },
+  {
+    "cn": "长尾山椒鸟",
+    "en": "長尾山椒鳥",
+    "sci": "Pericrocotus ethologus",
+    "order": "雀形目",
+    "family": "山椒鸟科",
+    "code": ""
+  },
+  {
+    "cn": "红头长尾山雀",
+    "en": "紅頭山雀",
+    "sci": "Aegithalos concinnus",
+    "order": "雀形目",
+    "family": "长尾山雀科",
+    "code": ""
+  },
+  {
+    "cn": "灰蓝山雀",
+    "en": "Azure Tit",
+    "sci": "Cyanistes cyanus",
+    "order": "雀形目",
+    "family": "山雀科",
+    "code": ""
+  },
+  {
+    "cn": "小云雀",
+    "en": "小雲雀",
+    "sci": "Alauda gulgula",
+    "order": "雀形目",
+    "family": "百灵科",
+    "code": ""
+  },
+  {
+    "cn": "歌百灵",
+    "en": "Singing Bushlark",
+    "sci": "Mirafra javanica",
+    "order": "雀形目",
+    "family": "百灵科",
+    "code": ""
+  },
+  {
+    "cn": "白喉红臀鹎",
+    "en": "白喉紅臀鵯",
+    "sci": "Pycnonotus aurigaster",
+    "order": "雀形目",
+    "family": "鹎科",
+    "code": ""
+  },
+  {
+    "cn": "红耳鹎",
+    "en": "紅耳鵯",
+    "sci": "Pycnonotus jocosus",
+    "order": "雀形目",
+    "family": "鹎科",
+    "code": ""
+  },
+  {
+    "cn": "栗背短脚鹎",
+    "en": "栗背短腳鵯",
+    "sci": "Hemixos castanonotus",
+    "order": "雀形目",
+    "family": "鹎科",
+    "code": ""
+  },
+  {
+    "cn": "红嘴相思鸟",
+    "en": "紅嘴相思鳥",
+    "sci": "Leiothrix lutea",
+    "order": "雀形目",
+    "family": "噪鹛科",
+    "code": ""
+  },
+  {
+    "cn": "白领凤鹛",
+    "en": "White-collared Yuhina",
+    "sci": "Parayuhina diademata",
+    "order": "雀形目",
+    "family": "绣眼鸟科",
+    "code": ""
+  }
+]

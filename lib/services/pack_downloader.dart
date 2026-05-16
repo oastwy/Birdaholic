@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import 'inaturalist_service.dart';
+import 'download_cancel.dart';
 import 'server_media_service.dart';
 import 'xeno_canto_service.dart';
 import 'wikimedia_service.dart';
@@ -266,6 +267,7 @@ class PackDownloaderV2 {
 
   void Function(int current, int total, String speciesName)? onProgress;
   void Function(DownloadResult result)? onSpeciesComplete;
+  bool Function()? shouldCancel;
 
   PackDownloaderV2({
     required this.xcService,
@@ -275,6 +277,7 @@ class PackDownloaderV2 {
     this.allowApiFallback = true,
     this.onProgress,
     this.onSpeciesComplete,
+    this.shouldCancel,
   })  : iNaturalistService = iNaturalistService ?? INaturalistService(),
         serverMediaService = serverMediaService ?? ServerMediaService();
 
@@ -314,6 +317,17 @@ class PackDownloaderV2 {
     var totalImage = speciesData.where((item) => item['image'] != null).length;
 
     for (final entry in speciesList) {
+      if (shouldCancel?.call() == true) {
+        await _writeProgressFiles(
+          packDir: packDir,
+          speciesData: speciesData,
+          region: region,
+          packName: packName,
+          totalAudio: totalAudio,
+          totalImage: totalImage,
+        );
+        throw const DownloadCanceledException();
+      }
       final sciKey = entry.sci.trim().toLowerCase();
       final existing = speciesBySci[sciKey];
       onProgress?.call(completed, total, entry.cn);

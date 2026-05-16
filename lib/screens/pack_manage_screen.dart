@@ -552,6 +552,181 @@ class _PackManageScreenState extends State<PackManageScreen> {
     }
   }
 
+  Future<void> _showChinaCatalogDownloadSheet() async {
+    final entries = await _speciesEntriesFromChinaCatalog();
+    if (!mounted) return;
+    final search = TextEditingController();
+    final selected = <String>{};
+    var query = '';
+    final result = await showModalBottomSheet<List<SpeciesEntry>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final filtered = entries.where((entry) {
+            final q = query.trim().toLowerCase();
+            if (q.isEmpty) return true;
+            return entry.cn.toLowerCase().contains(q) ||
+                entry.en.toLowerCase().contains(q) ||
+                entry.sci.toLowerCase().contains(q);
+          }).take(200).toList();
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.82,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (ctx, controller) => SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  8,
+                  16,
+                  MediaQuery.of(ctx).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '按中国名录下载',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '内置 ${entries.length} 种中国鸟类名录，不需要 eBird API。选中物种后从 Birdaholic 服务器下载媒体。',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: search,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: '搜索中文名 / English / Latin',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: (value) =>
+                          setSheetState(() => query = value),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text('已选 ${selected.length} 种'),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => setSheetState(() {
+                            selected
+                              ..clear()
+                              ..addAll(filtered.map((entry) => entry.sci));
+                          }),
+                          child: const Text('选择当前结果'),
+                        ),
+                        TextButton(
+                          onPressed: () => setSheetState(selected.clear),
+                          child: const Text('清空'),
+                        ),
+                      ],
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        controller: controller,
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final entry = filtered[index];
+                          final checked = selected.contains(entry.sci);
+                          return CheckboxListTile(
+                            dense: true,
+                            value: checked,
+                            onChanged: (value) => setSheetState(() {
+                              if (value == true) {
+                                selected.add(entry.sci);
+                              } else {
+                                selected.remove(entry.sci);
+                              }
+                            }),
+                            title: Text(entry.cn),
+                            subtitle: Text('${entry.en}\n${entry.sci}'),
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: selected.isEmpty
+                            ? null
+                            : () {
+                                final chosen = entries
+                                    .where((entry) =>
+                                        selected.contains(entry.sci))
+                                    .toList();
+                                Navigator.pop(ctx, chosen);
+                              },
+                        icon: const Icon(Icons.download_outlined),
+                        label: Text('下载选中 ${selected.length} 种'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    search.dispose();
+    if (result == null || result.isEmpty) return;
+    await _downloadChinaSpecies(result);
+  }
+
+  Future<void> _downloadChinaSpecies(List<SpeciesEntry> speciesList) async {
+    final started = DownloadTaskService.instance.start(
+      speciesList: speciesList,
+      packName: '我的中国鸟种下载',
+      region: '中国名录',
+      packManager: widget.packManager,
+      storage: widget.storage,
+      allowApiFallback: false,
+      onPackActivated: () {
+        _loadPacks();
+        widget.onPackChanged?.call();
+      },
+    );
+    if (!started) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已有下载任务正在后台进行')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已开始按中国名录下载 ${speciesList.length} 种')),
+    );
+  }
+
+  Future<List<SpeciesEntry>> _speciesEntriesFromChinaCatalog() async {
+    final raw = await rootBundle.loadString('assets/data/china_birds_zheng.json');
+    final data = jsonDecode(raw) as List<dynamic>;
+    return data
+        .whereType<Map<String, dynamic>>()
+        .map((item) {
+          final sci = (item['sci'] as String? ?? '').trim();
+          final en = (item['en'] as String? ?? '').trim();
+          final cn = (item['zh'] as String? ?? '').trim();
+          return SpeciesEntry(
+            cn: cn.isNotEmpty ? cn : en,
+            en: en.isNotEmpty ? en : sci,
+            sci: sci,
+            cons: _normalizeProtection(
+              (item['protection'] as String? ?? '').trim(),
+            ),
+          );
+        })
+        .where((entry) => entry.sci.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.cn.compareTo(b.cn));
+  }
+
   Future<List<SpeciesEntry>> _speciesEntriesFromEbirdMatches(
     Set<EbirdSpeciesMatch> matches,
     String region,
@@ -683,34 +858,40 @@ class _PackManageScreenState extends State<PackManageScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        builder: (ctx, controller) => SafeArea(
+          child: ListView(
+            controller: controller,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
             children: [
               Text(
-                '${pack.name} · 类群概览',
+                '${pack.displayName} · 类群概览',
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: orders
-                    .map(
-                      (order) => Chip(
-                        label: Text(
-                          '${BirdOrderTaxonomy.shortLabel(order)} '
-                          '${BirdOrderTaxonomy.label(order)} ${counts[order]}',
+              if (orders.isEmpty)
+                const Text('这个数据包暂时没有目分类信息。')
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: orders
+                      .map(
+                        (order) => Chip(
+                          label: Text(
+                            '${BirdOrderTaxonomy.shortLabel(order)} '
+                            '${BirdOrderTaxonomy.label(order)} ${counts[order]}',
+                          ),
                         ),
-                      ),
-                    )
-                    .toList(),
-              ),
-              if (orders.isEmpty) const Text('这个数据包暂时没有目分类信息。'),
+                      )
+                      .toList(),
+                ),
             ],
           ),
         ),
@@ -728,7 +909,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '数据包管理：整包下载继续保留；也可以按 eBird 国家名录逐物种下载，服务器没有时自动尝试第三方来源。',
+              '数据包管理：可安装内置中国常见鸟 100，也可按内置中国名录逐物种下载；eBird 只作为高级地区筛选。',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
@@ -803,6 +984,17 @@ class _PackManageScreenState extends State<PackManageScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _loading ? null : _showChinaCatalogDownloadSheet,
+              icon: const Icon(Icons.list_alt_outlined),
+              label: const Text('按中国完整名录下载（无需 eBird）'),
             ),
           ),
         ),
@@ -935,7 +1127,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
                           color: Color(0xFF2d5016),
                         ),
                         title: Text(
-                          pack.name,
+                          pack.displayName,
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         subtitle: Text(
@@ -945,6 +1137,25 @@ class _PackManageScreenState extends State<PackManageScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            FutureBuilder<bool>(
+                              future: widget.packManager.isPackEnabled(pack.packDir),
+                              builder: (context, snapshot) {
+                                final enabled = snapshot.data ?? isActive;
+                                return Switch(
+                                  value: enabled,
+                                  onChanged: (value) async {
+                                    await widget.packManager
+                                        .setPackEnabled(pack.packDir, value);
+                                    if (value) {
+                                      await widget.packManager
+                                          .setActivePack(pack.packDir);
+                                    }
+                                    await _loadPacks();
+                                    widget.onPackChanged?.call();
+                                  },
+                                );
+                              },
+                            ),
                             if (isActive)
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -985,7 +1196,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
                                 Icons.check_circle_outline,
                                 size: 20,
                               ),
-                              tooltip: '设为当前',
+                              tooltip: '设为当前主包',
                               onPressed: () => _activatePack(pack),
                             ),
                             IconButton(
@@ -1139,12 +1350,22 @@ class _ServerDownloadSheetState extends State<_ServerDownloadSheet> {
                           ),
                           const SizedBox(width: 12),
                           if (isDownloading)
-                            Text(
-                              '${(task.progress * 100).toStringAsFixed(0)}%',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1565C0),
-                              ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${(task.progress * 100).toStringAsFixed(0)}%',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1565C0),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '取消下载',
+                                  onPressed: DownloadTaskService.instance.cancel,
+                                  icon: const Icon(Icons.close, size: 18),
+                                ),
+                              ],
                             )
                           else
                             FilledButton(

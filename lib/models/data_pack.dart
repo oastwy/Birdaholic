@@ -8,6 +8,7 @@ class DataPack {
   final int audioCount;
   final int imageCount;
   final String packDir; // 本地解压目录绝对路径
+  final String shortName;
 
   const DataPack({
     required this.name,
@@ -18,6 +19,7 @@ class DataPack {
     required this.audioCount,
     required this.imageCount,
     required this.packDir,
+    this.shortName = '',
   });
 
   factory DataPack.fromJson(Map<String, dynamic> json, String packDir) {
@@ -30,7 +32,17 @@ class DataPack {
       audioCount: json['audio_count'] as int? ?? 0,
       imageCount: json['image_count'] as int? ?? 0,
       packDir: packDir,
+      shortName: json['short_name'] as String? ?? '',
     );
+  }
+
+  String get displayName {
+    if (shortName.trim().isNotEmpty) return shortName.trim();
+    if (name.contains('中国常见鸟')) return '中国常见鸟 100';
+    if (name.contains('中国鸟类') || name.contains('全国鸟类')) return '中国全鸟种';
+    if (name.startsWith('eBird-')) return name.replaceFirst(' 鸟种库', '');
+    if (name.length <= 14) return name;
+    return '${name.substring(0, 14)}…';
   }
 
   Map<String, dynamic> toJson() => {
@@ -41,5 +53,6 @@ class DataPack {
     'species_count': speciesCount,
     'audio_count': audioCount,
     'image_count': imageCount,
+    if (shortName.isNotEmpty) 'short_name': shortName,
   };
 }

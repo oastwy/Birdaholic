@@ -7,6 +7,7 @@ class SpeciesImageInfo {
   final String contributorUrl;
   final String source;
   final String license;
+  final int difficulty;
 
   const SpeciesImageInfo({
     required this.file,
@@ -15,6 +16,7 @@ class SpeciesImageInfo {
     this.contributorUrl = '',
     this.source = '',
     this.license = '',
+    this.difficulty = 1,
   });
 
   factory SpeciesImageInfo.fromJson(dynamic json) {
@@ -35,6 +37,7 @@ class SpeciesImageInfo {
         contributorUrl: (json['contributor_url'] as String? ?? '').trim(),
         source: source,
         license: (json['license'] as String? ?? '').trim(),
+        difficulty: ((json['difficulty'] as int?) ?? 1).clamp(1, 5),
       );
     }
     return const SpeciesImageInfo(file: '');
@@ -47,6 +50,7 @@ class SpeciesImageInfo {
         if (contributorUrl.isNotEmpty) 'contributor_url': contributorUrl,
         if (source.isNotEmpty) 'source': source,
         if (license.isNotEmpty) 'license': license,
+        if (difficulty != 1) 'difficulty': difficulty,
       };
 }
 

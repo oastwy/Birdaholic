@@ -58,6 +58,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   String _filter = 'all';
   String _order = 'random';
   String _taxonomicOrder = 'all';
+  int _imageDifficultyFilter = 0;
   Set<String> _ebirdFilterSci = const {};
   String _ebirdFilterLabel = '';
   AnswerMode _answerMode = AnswerMode.review;
@@ -233,6 +234,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     list = list.where(_hasPromptMedia).toList();
+    if (_effectivePromptMode == PromptMode.image && _imageDifficultyFilter > 0) {
+      list = list.where(_hasImageAtDifficulty).toList();
+    }
 
     if (_taxonomicOrder != 'all') {
       list = list.where((s) => s.order == _taxonomicOrder).toList();
@@ -341,6 +345,37 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         : _speciesWithImageFiles.contains(species.sci);
   }
 
+  bool _hasImageAtDifficulty(Species species) {
+    if (_imageDifficultyFilter == 0) return true;
+    final images = species.images.isNotEmpty
+        ? species.images
+        : species.image != null
+            ? [
+                SpeciesImageInfo(
+                  file: species.image!,
+                  credit: species.imageCredit,
+                  difficulty: species.difficulty,
+                )
+              ]
+            : const <SpeciesImageInfo>[];
+    return images.any((image) => image.difficulty == _imageDifficultyFilter);
+  }
+
+  List<String> _filteredImageFiles(Species species) {
+    if (_imageDifficultyFilter == 0) return species.imageFiles;
+    final files = species.images
+        .where((image) => image.difficulty == _imageDifficultyFilter)
+        .map((image) => image.file)
+        .where((file) => file.isNotEmpty)
+        .toList();
+    if (files.isEmpty &&
+        species.image != null &&
+        species.difficulty == _imageDifficultyFilter) {
+      files.add(species.image!);
+    }
+    return files;
+  }
+
   List<String> get _availableOrders {
     final orders = _allSpecies
         .map((species) => species.order)
@@ -364,15 +399,17 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   Future<String?> _getImagePath() async {
     final bird = _currentBird;
-    if (bird == null || bird.imageFiles.isEmpty) return null;
-    return widget.packManager.getResourcePath(bird.imageFiles.first);
+    final imageFiles = bird == null ? const <String>[] : _filteredImageFiles(bird);
+    if (bird == null || imageFiles.isEmpty) return null;
+    return widget.packManager.getResourcePath(imageFiles.first);
   }
 
   Future<List<String>> _getLocalExtraImagePaths() async {
     final bird = _currentBird;
-    if (bird == null || bird.imageFiles.length <= 1) return [];
+    final imageFiles = bird == null ? const <String>[] : _filteredImageFiles(bird);
+    if (bird == null || imageFiles.length <= 1) return [];
     final paths = <String>[];
-    for (final image in bird.imageFiles.skip(1)) {
+    for (final image in imageFiles.skip(1)) {
       final path = await widget.packManager.getResourcePath(image);
       if (path != null) paths.add(path);
     }
@@ -1212,6 +1249,41 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
+                if (_promptMode == PromptMode.image) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 44,
+                        child: Text('难度:', style: TextStyle(fontSize: 13)),
+                      ),
+                      SizedBox(
+                        height: 32,
+                        child: DropdownButton<int>(
+                          value: _imageDifficultyFilter,
+                          isDense: true,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: 0, child: Text('全部')),
+                            DropdownMenuItem(value: 1, child: Text('1')),
+                            DropdownMenuItem(value: 2, child: Text('2')),
+                            DropdownMenuItem(value: 3, child: Text('3')),
+                            DropdownMenuItem(value: 4, child: Text('4')),
+                            DropdownMenuItem(value: 5, child: Text('5')),
+                          ],
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setState(() => _imageDifficultyFilter = v);
+                            _buildDeck();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 Row(
                   children: [
                     const Text('筛选:', style: TextStyle(fontSize: 13)),
@@ -1742,7 +1814,18 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               if (packDir == null) return;
               await widget.packManager
                   .saveSpeciesDifficulty(packDir, bird.sci, diff);
-              if (mounted) setState(() {});
+              await _loadSpecies();
+            },
+            onImageDifficultyChanged: (imageFile, diff) async {
+              final packDir = await widget.packManager.getActivePackDir();
+              if (packDir == null) return;
+              await widget.packManager.saveSpeciesImageDifficulty(
+                packDir,
+                bird.sci,
+                imageFile,
+                diff,
+              );
+              await _loadSpecies();
             },
             onLearnMore: () {
               Navigator.push(

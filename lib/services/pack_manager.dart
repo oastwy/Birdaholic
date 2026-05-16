@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/data_pack.dart';
 import '../models/species.dart';
+import 'download_cancel.dart';
 import 'server_media_service.dart';
 
 /// 内置数据包描述
@@ -54,16 +55,17 @@ class RemotePackInfo {
 /// 数据包管理服务（原生 Android/iOS）
 class PackManager {
   static const _activePackKey = 'active_pack_dir';
+  static const _enabledPackDirsKey = 'enabled_pack_dirs';
   static const _builtinInstalledKey = 'builtin_pack_installed';
   static Future<Map<String, _SpeciesNameTaxonomy>>? _taxonomyIndexFuture;
 
   /// 内置小包随 App 发布；大包通过服务器下载
   static const builtinPacks = [
     BuiltinPackInfo(
-      assetPath: 'data_packs/brisbane_v1.0_opt.zip',
-      dirName: 'brisbane_v1',
-      label: '布里斯班包 v1.0（50种）',
-      description: '50种鸟 · 澳大利亚东南部 · 86 MB',
+      assetPath: 'data_packs/china_common_100_v1.0_opt.zip',
+      dirName: 'china_common_100_v1',
+      label: '中国常见鸟 100',
+      description: '100种鸟 · 安装后离线可学',
     ),
   ];
 
@@ -79,7 +81,7 @@ class PackManager {
     RemotePackInfo(
       url: 'http://124.223.101.188:8080/packs/china_birds_v1.0_opt.zip',
       dirName: 'china_birds_v1',
-      label: '全国鸟类包 v1.0（1519种）',
+      label: '中国全鸟种 v1.0（1519种）',
       description: '1519种鸟 · 中国全鸟种',
       sizeBytes: 538968064,
     ),
@@ -95,6 +97,49 @@ class PackManager {
   Future<void> setActivePack(String packDir) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_activePackKey, packDir);
+    await _addEnabledPackDir(prefs, packDir);
+  }
+
+  Future<List<String>> getEnabledPackDirs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_enabledPackDirsKey) ?? const [];
+    final dirs = <String>[];
+    for (final path in raw) {
+      if (path.trim().isEmpty) continue;
+      if (await Directory(path).exists()) dirs.add(path);
+    }
+    final active = prefs.getString(_activePackKey);
+    if (active != null &&
+        active.isNotEmpty &&
+        await Directory(active).exists() &&
+        !dirs.contains(active)) {
+      dirs.insert(0, active);
+    }
+    return dirs;
+  }
+
+  Future<void> setPackEnabled(String packDir, bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    final dirs = prefs.getStringList(_enabledPackDirsKey)?.toList() ?? [];
+    dirs.remove(packDir);
+    if (enabled) dirs.add(packDir);
+    await prefs.setStringList(_enabledPackDirsKey, dirs);
+    if (!enabled && prefs.getString(_activePackKey) == packDir) {
+      await prefs.remove(_activePackKey);
+    }
+  }
+
+  Future<bool> isPackEnabled(String packDir) async {
+    final dirs = await getEnabledPackDirs();
+    return dirs.contains(packDir);
+  }
+
+  Future<void> _addEnabledPackDir(SharedPreferences prefs, String packDir) async {
+    final dirs = prefs.getStringList(_enabledPackDirsKey)?.toList() ?? [];
+    if (!dirs.contains(packDir)) {
+      dirs.add(packDir);
+      await prefs.setStringList(_enabledPackDirsKey, dirs);
+    }
   }
 
   Future<void> ensureBuiltinPackInstalled() async {
@@ -158,6 +203,7 @@ class PackManager {
     RemotePackInfo info, {
     void Function(int received, int total)? onProgress,
     void Function(String message)? onStatus,
+    bool Function()? shouldCancel,
   }) async {
     final docDir = await getApplicationDocumentsDirectory();
     final packDir = '${docDir.path}/packs/${info.dirName}';
@@ -175,6 +221,7 @@ class PackManager {
         expectedSize: info.sizeBytes,
         onProgress: onProgress,
         onStatus: onStatus,
+        shouldCancel: shouldCancel,
       );
 
       // ───── Step 2: extract to staging ─────
@@ -217,6 +264,7 @@ class PackManager {
     required int expectedSize,
     void Function(int received, int total)? onProgress,
     void Function(String message)? onStatus,
+    bool Function()? shouldCancel,
   }) async {
     Object? lastError;
     for (var attempt = 0; attempt < _maxRetries; attempt++) {
@@ -244,6 +292,7 @@ class PackManager {
           expectedSize: expectedSize,
           onProgress: onProgress,
           onStatus: onStatus,
+          shouldCancel: shouldCancel,
         );
 
         // Final size validation (only if expectedSize known)
@@ -276,6 +325,7 @@ class PackManager {
     required int expectedSize,
     void Function(int received, int total)? onProgress,
     void Function(String message)? onStatus,
+    bool Function()? shouldCancel,
   }) async {
     final client = http.Client();
     IOSink? sink;
@@ -362,6 +412,9 @@ class PackManager {
       );
 
       await for (final chunk in timedStream) {
+        if (shouldCancel?.call() == true) {
+          throw const DownloadCanceledException();
+        }
         sink.add(chunk);
         received += chunk.length;
         onProgress?.call(received, total);
@@ -688,20 +741,59 @@ class PackManager {
 
   /// 加载物种列表
   Future<List<Species>> loadSpecies() async {
-    final packDir = await getActivePackDir();
-    if (packDir == null) throw Exception('未加载任何数据包');
+    final packDirs = await getEnabledPackDirs();
+    final active = await getActivePackDir();
+    if (packDirs.isEmpty && active != null) packDirs.add(active);
+    if (packDirs.isEmpty) throw Exception('未加载任何数据包');
 
-    final speciesFile = File('$packDir/species.json');
-    if (!await speciesFile.exists()) {
-      throw Exception('数据包损坏，缺少 species.json');
-    }
-
-    final str = await speciesFile.readAsString();
     final taxonomy = await _loadTaxonomyIndex();
-    return (jsonDecode(str) as List<dynamic>)
-        .map((e) => Species.fromJson(e as Map<String, dynamic>))
-        .map((species) => _normalizeSpecies(species, taxonomy))
-        .toList();
+    final merged = <String, Species>{};
+    for (final packDir in packDirs) {
+      final speciesFile = File('$packDir/species.json');
+      if (!await speciesFile.exists()) continue;
+      final str = await speciesFile.readAsString();
+      final list = (jsonDecode(str) as List<dynamic>)
+          .map((e) => Species.fromJson(e as Map<String, dynamic>))
+          .map((species) => _normalizeSpecies(species, taxonomy));
+      for (final species in list) {
+        final key = species.sci.trim().toLowerCase();
+        final old = merged[key];
+        merged[key] = old == null ? species : _mergeSpecies(old, species);
+      }
+    }
+    if (merged.isEmpty) throw Exception('数据包损坏，缺少 species.json');
+    return merged.values.toList()
+      ..sort((a, b) => a.cn.compareTo(b.cn));
+  }
+
+  Species _mergeSpecies(Species base, Species incoming) {
+    final audios = [...base.audios];
+    for (final audio in incoming.audios) {
+      if (!audios.any((old) => old.file == audio.file)) audios.add(audio);
+    }
+    final images = [...base.images];
+    for (final image in incoming.images) {
+      if (!images.any((old) => old.file == image.file)) images.add(image);
+    }
+    return base.copyWith(
+      cn: base.cn.isNotEmpty ? base.cn : incoming.cn,
+      en: base.en.isNotEmpty ? base.en : incoming.en,
+      order: base.order.isNotEmpty ? base.order : incoming.order,
+      family: base.family.isNotEmpty ? base.family : incoming.family,
+      cons: base.cons.isNotEmpty ? base.cons : incoming.cons,
+      habitat: base.habitat.isNotEmpty ? base.habitat : incoming.habitat,
+      audios: audios,
+      image: base.image ?? incoming.image,
+      images: images,
+      imageCredit:
+          base.imageCredit.isNotEmpty ? base.imageCredit : incoming.imageCredit,
+      audioCredit:
+          base.audioCredit.isNotEmpty ? base.audioCredit : incoming.audioCredit,
+      identificationFeatures: base.identificationFeatures.isNotEmpty
+          ? base.identificationFeatures
+          : incoming.identificationFeatures,
+      difficulty: base.difficulty != 1 ? base.difficulty : incoming.difficulty,
+    );
   }
 
   Species _normalizeSpecies(
@@ -779,6 +871,7 @@ class PackManager {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_activePackKey);
     }
+    await setPackEnabled(packDir, false);
   }
 
   Future<void> deleteSpeciesFromActivePack(Species species) async {
@@ -1159,17 +1252,23 @@ class PackManager {
   /// 获取资源的绝对路径（音频/图片）
   Future<String?> getResourcePath(String relativePath) async {
     final packDir = await getActivePackDir();
-    if (packDir == null) return null;
-    final fullPath = '$packDir/$relativePath';
-    if (await File(fullPath).exists()) return fullPath;
+    if (packDir != null) {
+      final fullPath = '$packDir/$relativePath';
+      if (await File(fullPath).exists()) return fullPath;
+    }
+    for (final dir in await getEnabledPackDirs()) {
+      final fullPath = '$dir/$relativePath';
+      if (await File(fullPath).exists()) return fullPath;
+    }
     return null;
   }
 
   /// 是否有激活的数据包
   Future<bool> hasActivePack() async {
+    final dirs = await getEnabledPackDirs();
+    if (dirs.isNotEmpty) return true;
     final dir = await getActivePackDir();
-    if (dir == null) return false;
-    return await Directory(dir).exists();
+    return dir != null && await Directory(dir).exists();
   }
 
   Future<void> prefsSetBuiltinFlagFalse() async {
@@ -1283,6 +1382,39 @@ class PackManager {
       }
     }
     await speciesFile.writeAsString(jsonEncode(list));
+  }
+
+  Future<void> saveSpeciesImageDifficulty(
+    String packDir,
+    String sci,
+    String imageFile,
+    int difficulty,
+  ) async {
+    final speciesFile = File('$packDir/species.json');
+    if (!await speciesFile.exists()) return;
+    final raw = await speciesFile.readAsString();
+    final list = jsonDecode(raw) as List<dynamic>;
+    for (final item in list) {
+      final map = item as Map<String, dynamic>;
+      if ((map['sci'] as String?) != sci) continue;
+      final images = _imageEntriesFromItem(map);
+      if (images.isEmpty && (map['image'] as String? ?? '').isNotEmpty) {
+        images.add({'file': map['image']});
+      }
+      for (final image in images) {
+        if ((image['file'] as String? ?? '') != imageFile) continue;
+        if (difficulty == 1) {
+          image.remove('difficulty');
+        } else {
+          image['difficulty'] = difficulty.clamp(1, 5);
+        }
+      }
+      map['images'] = images;
+      break;
+    }
+    await speciesFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(list),
+    );
   }
 
   String _slug(String value) {

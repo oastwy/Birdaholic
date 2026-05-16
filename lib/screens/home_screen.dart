@@ -7,7 +7,6 @@ import '../services/download_task_service.dart';
 import '../widgets/bird_card.dart';
 import 'favorites_screen.dart';
 import 'flashcard_screen.dart';
-import 'pack_manage_screen.dart';
 import 'progress_screen.dart';
 import 'settings_screen.dart';
 import 'species_list_screen.dart';
@@ -34,7 +33,7 @@ class HomeScreenState extends State<HomeScreen> {
   DownloadTaskStatus _lastTaskStatus =
       DownloadTaskService.instance.snapshot.status;
 
-  static const _titles = ['总览', '闪卡学习', '鸟种', '收藏夹', '数据包', '设置'];
+  static const _titles = ['总览', '闪卡学习', '鸟种', '收藏夹', '设置'];
 
   void jumpToPreview() {
     setState(() => _tab = 2);
@@ -98,7 +97,11 @@ class HomeScreenState extends State<HomeScreen> {
             : Colors.green[700]!)
         : Colors.blue[700]!;
     final title = task.isFinished
-        ? (task.status == DownloadTaskStatus.failed ? '下载失败' : '下载完成')
+        ? (task.status == DownloadTaskStatus.failed
+            ? '下载失败'
+            : task.status == DownloadTaskStatus.canceled
+                ? '已取消'
+                : '下载完成')
         : task.kind == DownloadTaskKind.remotePack
             ? task.byteProgressLabel
             : '${task.current}/${task.total}';
@@ -168,7 +171,16 @@ class HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              if (task.isFinished)
+              if (task.isRunning)
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: DownloadTaskService.instance.cancel,
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.close, size: 16),
+                  ),
+                )
+              else if (task.isFinished)
                 InkWell(
                   borderRadius: BorderRadius.circular(14),
                   onTap: DownloadTaskService.instance.clearFinished,
@@ -236,6 +248,15 @@ class HomeScreenState extends State<HomeScreen> {
                       label: const Text('去总览'),
                     ),
                     const Spacer(),
+                    if (!task.isFinished)
+                      TextButton.icon(
+                        onPressed: () {
+                          DownloadTaskService.instance.cancel();
+                          Navigator.pop(ctx);
+                        },
+                        icon: const Icon(Icons.close),
+                        label: const Text('取消下载'),
+                      ),
                     if (task.isFinished)
                       FilledButton(
                         onPressed: () {
@@ -311,14 +332,11 @@ class HomeScreenState extends State<HomeScreen> {
                         refreshToken: _packVersion,
                         isActive: _tab == 3,
                       ),
-                      PackManageScreen(
+                      SettingsScreen(
                         packManager: widget.packManager,
                         storage: widget.storage,
-                        onPackChanged: _handlePackChanged,
-                      ),
-                      SettingsScreen(
-                        storage: widget.storage,
                         onSettingsChanged: () => setState(() {}),
+                        onPackChanged: _handlePackChanged,
                       ),
                     ],
                   ),
@@ -353,10 +371,6 @@ class HomeScreenState extends State<HomeScreen> {
                 BottomNavigationBarItem(
                   icon: Icon(Icons.star),
                   label: '收藏',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.folder_zip),
-                  label: '数据包',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(Icons.settings_outlined),
