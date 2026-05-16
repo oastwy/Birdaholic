@@ -24,6 +24,7 @@ class DownloadTaskSnapshot {
   final int bytesReceived;
   final int bytesTotal;
   final double bytesPerSecond;
+  final String statusMessage;
 
   const DownloadTaskSnapshot({
     this.status = DownloadTaskStatus.idle,
@@ -37,6 +38,7 @@ class DownloadTaskSnapshot {
     this.bytesReceived = 0,
     this.bytesTotal = 0,
     this.bytesPerSecond = 0,
+    this.statusMessage = '',
   });
 
   bool get isRunning => status == DownloadTaskStatus.running;
@@ -105,6 +107,7 @@ class DownloadTaskSnapshot {
     int? bytesReceived,
     int? bytesTotal,
     double? bytesPerSecond,
+    String? statusMessage,
   }) {
     return DownloadTaskSnapshot(
       status: status ?? this.status,
@@ -118,6 +121,7 @@ class DownloadTaskSnapshot {
       bytesReceived: bytesReceived ?? this.bytesReceived,
       bytesTotal: bytesTotal ?? this.bytesTotal,
       bytesPerSecond: bytesPerSecond ?? this.bytesPerSecond,
+      statusMessage: statusMessage ?? this.statusMessage,
     );
   }
 }
@@ -215,6 +219,10 @@ class DownloadTaskService extends ChangeNotifier {
             bytesTotal: total,
             bytesPerSecond: speed,
           );
+          notifyListeners();
+        },
+        onStatus: (msg) {
+          _snapshot = _snapshot.copyWith(statusMessage: msg);
           notifyListeners();
         },
       );

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import '../models/data_pack.dart';
 import '../services/download_task_service.dart';
 import '../services/ebird_service.dart';
+import '../services/order_taxonomy.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
@@ -33,6 +35,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
   List<DataPack> _packs = [];
   bool _loading = false;
   String? _activePackDir;
+  String _mediaUpdateStatus = '';
 
   Future<void> _editApiSettings() async {
     final xenoController = TextEditingController(
@@ -325,6 +328,74 @@ class _PackManageScreenState extends State<PackManageScreen> {
     );
   }
 
+  Future<void> _updateInstalledMedia() async {
+    if (_activePackDir == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先选择一个已安装数据包')),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('更新已下载媒体'),
+        content: const Text(
+          '会逐个检查当前数据包里的物种，只下载服务器新增的图片/音频，不会清空学习进度。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('开始更新'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      setState(() {
+        _loading = true;
+        _mediaUpdateStatus = '正在连接服务器…';
+      });
+      final result = await widget.packManager.updateActivePackFromServer(
+        onProgress: (current, total, speciesName) {
+          if (!mounted) return;
+          setState(() {
+            _mediaUpdateStatus = '检查 $current/$total：$speciesName';
+          });
+        },
+      );
+      await _loadPacks();
+      widget.onPackChanged?.call();
+      if (!mounted) return;
+      setState(() {
+        _mediaUpdateStatus =
+            '完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个，更新 ${result.updatedSpecies} 种';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '✅ 更新完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个'
+            '${result.failed > 0 ? '，失败 ${result.failed} 种' : ''}',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _mediaUpdateStatus = '更新失败：$e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ 更新失败: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _showCountrySpeciesDownloadSheet() async {
     final controller = TextEditingController(text: 'CN');
     final result = await showModalBottomSheet<String>(
@@ -588,6 +659,65 @@ class _PackManageScreenState extends State<PackManageScreen> {
     }
   }
 
+  Future<void> _showPackOrderOverview(DataPack pack) async {
+    final file = File('${pack.packDir}/species.json');
+    if (!await file.exists()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这个数据包缺少 species.json')),
+      );
+      return;
+    }
+
+    final rows = (jsonDecode(await file.readAsString()) as List<dynamic>)
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    final counts = <String, int>{};
+    for (final row in rows) {
+      final order = (row['order'] as String? ?? '').trim();
+      if (order.isEmpty) continue;
+      counts[order] = (counts[order] ?? 0) + 1;
+    }
+    final orders = BirdOrderTaxonomy.sortOrders(counts.keys);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${pack.name} · 类群概览',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: orders
+                    .map(
+                      (order) => Chip(
+                        label: Text(
+                          '${BirdOrderTaxonomy.shortLabel(order)} '
+                          '${BirdOrderTaxonomy.label(order)} ${counts[order]}',
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+              if (orders.isEmpty) const Text('这个数据包暂时没有目分类信息。'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -709,6 +839,21 @@ class _PackManageScreenState extends State<PackManageScreen> {
           child: SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
+              onPressed: _loading ? null : _updateInstalledMedia,
+              icon: const Icon(Icons.sync),
+              label: Text(
+                _mediaUpdateStatus.isEmpty
+                    ? '更新已下载媒体（只补新增图片/音频）'
+                    : _mediaUpdateStatus,
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
               onPressed: _openFeedbackJournal,
               icon: const Icon(Icons.menu_book_outlined),
               label: const Text('查看纠错日记'),
@@ -818,6 +963,14 @@ class _PackManageScreenState extends State<PackManageScreen> {
                                   ),
                                 ),
                               ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.account_tree_outlined,
+                                size: 20,
+                              ),
+                              tooltip: '类群概览',
+                              onPressed: () => _showPackOrderOverview(pack),
+                            ),
                             IconButton(
                               icon: const Icon(
                                 Icons.archive_outlined,

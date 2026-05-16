@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/species.dart';
 import '../services/pack_manager.dart';
+import '../services/podcast_service.dart';
 import '../services/storage.dart';
 import '../widgets/bird_card.dart';
 import 'progress_detail_screen.dart';
@@ -12,6 +14,7 @@ class ProgressScreen extends StatefulWidget {
   final void Function(String filter, StudyMode mode, PromptMode promptMode)
       onStartSession;
   final void Function(Species species) onJumpToFlashcard;
+  final VoidCallback? onJumpToPreview;
   final int refreshToken;
   final bool isActive;
 
@@ -21,6 +24,7 @@ class ProgressScreen extends StatefulWidget {
     required this.storage,
     required this.onStartSession,
     required this.onJumpToFlashcard,
+    this.onJumpToPreview,
     required this.refreshToken,
     required this.isActive,
   });
@@ -33,11 +37,23 @@ class _ProgressScreenState extends State<ProgressScreen> {
   bool _loading = true;
   List<Species> _species = [];
   String? _loadError;
+  PodcastEpisode? _podcastEpisode;
+  bool _podcastLoading = true;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadPodcast();
+  }
+
+  Future<void> _loadPodcast() async {
+    final ep = await PodcastService.fetchLatestEpisode();
+    if (!mounted) return;
+    setState(() {
+      _podcastEpisode = ep;
+      _podcastLoading = false;
+    });
   }
 
   @override
@@ -116,81 +132,64 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF23401A), Color(0xFF426B28)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '开始学习',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: _species.isEmpty
+                        ? null
+                        : () => widget.onStartSession(
+                              'all',
+                              StudyMode.review,
+                              PromptMode.audio,
+                            ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2d7d32),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey[300],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.headphones_rounded, size: 22),
+                    label: const Text(
+                      '打卡',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  _species.isEmpty
-                      ? '当前数据包还没有鸟种'
-                      : '已加载 ${_species.length} 种鸟，可用音频或图片来做判断题和选择题。',
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9), height: 1.45),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: widget.onJumpToPreview,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1565C0),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.auto_stories_rounded, size: 22),
+                    label: const Text(
+                      '预习',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _heroAction(
-                      icon: Icons.hearing,
-                      label: '音频判断',
-                      onTap: () => widget.onStartSession(
-                        'all',
-                        StudyMode.review,
-                        PromptMode.audio,
-                      ),
-                    ),
-                    _heroAction(
-                      icon: Icons.image_search,
-                      label: '图片判断',
-                      onTap: () => widget.onStartSession(
-                        'all',
-                        StudyMode.review,
-                        PromptMode.image,
-                      ),
-                    ),
-                    _heroAction(
-                      icon: Icons.checklist_rtl,
-                      label: '音频选择',
-                      onTap: () => widget.onStartSession(
-                        'all',
-                        StudyMode.quiz,
-                        PromptMode.audio,
-                      ),
-                    ),
-                    _heroAction(
-                      icon: Icons.photo_library_outlined,
-                      label: '图片选择',
-                      onTap: () => widget.onStartSession(
-                        'all',
-                        StudyMode.quiz,
-                        PromptMode.image,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+          const SizedBox(height: 14),
+          _podcastCard(),
           const SizedBox(height: 14),
           Row(
             children: [
@@ -366,19 +365,120 @@ class _ProgressScreenState extends State<ProgressScreen> {
     return mapped;
   }
 
-  Widget _heroAction({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return FilledButton.icon(
-      onPressed: onTap,
-      style: FilledButton.styleFrom(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF23401A),
+  Widget _podcastCard() {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => launchUrl(
+          Uri.parse(PodcastService.podcastWebUrl),
+          mode: LaunchMode.externalApplication,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.mic_none_outlined,
+                      size: 16, color: Color(0xFF2d5016)),
+                  SizedBox(width: 6),
+                  Text(
+                    '鸟瘾综合征 · 最新一期',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2d5016),
+                    ),
+                  ),
+                  Spacer(),
+                  Icon(Icons.arrow_forward_ios, size: 13, color: Colors.grey),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (_podcastLoading)
+                Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                              height: 14,
+                              width: double.infinity,
+                              color: Colors.grey[200]),
+                          const SizedBox(height: 8),
+                          Container(
+                              height: 12, width: 80, color: Colors.grey[200]),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else if (_podcastEpisode == null)
+                Text(
+                  '暂时无法加载最新一期，点击前往小宇宙',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                )
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_podcastEpisode!.imageUrl.isNotEmpty)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          _podcastEpisode!.imageUrl,
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 60,
+                            height: 60,
+                            color: Colors.grey[200],
+                            child:
+                                const Icon(Icons.podcasts, color: Colors.grey),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _podcastEpisode!.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _podcastEpisode!.pubDate,
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
       ),
-      icon: Icon(icon, size: 18),
-      label: Text(label),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,10 +9,13 @@ import 'package:flutter/services.dart';
 import '../models/species.dart';
 import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
+import '../services/order_taxonomy.dart';
 import '../services/pack_manager.dart';
+import '../services/server_media_service.dart';
 import '../services/storage.dart';
 import '../widgets/audio_player_widget.dart';
 import '../widgets/bird_card.dart';
+import 'bird_preview_screen.dart';
 
 enum AnswerMode {
   learning,
@@ -47,8 +51,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   bool _answered = false;
   bool _loading = true;
   String? _loadError;
-  int _correctCount = 0;
-  int _wrongCount = 0;
   String? _selectedChoiceSci;
   List<Species> _quizChoices = const [];
   final Map<String, List<Species>> _quizChoiceCache = {};
@@ -58,9 +60,25 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   String _taxonomicOrder = 'all';
   Set<String> _ebirdFilterSci = const {};
   String _ebirdFilterLabel = '';
-  AnswerMode _answerMode = AnswerMode.learning;
+  AnswerMode _answerMode = AnswerMode.review;
   StudyMode _mode = StudyMode.review;
   PromptMode _promptMode = PromptMode.audio;
+  bool _showAdvancedControls = false;
+
+  int _correctCount = 0; // session totals (used in restart resets)
+  int _wrongCount = 0;
+
+  // Bird group tracking
+  int get _groupSize => widget.storage.flashcardGroupSize;
+  int _groupOffset = 0;
+  bool _showGroupComplete = false;
+  int _groupCorrect = 0;
+  int _groupWrong = 0;
+
+  // Extra images from server for current bird
+  List<String> _extraImagePaths = [];
+  List<String> _extraImageCredits = [];
+  String? _extraImagesForSci;
 
   final _cardKey = GlobalKey<BirdCardState>();
   final _audioKey = GlobalKey<AudioPlayerWidgetState>();
@@ -71,6 +89,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _answerMode == AnswerMode.learning && _mode == StudyMode.review;
 
   PromptMode get _effectivePromptMode => _promptMode;
+
+  int get _groupEnd => (_groupOffset + _groupSize).clamp(0, _deck.length);
+
+  bool get _isGroupFinished =>
+      _deck.isNotEmpty && _idx >= _groupEnd - 1 && _answered;
 
   @override
   void initState() {
@@ -106,6 +129,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         _loading = false;
       });
       _buildDeck();
+      _fetchExtraImages();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -136,11 +160,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         }
       }
 
-      final image = species.image;
-      if (image != null) {
+      for (final image in species.imageFiles) {
         final path = await widget.packManager.getResourcePath(image);
         if (path != null) {
           imageSpecies.add(species.sci);
+          break;
         }
       }
     }
@@ -268,7 +292,14 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     setState(() {
       _deck = list;
       _idx = 0;
+      _groupOffset = 0;
+      _groupCorrect = 0;
+      _groupWrong = 0;
+      _showGroupComplete = false;
       _quizChoiceCache.clear();
+      _extraImagePaths = [];
+      _extraImageCredits = [];
+      _extraImagesForSci = null;
       _resetCardFace();
     });
 
@@ -280,10 +311,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   Species? get _currentBird => _deck.isEmpty ? null : _deck[_idx];
 
-  int get _remaining => _deck.isEmpty ? 0 : _deck.length - _idx - 1;
-
-  bool get _isFinished =>
-      _deck.isNotEmpty && _idx == _deck.length - 1 && _answered;
+  bool get _isFinished => _isGroupFinished;
 
   String get _deckSummary {
     final orderText = _taxonomicOrder == 'all' ? '' : ' · $_taxonomicOrder';
@@ -317,61 +345,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     final orders = _allSpecies
         .map((species) => species.order)
         .where((order) => order.trim().isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    return orders;
+        .toSet();
+    return BirdOrderTaxonomy.sortOrders(orders);
   }
 
-  String _orderLabel(String order) {
-    const labels = {
-      'STRUTHIONIFORMES': '鸵鸟目',
-      'RHEIFORMES': '美洲鸵目',
-      'APTERYGIFORMES': '无翼鸟目',
-      'CASUARIIFORMES': '鹤鸵目',
-      'TINAMIFORMES': '䳍形目',
-      'ANSERIFORMES': '雁形目',
-      'GALLIFORMES': '鸡形目',
-      'PHOENICOPTERIFORMES': '红鹳目',
-      'PODICIPEDIFORMES': '䴙䴘目',
-      'COLUMBIFORMES': '鸽形目',
-      'PTEROCLIFORMES': '沙鸡目',
-      'MESITORNITHIFORMES': '拟鹑目',
-      'CUCULIFORMES': '鹃形目',
-      'CAPRIMULGIFORMES': '夜鹰目',
-      'STEATORNITHIFORMES': '油鸱目',
-      'NYCTIBIIFORMES': '林鸱目',
-      'PODARGIFORMES': '蟆口鸱目',
-      'AEGOTHELIFORMES': '裸鼻鸱目',
-      'APODIFORMES': '雨燕目',
-      'MUSOPHAGIFORMES': '蕉鹃目',
-      'OTIDIFORMES': '鸨形目',
-      'GRUIFORMES': '鹤形目',
-      'CHARADRIIFORMES': '鸻形目',
-      'EURYPYGIFORMES': '日鳽目',
-      'PHAETHONTIFORMES': '鹲形目',
-      'GAVIIFORMES': '潜鸟目',
-      'SPHENISCIFORMES': '企鹅目',
-      'PROCELLARIIFORMES': '鹱形目',
-      'CICONIIFORMES': '鹳形目',
-      'SULIFORMES': '鲣鸟目',
-      'PELECANIFORMES': '鹈形目',
-      'OPISTHOCOMIFORMES': '麝雉目',
-      'ACCIPITRIFORMES': '鹰形目',
-      'STRIGIFORMES': '鸮形目',
-      'COLIIFORMES': '鼠鸟目',
-      'LEPTOSOMIFORMES': '鹃三宝鸟目',
-      'TROGONIFORMES': '咬鹃目',
-      'BUCEROTIFORMES': '犀鸟目',
-      'CORACIIFORMES': '佛法僧目',
-      'PICIFORMES': '䴕形目',
-      'CARIAMIFORMES': '叫鹤目',
-      'FALCONIFORMES': '隼形目',
-      'PSITTACIFORMES': '鹦形目',
-      'PASSERIFORMES': '雀形目',
-    };
-    return labels[order.toUpperCase()] ?? order;
-  }
+  String _orderLabel(String order) => BirdOrderTaxonomy.label(order);
 
   Future<List<String>> _getAudioPaths() async {
     final bird = _currentBird;
@@ -386,8 +364,19 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   Future<String?> _getImagePath() async {
     final bird = _currentBird;
-    if (bird == null || bird.image == null) return null;
-    return widget.packManager.getResourcePath(bird.image!);
+    if (bird == null || bird.imageFiles.isEmpty) return null;
+    return widget.packManager.getResourcePath(bird.imageFiles.first);
+  }
+
+  Future<List<String>> _getLocalExtraImagePaths() async {
+    final bird = _currentBird;
+    if (bird == null || bird.imageFiles.length <= 1) return [];
+    final paths = <String>[];
+    for (final image in bird.imageFiles.skip(1)) {
+      final path = await widget.packManager.getResourcePath(image);
+      if (path != null) paths.add(path);
+    }
+    return paths;
   }
 
   void _jumpToSpecies(Species target) {
@@ -458,15 +447,37 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _answered = true;
     if (isCorrect) {
       _correctCount++;
+      _groupCorrect++;
       widget.storage.markCorrect();
       widget.storage.markSpeciesKnown(bird.cn);
     } else {
       _wrongCount++;
+      _groupWrong++;
       widget.storage.markWrong();
       widget.storage.markSpeciesUnknown(bird.cn);
     }
 
     setState(() {});
+
+    if (_isGroupFinished) {
+      Future.delayed(
+        _mode == StudyMode.review
+            ? const Duration(milliseconds: 1600)
+            : const Duration(milliseconds: 400),
+        _triggerGroupComplete,
+      );
+    }
+  }
+
+  void _triggerGroupComplete() {
+    if (!mounted) return;
+    HapticFeedback.heavyImpact();
+    _playCompleteSound();
+    setState(() => _showGroupComplete = true);
+  }
+
+  void _playCompleteSound() {
+    AudioPlayer().play(AssetSource('sounds/complete.m4a')).catchError((_) {});
   }
 
   void _answerQuizChoice(Species choice) {
@@ -532,14 +543,18 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }
 
   void _nextCard() {
-    if (_deck.isEmpty || _idx >= _deck.length - 1) return;
+    if (_deck.isEmpty || _idx >= _groupEnd - 1) return;
     setState(() {
       _audioKey.currentState?.stop();
       _idx++;
+      _extraImagePaths = [];
+      _extraImageCredits = [];
+      _extraImagesForSci = null;
       _resetCardFace();
     });
     _prepareQuizChoices();
     _scheduleAutoPlay();
+    _fetchExtraImages();
   }
 
   void _previousCard() {
@@ -551,6 +566,82 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     });
     _prepareQuizChoices();
     _scheduleAutoPlay();
+  }
+
+  Future<void> _fetchExtraImages() async {
+    final bird = _currentBird;
+    if (bird == null) return;
+    if (_extraImagesForSci == bird.sci) return;
+    _extraImagesForSci = bird.sci;
+    try {
+      final media = await ServerMediaService().fetchSpeciesMedia(bird.sci);
+      if (!mounted || _extraImagesForSci != bird.sci) return;
+      if (media == null) return;
+      final localNames = bird.imageFiles.map((p) => p.split('/').last).toSet();
+      final remoteImages = media.images.where((img) {
+        final segments = Uri.tryParse(img.url)?.pathSegments ?? const [];
+        final name = segments.isNotEmpty ? segments.last : img.file;
+        return name.isEmpty || !localNames.contains(name);
+      }).toList();
+      setState(() {
+        _extraImagePaths = remoteImages.map((img) => img.url).toList();
+        _extraImageCredits =
+            remoteImages.map((img) => img.contributor).toList();
+      });
+    } catch (_) {}
+  }
+
+  void _advanceGroup() {
+    if (!mounted) return;
+    final nextOffset = _groupOffset + _groupSize;
+    if (nextOffset >= _deck.length) {
+      // 全部完成
+      setState(() {
+        _showGroupComplete = false;
+        _idx = _deck.length - 1;
+        _answered = true;
+      });
+      return;
+    }
+    setState(() {
+      _showGroupComplete = false;
+      _groupOffset = nextOffset;
+      _groupCorrect = 0;
+      _groupWrong = 0;
+      _idx = nextOffset;
+      _extraImagePaths = [];
+      _extraImageCredits = [];
+      _extraImagesForSci = null;
+      _resetCardFace();
+    });
+    _prepareQuizChoices();
+    _scheduleAutoPlay();
+    _fetchExtraImages();
+  }
+
+  void _retryGroup() {
+    if (!mounted) return;
+    final end = _groupEnd;
+    // Reshuffle the current group segment
+    final groupSlice = _deck.sublist(_groupOffset, end).toList()
+      ..shuffle(Random());
+    for (var i = 0; i < groupSlice.length; i++) {
+      _deck[_groupOffset + i] = groupSlice[i];
+    }
+    setState(() {
+      _showGroupComplete = false;
+      _groupCorrect = 0;
+      _groupWrong = 0;
+      _idx = _groupOffset;
+      _extraImagePaths = [];
+      _extraImageCredits = [];
+      _extraImagesForSci = null;
+      _quizChoiceCache.clear();
+      _resetCardFace();
+    });
+    _prepareQuizChoices();
+    _scheduleAutoPlay();
+    _fetchExtraImages();
   }
 
   void _reveal() {
@@ -946,6 +1037,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     setState(() {
       _correctCount = 0;
       _wrongCount = 0;
+      _groupOffset = 0;
+      _groupCorrect = 0;
+      _groupWrong = 0;
+      _showGroupComplete = false;
     });
     widget.storage.resetStats();
     _buildDeck();
@@ -964,262 +1059,307 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
           child: Column(
             children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 44,
-                    child: Text('模式:', style: TextStyle(fontSize: 13)),
-                  ),
-                  SegmentedButton<AnswerMode>(
-                      segments: const [
-                        ButtonSegment(
-                          value: AnswerMode.learning,
-                          label: Text('学习', style: TextStyle(fontSize: 12)),
-                        ),
-                        ButtonSegment(
-                          value: AnswerMode.review,
-                          label: Text('复习', style: TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                      selected: {
-                        _answerMode
-                      },
-                      onSelectionChanged: (v) {
-                        setState(() {
-                          _answerMode = v.first;
-                          _correctCount = 0;
-                          _wrongCount = 0;
-                          _resetCardFace();
-                        });
-                      },
-                      style: const ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 44,
-                    child: Text('题型:', style: TextStyle(fontSize: 13)),
-                  ),
-                  SegmentedButton<StudyMode>(
-                      segments: const [
-                        ButtonSegment(
-                          value: StudyMode.review,
-                          label: Text('判断', style: TextStyle(fontSize: 12)),
-                        ),
-                        ButtonSegment(
-                          value: StudyMode.quiz,
-                          label: Text('选择', style: TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                      selected: {
-                        _mode
-                      },
-                      onSelectionChanged: (v) {
-                        setState(() {
-                          _mode = v.first;
-                          _correctCount = 0;
-                          _wrongCount = 0;
-                          _resetCardFace();
-                        });
-                        _buildDeck();
-                      },
-                      style: const ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 44,
-                    child: Text('出题:', style: TextStyle(fontSize: 13)),
-                  ),
-                  SegmentedButton<PromptMode>(
-                      segments: const [
-                        ButtonSegment(
-                          value: PromptMode.audio,
-                          icon: Icon(Icons.headphones, size: 16),
-                          label: Text('音频', style: TextStyle(fontSize: 12)),
-                        ),
-                        ButtonSegment(
-                          value: PromptMode.image,
-                          icon: Icon(Icons.image_outlined, size: 16),
-                          label: Text('图片', style: TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                      selected: {
-                        _promptMode
-                      },
-                      onSelectionChanged: (v) {
-                        setState(() {
-                          _promptMode = v.first;
-                          _correctCount = 0;
-                          _wrongCount = 0;
-                          _resetCardFace();
-                        });
-                        _buildDeck();
-                      },
-                      style: const ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )),
-                ],
-              ),
-              const SizedBox(height: 6),
               Row(
                 children: [
-                  const Text('筛选:', style: TextStyle(fontSize: 13)),
-                  const SizedBox(width: 4),
-                  SizedBox(
-                    height: 32,
-                    child: DropdownButton<String>(
-                      value: _filter,
-                      isDense: true,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('全部')),
-                        DropdownMenuItem(value: 'studied', child: Text('已学习')),
-                        DropdownMenuItem(value: 'unseen', child: Text('未学习')),
-                        DropdownMenuItem(
-                          value: 'unfamiliar',
-                          child: Text('不熟悉'),
-                        ),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() => _filter = v);
-                        _buildDeck();
-                      },
+                  Icon(
+                    _effectivePromptMode == PromptMode.audio
+                        ? Icons.headphones
+                        : Icons.image_outlined,
+                    size: 18,
+                    color: const Color(0xFF2d5016),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _deckSummary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'eBird 地点',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: _applyEBirdDeckFilter,
+                  TextButton.icon(
+                    onPressed: () => setState(
+                      () => _showAdvancedControls = !_showAdvancedControls,
+                    ),
                     icon: Icon(
-                      Icons.place_outlined,
-                      color: _ebirdFilterSci.isEmpty
-                          ? Colors.grey[700]
-                          : const Color(0xFF2d5016),
+                      _showAdvancedControls ? Icons.expand_less : Icons.tune,
+                      size: 18,
                     ),
+                    label: Text(_showAdvancedControls ? '收起' : '筛选'),
                   ),
-                  const Spacer(),
-                  if (_availableOrders.isNotEmpty) ...[
-                    const Text('目:', style: TextStyle(fontSize: 13)),
+                ],
+              ),
+              if (_showAdvancedControls) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 44,
+                      child: Text('模式:', style: TextStyle(fontSize: 13)),
+                    ),
+                    SegmentedButton<AnswerMode>(
+                        segments: const [
+                          ButtonSegment(
+                            value: AnswerMode.learning,
+                            label: Text('学习', style: TextStyle(fontSize: 12)),
+                          ),
+                          ButtonSegment(
+                            value: AnswerMode.review,
+                            label: Text('复习', style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                        selected: {
+                          _answerMode
+                        },
+                        onSelectionChanged: (v) {
+                          setState(() {
+                            _answerMode = v.first;
+                            _correctCount = 0;
+                            _wrongCount = 0;
+                            _resetCardFace();
+                          });
+                        },
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        )),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 44,
+                      child: Text('题型:', style: TextStyle(fontSize: 13)),
+                    ),
+                    SegmentedButton<StudyMode>(
+                        segments: const [
+                          ButtonSegment(
+                            value: StudyMode.review,
+                            label: Text('判断', style: TextStyle(fontSize: 12)),
+                          ),
+                          ButtonSegment(
+                            value: StudyMode.quiz,
+                            label: Text('选择', style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                        selected: {
+                          _mode
+                        },
+                        onSelectionChanged: (v) {
+                          setState(() {
+                            _mode = v.first;
+                            _correctCount = 0;
+                            _wrongCount = 0;
+                            _resetCardFace();
+                          });
+                          _buildDeck();
+                        },
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        )),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 44,
+                      child: Text('出题:', style: TextStyle(fontSize: 13)),
+                    ),
+                    SegmentedButton<PromptMode>(
+                        segments: const [
+                          ButtonSegment(
+                            value: PromptMode.audio,
+                            icon: Icon(Icons.headphones, size: 16),
+                            label: Text('音频', style: TextStyle(fontSize: 12)),
+                          ),
+                          ButtonSegment(
+                            value: PromptMode.image,
+                            icon: Icon(Icons.image_outlined, size: 16),
+                            label: Text('图片', style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                        selected: {
+                          _promptMode
+                        },
+                        onSelectionChanged: (v) {
+                          setState(() {
+                            _promptMode = v.first;
+                            _correctCount = 0;
+                            _wrongCount = 0;
+                            _resetCardFace();
+                          });
+                          _buildDeck();
+                        },
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        )),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Text('筛选:', style: TextStyle(fontSize: 13)),
                     const SizedBox(width: 4),
                     SizedBox(
                       height: 32,
-                      width: 96,
                       child: DropdownButton<String>(
-                        value: _taxonomicOrder,
-                        isExpanded: true,
+                        value: _filter,
                         isDense: true,
                         underline: const SizedBox(),
-                        items: [
-                          const DropdownMenuItem(
-                              value: 'all', child: Text('全部')),
-                          ..._availableOrders.map(
-                            (order) => DropdownMenuItem(
-                              value: order,
-                              child: Text(_orderLabel(order),
-                                  overflow: TextOverflow.ellipsis),
-                            ),
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('全部')),
+                          DropdownMenuItem(
+                              value: 'studied', child: Text('已学习')),
+                          DropdownMenuItem(value: 'unseen', child: Text('未学习')),
+                          DropdownMenuItem(
+                            value: 'unfamiliar',
+                            child: Text('不熟悉'),
                           ),
                         ],
                         onChanged: (v) {
                           if (v == null) return;
-                          setState(() => _taxonomicOrder = v);
+                          setState(() => _filter = v);
                           _buildDeck();
                         },
                       ),
                     ),
-                    const SizedBox(width: 8),
-                  ],
-                  const Text('顺序:', style: TextStyle(fontSize: 13)),
-                  const SizedBox(width: 4),
-                  SizedBox(
-                    height: 32,
-                    child: DropdownButton<String>(
-                      value: _order,
-                      isDense: true,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: 'random', child: Text('随机')),
-                        DropdownMenuItem(
-                            value: 'review_time', child: Text('久未复习')),
-                        DropdownMenuItem(value: 'wrong', child: Text('错误多')),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() => _order = v);
-                        _buildDeck();
-                      },
+                    IconButton(
+                      tooltip: 'eBird 地点',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _applyEBirdDeckFilter,
+                      icon: Icon(
+                        Icons.place_outlined,
+                        color: _ebirdFilterSci.isEmpty
+                            ? Colors.grey[700]
+                            : const Color(0xFF2d5016),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    const Spacer(),
+                    if (_availableOrders.isNotEmpty) ...[
+                      const Text('目:', style: TextStyle(fontSize: 13)),
+                      const SizedBox(width: 4),
+                      SizedBox(
+                        height: 32,
+                        width: 96,
+                        child: DropdownButton<String>(
+                          value: _taxonomicOrder,
+                          isExpanded: true,
+                          isDense: true,
+                          underline: const SizedBox(),
+                          items: [
+                            const DropdownMenuItem(
+                                value: 'all', child: Text('全部')),
+                            ..._availableOrders.map(
+                              (order) => DropdownMenuItem(
+                                value: order,
+                                child: Text(_orderLabel(order),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setState(() => _taxonomicOrder = v);
+                            _buildDeck();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    const Text('顺序:', style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      height: 32,
+                      child: DropdownButton<String>(
+                        value: _order,
+                        isDense: true,
+                        underline: const SizedBox(),
+                        items: const [
+                          DropdownMenuItem(value: 'random', child: Text('随机')),
+                          DropdownMenuItem(
+                              value: 'review_time', child: Text('久未复习')),
+                          DropdownMenuItem(value: 'wrong', child: Text('错误多')),
+                        ],
+                        onChanged: (v) {
+                          if (v == null) return;
+                          setState(() => _order = v);
+                          _buildDeck();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
-        if (_deck.isNotEmpty)
+        if (_deck.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${_idx + 1}/${_deck.length}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    Text(
+                      '第 ${_groupOffset ~/ _groupSize + 1} 组  ${_idx - _groupOffset + 1}/${_groupEnd - _groupOffset}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(width: 12),
+                    Text('✓ $_groupCorrect',
+                        style:
+                            const TextStyle(color: Colors.green, fontSize: 13)),
+                    const SizedBox(width: 6),
+                    Text('✗ $_groupWrong',
+                        style:
+                            const TextStyle(color: Colors.red, fontSize: 13)),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange[50],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '📚 ${widget.storage.unfamiliarCount}',
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.orange[700]),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Text(
-                  '✓ $_correctCount',
-                  style: const TextStyle(color: Colors.green),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '✗ $_wrongCount',
-                  style: const TextStyle(color: Colors.red),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '剩余 $_remaining',
-                  style: TextStyle(color: Colors.grey[600]),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.orange[50],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '📚 ${widget.storage.unfamiliarCount}',
-                    style: TextStyle(fontSize: 12, color: Colors.orange[700]),
-                  ),
+                const SizedBox(height: 4),
+                LinearProgressIndicator(
+                  value: _groupEnd > _groupOffset
+                      ? (_idx - _groupOffset + 1) / (_groupEnd - _groupOffset)
+                      : 0,
+                  backgroundColor: Colors.grey[200],
+                  color: const Color(0xFF2d7d32),
+                  minHeight: 4,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ],
             ),
           ),
+        ],
         if (_deck.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -1243,12 +1383,13 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                             style: const TextStyle(color: Colors.grey),
                           ),
                         )
-                      : _isFinished
-                          ? Center(child: _buildFinishedView())
+                      : _showGroupComplete
+                          ? Center(child: _buildGroupCompleteView())
                           : FutureBuilder<List<Object?>>(
                               future: Future.wait<Object?>([
                                 _getAudioPaths(),
                                 _getImagePath(),
+                                _getLocalExtraImagePaths(),
                               ]),
                               builder: (context, snapshot) {
                                 if (!snapshot.hasData) {
@@ -1258,6 +1399,20 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 final audioPaths =
                                     snapshot.data![0] as List<String>;
                                 final imagePath = snapshot.data![1] as String?;
+                                final localExtraImagePaths =
+                                    snapshot.data![2] as List<String>;
+                                final localExtraCredits = bird.images
+                                    .skip(1)
+                                    .map((item) => item.credit)
+                                    .toList();
+                                final extraImagePaths = [
+                                  ...localExtraImagePaths,
+                                  ..._extraImagePaths,
+                                ];
+                                final extraImageCredits = [
+                                  ...localExtraCredits,
+                                  ..._extraImageCredits,
+                                ];
                                 final labels = bird.audios
                                     .map((a) => a.displayLabel)
                                     .toList();
@@ -1271,12 +1426,16 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                           imagePath: imagePath,
                                           audioPaths: audioPaths,
                                           labels: labels,
+                                          extraImagePaths: extraImagePaths,
+                                          extraImageCredits: extraImageCredits,
                                         )
                                       : _buildCardScroller(
                                           bird: bird,
                                           imagePath: imagePath,
                                           audioPaths: audioPaths,
                                           labels: labels,
+                                          extraImagePaths: extraImagePaths,
+                                          extraImageCredits: extraImageCredits,
                                         ),
                                 );
                               },
@@ -1478,6 +1637,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String? imagePath,
     required List<String> audioPaths,
     required List<String> labels,
+    required List<String> extraImagePaths,
+    required List<String> extraImageCredits,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1491,6 +1652,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   imagePath: imagePath,
                   audioPaths: audioPaths,
                   labels: labels,
+                  extraImagePaths: extraImagePaths,
+                  extraImageCredits: extraImageCredits,
                 ),
               ),
             ),
@@ -1507,6 +1670,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String? imagePath,
     required List<String> audioPaths,
     required List<String> labels,
+    required List<String> extraImagePaths,
+    required List<String> extraImageCredits,
   }) {
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 132),
@@ -1523,6 +1688,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               imagePath: imagePath,
               audioPaths: audioPaths,
               labels: labels,
+              extraImagePaths: extraImagePaths,
+              extraImageCredits: extraImageCredits,
             ),
           ),
         ],
@@ -1535,6 +1702,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String? imagePath,
     required List<String> audioPaths,
     required List<String> labels,
+    required List<String> extraImagePaths,
+    required List<String> extraImageCredits,
   }) {
     return Stack(
       children: [
@@ -1565,6 +1734,28 @@ class FlashcardScreenState extends State<FlashcardScreen> {
             mode: _mode,
             promptMode: _effectivePromptMode,
             initiallyShowAnswer: _showAnswerOnEntry,
+            extraImagePaths: extraImagePaths,
+            extraImageCredits: extraImageCredits,
+            isAdmin: widget.storage.isAdminMode,
+            onDifficultyChanged: (diff) async {
+              final packDir = await widget.packManager.getActivePackDir();
+              if (packDir == null) return;
+              await widget.packManager
+                  .saveSpeciesDifficulty(packDir, bird.sci, diff);
+              if (mounted) setState(() {});
+            },
+            onLearnMore: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BirdPreviewScreen(
+                    species: bird,
+                    packManager: widget.packManager,
+                    storage: widget.storage,
+                  ),
+                ),
+              );
+            },
           ),
         ),
         // 滑动反馈浮层
@@ -1655,29 +1846,90 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     );
   }
 
-  Widget _buildFinishedView() {
+  Widget _buildGroupCompleteView() {
+    final groupNum = _groupOffset ~/ _groupSize + 1;
+    final hasMore = _groupOffset + _groupSize < _deck.length;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.celebration, size: 56, color: Colors.green[700]),
-          const SizedBox(height: 12),
-          const Text(
-            '这一轮学习完成了',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.5, end: 1.0),
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.elasticOut,
+            builder: (_, scale, child) =>
+                Transform.scale(scale: scale, child: child),
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2d7d32),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2d7d32).withValues(alpha: 0.35),
+                    blurRadius: 20,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.check_rounded,
+                  color: Colors.white, size: 44),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '第 $groupNum 组完成！',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF2d5016),
+            ),
           ),
           const SizedBox(height: 8),
           Text(
-            '认识 $_correctCount 种，不认识 $_wrongCount 种。\n可以重来一轮，或切到“不熟悉”继续强化。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[700], height: 1.5),
+            '本组：认识 $_groupCorrect 种　不认识 $_groupWrong 种',
+            style: TextStyle(fontSize: 16, color: Colors.grey[700]),
           ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _restart,
-            icon: const Icon(Icons.refresh),
-            label: const Text('重新开始'),
+          if (_correctCount + _wrongCount > _groupCorrect + _groupWrong) ...[
+            const SizedBox(height: 4),
+            Text(
+              '累计：认识 $_correctCount 种　不认识 $_wrongCount 种',
+              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+            ),
+          ],
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _retryGroup,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('重学本组'),
+              ),
+              if (hasMore) ...[
+                const SizedBox(width: 16),
+                FilledButton.icon(
+                  onPressed: _advanceGroup,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2d7d32),
+                  ),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text('继续下一组'),
+                ),
+              ] else ...[
+                const SizedBox(width: 16),
+                FilledButton.icon(
+                  onPressed: _restart,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2d7d32),
+                  ),
+                  icon: const Icon(Icons.celebration, size: 18),
+                  label: const Text('全部完成，重新开始'),
+                ),
+              ],
+            ],
           ),
         ],
       ),

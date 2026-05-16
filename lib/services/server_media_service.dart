@@ -66,6 +66,18 @@ class ServerMediaService {
     return _DownloadedFile(file: file, filename: filename);
   }
 
+  Future<DownloadedServerFile?> downloadMediaFile({
+    required String url,
+    required String outputDir,
+  }) async {
+    final downloaded = await _downloadFile(url: url, outputDir: outputDir);
+    if (downloaded == null) return null;
+    return DownloadedServerFile(
+      file: downloaded.file,
+      filename: downloaded.filename,
+    );
+  }
+
   Uri _resolveUrl(String value) {
     final uri = Uri.parse(value);
     if (uri.hasScheme) return uri;
@@ -101,24 +113,26 @@ class ServerMediaService {
       });
     }
 
-    String imagePath = '';
-    String imageCredit = '';
-    String imageLicense = '';
-    if (media.images.isNotEmpty) {
-      final image = media.images.first;
+    final imageEntries = <Map<String, String>>[];
+    for (final image in media.images.take(3)) {
       final downloaded = await _downloadFile(
         url: image.url,
         outputDir: imagesDir,
       );
-      if (downloaded != null) {
-        imagePath = 'images/${downloaded.filename}';
-        imageCredit =
-            image.contributor.isNotEmpty ? image.contributor : image.source;
-        imageLicense = image.license;
-      }
+      if (downloaded == null) continue;
+      imageEntries.add({
+        'file': 'images/${downloaded.filename}',
+        if (image.contributor.isNotEmpty) 'contributor': image.contributor,
+        if (image.contributorUrl.isNotEmpty)
+          'contributor_url': image.contributorUrl,
+        if (image.source.isNotEmpty) 'source': image.source,
+        if (image.license.isNotEmpty) 'license': image.license,
+        'credit':
+            image.contributor.isNotEmpty ? image.contributor : image.source,
+      });
     }
 
-    if (audioEntries.isEmpty && imagePath.isEmpty) return null;
+    if (audioEntries.isEmpty && imageEntries.isEmpty) return null;
 
     final audioCredits = audioEntries
         .map((item) => (item['contributor'] ?? '').trim())
@@ -138,13 +152,18 @@ class ServerMediaService {
         if (media.identificationFeatures.isNotEmpty)
           'identification_features': media.identificationFeatures,
         'audios': audioEntries,
-        if (imagePath.isNotEmpty) 'image': imagePath,
-        if (imageCredit.isNotEmpty) 'image_credit': imageCredit,
-        if (imageLicense.isNotEmpty) 'image_license': imageLicense,
+        if (imageEntries.isNotEmpty) 'image': imageEntries.first['file'],
+        if (imageEntries.isNotEmpty) 'images': imageEntries,
+        if (imageEntries.isNotEmpty &&
+            (imageEntries.first['credit'] ?? '').isNotEmpty)
+          'image_credit': imageEntries.first['credit'],
+        if (imageEntries.isNotEmpty &&
+            (imageEntries.first['license'] ?? '').isNotEmpty)
+          'image_license': imageEntries.first['license'],
         if (audioCredits.isNotEmpty) 'audio_credit': audioCredits,
       },
       audioCount: audioEntries.length,
-      hasImage: imagePath.isNotEmpty,
+      hasImage: imageEntries.isNotEmpty,
     );
   }
 }
@@ -196,22 +215,28 @@ class ServerSpeciesMedia {
 }
 
 class ServerImageMedia {
+  final String file;
   final String url;
   final String contributor;
+  final String contributorUrl;
   final String source;
   final String license;
 
   const ServerImageMedia({
+    required this.file,
     required this.url,
     required this.contributor,
+    required this.contributorUrl,
     required this.source,
     required this.license,
   });
 
   factory ServerImageMedia.fromJson(Map<String, dynamic> json) {
     return ServerImageMedia(
+      file: json['file'] as String? ?? '',
       url: json['url'] as String? ?? '',
       contributor: json['contributor'] as String? ?? '',
+      contributorUrl: json['contributor_url'] as String? ?? '',
       source: json['source'] as String? ?? '',
       license: json['license'] as String? ?? '',
     );
@@ -261,4 +286,14 @@ class _DownloadedFile {
   final String filename;
 
   const _DownloadedFile({required this.file, required this.filename});
+}
+
+class DownloadedServerFile {
+  final File file;
+  final String filename;
+
+  const DownloadedServerFile({
+    required this.file,
+    required this.filename,
+  });
 }

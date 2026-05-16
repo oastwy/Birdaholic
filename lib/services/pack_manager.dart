@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/data_pack.dart';
 import '../models/species.dart';
+import 'server_media_service.dart';
 
 /// 内置数据包描述
 class BuiltinPackInfo {
@@ -141,10 +142,22 @@ class PackManager {
     throw UnsupportedError('当前版本不再内置数据包，请通过 ZIP 导入数据包。');
   }
 
-  /// 从服务器下载并安装数据包（流式下载 + 流式解压，支持进度回调）
+  // 下载相关常量
+  static const _connectTimeout = Duration(seconds: 30);
+  static const _streamIdleTimeout = Duration(seconds: 30);
+  static const _maxRetries = 4;
+
+  /// 从服务器下载并安装数据包
+  ///
+  /// 流式下载 + 流式解压，支持：
+  /// - 断点续传（Range / .part 文件）
+  /// - 30s 连接超时 + 30s 流空闲超时
+  /// - 网络错误自动重试（指数退避 2s/4s/8s/16s，最多 4 次）
+  /// - 下载完成后大小校验
   Future<DataPack> downloadAndInstallRemotePack(
     RemotePackInfo info, {
     void Function(int received, int total)? onProgress,
+    void Function(String message)? onStatus,
   }) async {
     final docDir = await getApplicationDocumentsDirectory();
     final packDir = '${docDir.path}/packs/${info.dirName}';
@@ -155,62 +168,17 @@ class PackManager {
 
     await WakelockPlus.enable();
     try {
-      var existingBytes = await tempZip.exists() ? await tempZip.length() : 0;
-      final request = http.Request('GET', Uri.parse(info.url));
-      if (existingBytes > 0) {
-        request.headers['Range'] = 'bytes=$existingBytes-';
-      }
-      final response = await request.send();
+      // ───── Step 1: stream-download with retry ─────
+      await _downloadWithRetry(
+        url: info.url,
+        target: tempZip,
+        expectedSize: info.sizeBytes,
+        onProgress: onProgress,
+        onStatus: onStatus,
+      );
 
-      if (response.statusCode == 416 &&
-          info.sizeBytes > 0 &&
-          existingBytes >= info.sizeBytes) {
-        onProgress?.call(existingBytes, info.sizeBytes);
-      } else {
-        if (response.statusCode == 200 && existingBytes > 0) {
-          existingBytes = 0;
-          await tempZip.delete().catchError((_) => tempZip);
-        }
-        if (response.statusCode != 200 && response.statusCode != 206) {
-          throw Exception('下载失败: HTTP ${response.statusCode}');
-        }
-
-        if (response.statusCode == 206) {
-          final range = response.headers['content-range'];
-          final match = range == null
-              ? null
-              : RegExp(r'bytes\s+(\d+)-(\d+)/(\d+|\*)').firstMatch(range);
-          final rangeStart =
-              match == null ? null : int.tryParse(match.group(1)!);
-          if (rangeStart != null && rangeStart != existingBytes) {
-            await tempZip.delete().catchError((_) => tempZip);
-            return await downloadAndInstallRemotePack(
-              info,
-              onProgress: onProgress,
-            );
-          }
-        }
-
-        final contentRangeTotal = _contentRangeTotal(
-          response.headers['content-range'],
-        );
-        final total = response.statusCode == 206
-            ? contentRangeTotal ?? existingBytes + (response.contentLength ?? 0)
-            : response.contentLength ?? info.sizeBytes;
-        var received = existingBytes;
-        onProgress?.call(received, total);
-
-        final sink = tempZip.openWrite(
-          mode: response.statusCode == 206 ? FileMode.append : FileMode.write,
-        );
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          received += chunk.length;
-          onProgress?.call(received, total);
-        }
-        await sink.close();
-      }
-
+      // ───── Step 2: extract to staging ─────
+      onStatus?.call('正在解压数据包…');
       final staging = Directory(stagingDir);
       if (await staging.exists()) {
         await staging.delete(recursive: true);
@@ -218,6 +186,8 @@ class PackManager {
       await staging.create(recursive: true);
 
       await extractFileToDisk(tempZip.path, stagingDir);
+
+      // ───── Step 3: atomic replace ─────
       final dir = Directory(packDir);
       if (await dir.exists()) {
         await dir.delete(recursive: true);
@@ -236,6 +206,185 @@ class PackManager {
     );
     await setActivePack(packDir);
     return pack;
+  }
+
+  /// 带重试和超时的流式下载
+  ///
+  /// 每次重试之间使用指数退避；遇到 404/416 等明确错误立即失败不重试。
+  Future<void> _downloadWithRetry({
+    required String url,
+    required File target,
+    required int expectedSize,
+    void Function(int received, int total)? onProgress,
+    void Function(String message)? onStatus,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < _maxRetries; attempt++) {
+      try {
+        if (attempt == 0) {
+          final existing = await target.exists() ? await target.length() : 0;
+          if (existing > 0) {
+            onStatus?.call(
+              '续传中（已下载 ${_humanBytes(existing)}）',
+            );
+          } else {
+            onStatus?.call('正在连接服务器…');
+          }
+        } else {
+          final delaySeconds = 1 << attempt; // 2, 4, 8, 16
+          onStatus?.call(
+            '网络中断，${delaySeconds}s 后第 ${attempt + 1} 次尝试续传…',
+          );
+          await Future<void>.delayed(Duration(seconds: delaySeconds));
+        }
+
+        await _streamDownloadOnce(
+          url: url,
+          target: target,
+          expectedSize: expectedSize,
+          onProgress: onProgress,
+          onStatus: onStatus,
+        );
+
+        // Final size validation (only if expectedSize known)
+        if (expectedSize > 0) {
+          final actual = await target.length();
+          if (actual < expectedSize) {
+            throw _RetryableException(
+              '文件不完整：${_humanBytes(actual)} / ${_humanBytes(expectedSize)}',
+            );
+          }
+        }
+        return; // success
+      } on _NonRetryableException catch (e) {
+        // Bubble up immediately (404, parse errors, disk full, etc.)
+        throw Exception(e.message);
+      } catch (e) {
+        lastError = e;
+        // Continue to next retry
+      }
+    }
+    final msg =
+        lastError is _RetryableException ? lastError.message : '$lastError';
+    throw Exception('下载失败（已重试 $_maxRetries 次）: $msg');
+  }
+
+  /// 单次流式下载尝试（不重试）
+  Future<void> _streamDownloadOnce({
+    required String url,
+    required File target,
+    required int expectedSize,
+    void Function(int received, int total)? onProgress,
+    void Function(String message)? onStatus,
+  }) async {
+    final client = http.Client();
+    IOSink? sink;
+    try {
+      var existingBytes = await target.exists() ? await target.length() : 0;
+      final request = http.Request('GET', Uri.parse(url));
+      if (existingBytes > 0) {
+        request.headers['Range'] = 'bytes=$existingBytes-';
+      }
+
+      final response = await client.send(request).timeout(
+            _connectTimeout,
+            onTimeout: () => throw _RetryableException(
+              '连接服务器超时（${_connectTimeout.inSeconds}s 无响应）',
+            ),
+          );
+
+      // 416 means "already have everything"
+      if (response.statusCode == 416 &&
+          expectedSize > 0 &&
+          existingBytes >= expectedSize) {
+        onProgress?.call(existingBytes, expectedSize);
+        return;
+      }
+
+      // Server returned full content despite Range request → restart from 0
+      if (response.statusCode == 200 && existingBytes > 0) {
+        existingBytes = 0;
+        await target.delete().catchError((_) => target);
+      }
+
+      if (response.statusCode == 404) {
+        throw _NonRetryableException('服务器没有该文件（404）');
+      }
+      if (response.statusCode == 403) {
+        throw _NonRetryableException('服务器拒绝访问（403）');
+      }
+      if (response.statusCode != 200 && response.statusCode != 206) {
+        throw _RetryableException(
+          '服务器响应异常: HTTP ${response.statusCode}',
+        );
+      }
+
+      // Validate Content-Range start matches our resumed offset
+      if (response.statusCode == 206) {
+        final range = response.headers['content-range'];
+        final match = range == null
+            ? null
+            : RegExp(r'bytes\s+(\d+)-(\d+)/(\d+|\*)').firstMatch(range);
+        final rangeStart = match == null ? null : int.tryParse(match.group(1)!);
+        if (rangeStart != null && rangeStart != existingBytes) {
+          // Server disagrees about our resumed position → start over
+          await target.delete().catchError((_) => target);
+          throw _RetryableException(
+            '服务器返回的 Range 起点不匹配，重新开始下载',
+          );
+        }
+      }
+
+      final contentRangeTotal = _contentRangeTotal(
+        response.headers['content-range'],
+      );
+      final total = response.statusCode == 206
+          ? contentRangeTotal ?? existingBytes + (response.contentLength ?? 0)
+          : response.contentLength ?? expectedSize;
+      var received = existingBytes;
+      onProgress?.call(received, total);
+      onStatus?.call('正在下载…');
+
+      sink = target.openWrite(
+        mode: response.statusCode == 206 ? FileMode.append : FileMode.write,
+      );
+
+      // Wrap stream with idle timeout: if no chunk arrives within
+      // _streamIdleTimeout, treat as stalled and retry.
+      final timedStream = response.stream.timeout(
+        _streamIdleTimeout,
+        onTimeout: (eventSink) {
+          eventSink.addError(_RetryableException(
+            '数据流停滞（${_streamIdleTimeout.inSeconds}s 无数据）',
+          ));
+          eventSink.close();
+        },
+      );
+
+      await for (final chunk in timedStream) {
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+      }
+      await sink.close();
+      sink = null;
+    } finally {
+      await sink?.close().catchError((_) {});
+      client.close();
+    }
+  }
+
+  String _humanBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '$bytes B';
   }
 
   int? _contentRangeTotal(String? contentRange) {
@@ -321,6 +470,190 @@ class PackManager {
     await prefsSetBuiltinFlagFalse();
     await setActivePack(packDir);
     return DataPack.fromJson(manifestJson, packDir);
+  }
+
+  /// 导入多个分包 ZIP 并合并为完整数据包
+  ///
+  /// 分包由 `packager/split_data_pack.py` 生成，每个 part 的 manifest 含
+  /// `part`、`part_count`、`split_from` 字段。本方法会：
+  /// 1. 校验所有分包来自同一源、part 编号完整覆盖 1..part_count
+  /// 2. 解压所有文件到 staging 目录
+  /// 3. 合并 species.json 与 manifest.json
+  /// 4. 原子替换并激活合并后的数据包
+  Future<DataPack> importMultiPartPack(
+    List<String> zipPaths, {
+    void Function(int current, int total, String stage)? onProgress,
+  }) async {
+    if (zipPaths.isEmpty) throw Exception('未选择数据包');
+
+    onProgress?.call(0, zipPaths.length, '正在读取分包清单');
+
+    // Step 1: read manifests of all parts (with archives cached in memory)
+    final partInfos = <_PartInfo>[];
+    String? splitFrom;
+    int? expectedPartCount;
+
+    for (var i = 0; i < zipPaths.length; i++) {
+      final path = zipPaths[i];
+      final bytes = await File(path).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final manifestEntry = archive.findFile('manifest.json');
+      if (manifestEntry == null) {
+        throw Exception('${path.split('/').last} 缺少 manifest.json');
+      }
+      final manifest = jsonDecode(
+        utf8.decode(manifestEntry.content as List<int>),
+      ) as Map<String, dynamic>;
+
+      final part = manifest['part'] as int?;
+      final partCount = manifest['part_count'] as int?;
+      final from = manifest['split_from'] as String?;
+
+      if (part == null || partCount == null || from == null) {
+        throw Exception(
+          '${path.split('/').last} 不是分包文件\n'
+          '（缺少 part / part_count / split_from 字段，请使用 split_data_pack.py 重新切片）',
+        );
+      }
+
+      splitFrom ??= from;
+      expectedPartCount ??= partCount;
+
+      if (from != splitFrom) {
+        throw Exception('分包来源不一致: $from ≠ $splitFrom');
+      }
+      if (partCount != expectedPartCount) {
+        throw Exception('分包总数不一致: $partCount ≠ $expectedPartCount');
+      }
+
+      partInfos.add(_PartInfo(
+        path: path,
+        part: part,
+        manifest: manifest,
+        archive: archive,
+      ));
+      onProgress?.call(
+          i + 1, zipPaths.length, '校验分包 ${i + 1}/${zipPaths.length}');
+    }
+
+    partInfos.sort((a, b) => a.part.compareTo(b.part));
+
+    // Step 2: validate completeness
+    final partNumbers = partInfos.map((p) => p.part).toSet();
+    final missing = <int>[];
+    for (var i = 1; i <= expectedPartCount!; i++) {
+      if (!partNumbers.contains(i)) missing.add(i);
+    }
+    if (missing.isNotEmpty) {
+      throw Exception(
+        '缺少分包：${missing.join(', ')} / $expectedPartCount\n请选择全部 $expectedPartCount 个分包文件',
+      );
+    }
+    if (partInfos.length != expectedPartCount) {
+      throw Exception('分包重复：选中 ${partInfos.length}，期望 $expectedPartCount');
+    }
+
+    // Step 3: prepare staging directory
+    final packName =
+        splitFrom!.replaceAll(RegExp(r'\.zip$', caseSensitive: false), '');
+    final docDir = await getApplicationDocumentsDirectory();
+    final packDir = '${docDir.path}/packs/$packName';
+    final stagingPath = '${docDir.path}/packs/${packName}_installing';
+
+    final staging = Directory(stagingPath);
+    if (await staging.exists()) {
+      await staging.delete(recursive: true);
+    }
+    await staging.create(recursive: true);
+
+    // Step 4: extract all parts (skip part-specific manifest/species.json)
+    final allSpecies = <Map<String, dynamic>>[];
+    var totalAudio = 0;
+    var totalImage = 0;
+    String? region;
+    String? version;
+    String? source;
+
+    for (var i = 0; i < partInfos.length; i++) {
+      final info = partInfos[i];
+      onProgress?.call(
+        i + 1,
+        partInfos.length,
+        '解压分包 ${info.part}/$expectedPartCount',
+      );
+
+      for (final file in info.archive) {
+        if (!file.isFile) continue;
+        final name = file.name;
+        if (name == 'manifest.json' || name == 'species.json') continue;
+        final dest = File('$stagingPath/$name');
+        await dest.parent.create(recursive: true);
+        await dest.writeAsBytes(file.content as List<int>);
+      }
+
+      final speciesEntry = info.archive.findFile('species.json');
+      if (speciesEntry != null) {
+        final list = jsonDecode(
+          utf8.decode(speciesEntry.content as List<int>),
+        ) as List<dynamic>;
+        for (final row in list) {
+          allSpecies.add(Map<String, dynamic>.from(row as Map));
+        }
+      }
+
+      region ??= info.manifest['region'] as String?;
+      version ??= info.manifest['version'] as String?;
+      source ??= info.manifest['source'] as String?;
+      totalAudio += (info.manifest['audio_count'] as int?) ?? 0;
+      totalImage += (info.manifest['image_count'] as int?) ?? 0;
+    }
+
+    // Step 5: write merged manifest + species.json
+    onProgress?.call(partInfos.length, partInfos.length, '合并清单');
+    await File('$stagingPath/species.json').writeAsString(
+      const JsonEncoder.withIndent('  ').convert(allSpecies),
+    );
+    final mergedManifest = <String, dynamic>{
+      'name': packName,
+      if (region != null && region.isNotEmpty) 'region': region,
+      if (version != null && version.isNotEmpty) 'version': version,
+      'created': DateTime.now().toIso8601String().split('T').first,
+      'species_count': allSpecies.length,
+      'audio_count': totalAudio,
+      'image_count': totalImage,
+      if (source != null && source.isNotEmpty) 'source': source,
+      'merged_from_parts': expectedPartCount,
+    };
+    await File('$stagingPath/manifest.json').writeAsString(
+      const JsonEncoder.withIndent('  ').convert(mergedManifest),
+    );
+
+    // Step 6: atomic replace + activate
+    final oldDir = Directory(packDir);
+    if (await oldDir.exists()) {
+      await oldDir.delete(recursive: true);
+    }
+    await staging.rename(packDir);
+
+    await prefsSetBuiltinFlagFalse();
+    await setActivePack(packDir);
+    return DataPack.fromJson(mergedManifest, packDir);
+  }
+
+  /// 检查一组 ZIP 是否为分包（仅看第一个文件的 manifest）
+  Future<bool> isPartArchive(String zipPath) async {
+    try {
+      final bytes = await File(zipPath).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final manifestEntry = archive.findFile('manifest.json');
+      if (manifestEntry == null) return false;
+      final manifest = jsonDecode(
+        utf8.decode(manifestEntry.content as List<int>),
+      ) as Map<String, dynamic>;
+      return manifest['part'] != null && manifest['part_count'] != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 导入 ZIP 数据包（传入字节数据）
@@ -475,6 +808,14 @@ class PackManager {
       }
       final image = item['image'] as String?;
       if (image != null && image.isNotEmpty) remainingImages.add(image);
+      for (final imageItem in (item['images'] as List<dynamic>? ?? const [])) {
+        if (imageItem is Map) {
+          final file = imageItem['file'] as String? ?? '';
+          if (file.isNotEmpty) remainingImages.add(file);
+        } else if (imageItem is String && imageItem.isNotEmpty) {
+          remainingImages.add(imageItem);
+        }
+      }
     }
 
     for (final audio in species.audios) {
@@ -486,10 +827,12 @@ class PackManager {
       }
     }
 
-    if (species.image != null && !remainingImages.contains(species.image)) {
-      final file = File('$packDir/${species.image}');
-      if (await file.exists()) {
-        await file.delete();
+    for (final image in species.imageFiles) {
+      if (!remainingImages.contains(image)) {
+        final file = File('$packDir/$image');
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
     }
 
@@ -505,9 +848,10 @@ class PackManager {
       0,
       (sum, item) => sum + ((item['audios'] as List<dynamic>?)?.length ?? 0),
     );
-    manifest['image_count'] = updated
-        .where((item) => (item['image'] as String?)?.isNotEmpty ?? false)
-        .length;
+    manifest['image_count'] = updated.fold<int>(
+      0,
+      (sum, item) => sum + _imageCountForManifest(item),
+    );
     await manifestFile.writeAsString(
       const JsonEncoder.withIndent('  ').convert(manifest),
     );
@@ -545,6 +889,15 @@ class PackManager {
       if ((item['sci'] as String? ?? '') == species.sci) {
         item['image'] = targetRelativePath;
         item['image_credit'] = '用户上传';
+        final images = _imageEntriesFromItem(item);
+        images.removeWhere((image) => image['file'] == targetRelativePath);
+        images.insert(0, {
+          'file': targetRelativePath,
+          'credit': '用户上传',
+          'contributor': '用户上传',
+          'source': 'local',
+        });
+        item['images'] = images;
         updatedItem = item;
         break;
       }
@@ -559,9 +912,10 @@ class PackManager {
       final manifest = Map<String, dynamic>.from(
         jsonDecode(await manifestFile.readAsString()) as Map,
       );
-      manifest['image_count'] = speciesList
-          .where((item) => (item['image'] as String?)?.isNotEmpty ?? false)
-          .length;
+      manifest['image_count'] = speciesList.fold<int>(
+        0,
+        (sum, item) => sum + _imageCountForManifest(item),
+      );
       await manifestFile.writeAsString(
         const JsonEncoder.withIndent('  ').convert(manifest),
       );
@@ -637,6 +991,171 @@ class PackManager {
     return Species.fromJson(updatedItem);
   }
 
+  Future<MediaUpdateResult> updateActivePackFromServer({
+    void Function(int current, int total, String speciesName)? onProgress,
+  }) async {
+    final packDir = await getActivePackDir();
+    if (packDir == null) throw Exception('未加载任何数据包');
+
+    final speciesFile = File('$packDir/species.json');
+    final manifestFile = File('$packDir/manifest.json');
+    if (!await speciesFile.exists()) throw Exception('数据包缺少 species.json');
+
+    final speciesList =
+        (jsonDecode(await speciesFile.readAsString()) as List<dynamic>)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+    final imagesDir = Directory('$packDir/images');
+    final soundsDir = Directory('$packDir/sounds');
+    await imagesDir.create(recursive: true);
+    await soundsDir.create(recursive: true);
+
+    final service = ServerMediaService();
+    var updatedSpecies = 0;
+    var imageAdded = 0;
+    var audioAdded = 0;
+    var failed = 0;
+
+    for (var i = 0; i < speciesList.length; i++) {
+      final item = speciesList[i];
+      final sci = (item['sci'] as String? ?? '').trim();
+      if (sci.isEmpty) continue;
+      onProgress?.call(i + 1, speciesList.length, sci);
+      try {
+        final media = await service.fetchSpeciesMedia(sci);
+        if (media == null) continue;
+        var changed = false;
+
+        final images = _imageEntriesFromItem(item);
+        final imageKeys = _mediaKeys(images);
+        for (final image in media.images.take(3)) {
+          final basename = _basenameFromUrl(image.url);
+          if (imageKeys.contains(basename) ||
+              imageKeys.contains(image.url) ||
+              imageKeys.contains(image.contributorUrl)) {
+            continue;
+          }
+          final downloaded = await service.downloadMediaFile(
+            url: image.url,
+            outputDir: imagesDir.path,
+          );
+          if (downloaded == null) continue;
+          final relative = 'images/${downloaded.filename}';
+          images.add({
+            'file': relative,
+            if (image.contributor.isNotEmpty) 'contributor': image.contributor,
+            if (image.contributorUrl.isNotEmpty)
+              'contributor_url': image.contributorUrl,
+            if (image.source.isNotEmpty) 'source': image.source,
+            if (image.license.isNotEmpty) 'license': image.license,
+            'credit':
+                image.contributor.isNotEmpty ? image.contributor : image.source,
+          });
+          imageKeys.addAll([relative, downloaded.filename, image.url]);
+          if (image.contributorUrl.isNotEmpty) {
+            imageKeys.add(image.contributorUrl);
+          }
+          imageAdded++;
+          changed = true;
+        }
+        if (images.isNotEmpty) {
+          item['images'] = images;
+          final oldImage = (item['image'] as String? ?? '').trim();
+          if (oldImage.isEmpty || !_isCustomImage(item)) {
+            item['image'] =
+                oldImage.isNotEmpty ? oldImage : images.first['file'];
+            item['image_credit'] =
+                (item['image_credit'] as String? ?? '').trim().isNotEmpty
+                    ? item['image_credit']
+                    : images.first['credit'] ?? images.first['contributor'];
+          }
+        }
+
+        final audios = (item['audios'] as List<dynamic>? ?? const [])
+            .map((audio) => Map<String, dynamic>.from(audio as Map))
+            .toList();
+        final audioKeys = _mediaKeys(audios);
+        for (final audio in media.audio.take(2)) {
+          final basename = _basenameFromUrl(audio.url);
+          if (audioKeys.contains(basename) ||
+              audioKeys.contains(audio.url) ||
+              audioKeys.contains(audio.contributorUrl)) {
+            continue;
+          }
+          final downloaded = await service.downloadMediaFile(
+            url: audio.url,
+            outputDir: soundsDir.path,
+          );
+          if (downloaded == null) continue;
+          final relative = 'sounds/${downloaded.filename}';
+          audios.add({
+            'type': audio.type.isEmpty ? 'call' : audio.type,
+            'file': relative,
+            if (audio.contributor.isNotEmpty) 'contributor': audio.contributor,
+            if (audio.contributorUrl.isNotEmpty)
+              'contributor_url': audio.contributorUrl,
+            if (audio.license.isNotEmpty) 'license': audio.license,
+          });
+          audioKeys.addAll([relative, downloaded.filename, audio.url]);
+          if (audio.contributorUrl.isNotEmpty) {
+            audioKeys.add(audio.contributorUrl);
+          }
+          audioAdded++;
+          changed = true;
+        }
+        item['audios'] = audios;
+
+        if ((item['order'] as String? ?? '').trim().isEmpty &&
+            media.order.isNotEmpty) {
+          item['order'] = media.order;
+          changed = true;
+        }
+        if ((item['family'] as String? ?? '').trim().isEmpty &&
+            media.family.isNotEmpty) {
+          item['family'] = media.family;
+          changed = true;
+        }
+        if ((item['identification_features'] as String? ?? '').trim().isEmpty &&
+            media.identificationFeatures.isNotEmpty) {
+          item['identification_features'] = media.identificationFeatures;
+          changed = true;
+        }
+        if (changed) updatedSpecies++;
+      } catch (_) {
+        failed++;
+      }
+    }
+
+    await speciesFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(speciesList),
+    );
+    if (await manifestFile.exists()) {
+      final manifest = Map<String, dynamic>.from(
+        jsonDecode(await manifestFile.readAsString()) as Map,
+      );
+      manifest['audio_count'] = speciesList.fold<int>(
+        0,
+        (sum, item) => sum + ((item['audios'] as List<dynamic>?)?.length ?? 0),
+      );
+      manifest['image_count'] = speciesList.fold<int>(
+        0,
+        (sum, item) => sum + _imageCountForManifest(item),
+      );
+      manifest['updated'] = DateTime.now().toIso8601String().split('T').first;
+      await manifestFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(manifest),
+      );
+    }
+
+    return MediaUpdateResult(
+      speciesCount: speciesList.length,
+      updatedSpecies: updatedSpecies,
+      imageAdded: imageAdded,
+      audioAdded: audioAdded,
+      failed: failed,
+    );
+  }
+
   /// 获取资源的绝对路径（音频/图片）
   Future<String?> getResourcePath(String relativePath) async {
     final packDir = await getActivePackDir();
@@ -678,6 +1197,94 @@ class PackManager {
     return 'mp3';
   }
 
+  static List<Map<String, dynamic>> _imageEntriesFromItem(
+    Map<String, dynamic> item,
+  ) {
+    final result = <Map<String, dynamic>>[];
+    final image = (item['image'] as String? ?? '').trim();
+    if (image.isNotEmpty) {
+      result.add({
+        'file': image,
+        if ((item['image_credit'] as String? ?? '').trim().isNotEmpty)
+          'credit': item['image_credit'],
+        if ((item['image_license'] as String? ?? '').trim().isNotEmpty)
+          'license': item['image_license'],
+      });
+    }
+    for (final raw in (item['images'] as List<dynamic>? ?? const [])) {
+      Map<String, dynamic>? entry;
+      if (raw is String) {
+        entry = {'file': raw};
+      } else if (raw is Map) {
+        entry = Map<String, dynamic>.from(raw);
+      }
+      final file = (entry?['file'] as String? ?? '').trim();
+      if (entry == null ||
+          file.isEmpty ||
+          result.any((old) => old['file'] == file)) {
+        continue;
+      }
+      result.add(entry);
+    }
+    return result;
+  }
+
+  static int _imageCountForManifest(dynamic item) {
+    if (item is! Map) return 0;
+    return _imageEntriesFromItem(Map<String, dynamic>.from(item)).length;
+  }
+
+  static Set<String> _mediaKeys(List<Map<String, dynamic>> items) {
+    final keys = <String>{};
+    for (final item in items) {
+      for (final field in const ['file', 'url', 'contributor_url']) {
+        final value = (item[field] as String? ?? '').trim();
+        if (value.isEmpty) continue;
+        keys.add(value);
+        keys.add(value.split('/').last);
+      }
+    }
+    return keys;
+  }
+
+  static String _basenameFromUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.pathSegments.isNotEmpty) {
+      return uri.pathSegments.last;
+    }
+    return url.split('/').last;
+  }
+
+  static bool _isCustomImage(Map<String, dynamic> item) {
+    final image = (item['image'] as String? ?? '').toLowerCase();
+    final credit = (item['image_credit'] as String? ?? '').trim();
+    return credit == '用户上传' || image.contains('_custom_');
+  }
+
+  /// 保存物种难度分到本地 species.json
+  Future<void> saveSpeciesDifficulty(
+    String packDir,
+    String sci,
+    int difficulty,
+  ) async {
+    final speciesFile = File('$packDir/species.json');
+    if (!await speciesFile.exists()) return;
+    final raw = await speciesFile.readAsString();
+    final list = jsonDecode(raw) as List<dynamic>;
+    for (final item in list) {
+      final map = item as Map<String, dynamic>;
+      if ((map['sci'] as String?) == sci) {
+        if (difficulty == 1) {
+          map.remove('difficulty');
+        } else {
+          map['difficulty'] = difficulty;
+        }
+        break;
+      }
+    }
+    await speciesFile.writeAsString(jsonEncode(list));
+  }
+
   String _slug(String value) {
     final normalized = value
         .trim()
@@ -699,5 +1306,51 @@ class _SpeciesNameTaxonomy {
     required this.zh,
     required this.order,
     required this.family,
+  });
+}
+
+/// 表示一个值得重试的下载错误（网络中断、超时、5xx 等）
+class _RetryableException implements Exception {
+  final String message;
+  _RetryableException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// 表示一个不应该重试的错误（404、403、磁盘满等）
+class _NonRetryableException implements Exception {
+  final String message;
+  _NonRetryableException(this.message);
+  @override
+  String toString() => message;
+}
+
+class _PartInfo {
+  final String path;
+  final int part;
+  final Map<String, dynamic> manifest;
+  final Archive archive;
+
+  const _PartInfo({
+    required this.path,
+    required this.part,
+    required this.manifest,
+    required this.archive,
+  });
+}
+
+class MediaUpdateResult {
+  final int speciesCount;
+  final int updatedSpecies;
+  final int imageAdded;
+  final int audioAdded;
+  final int failed;
+
+  const MediaUpdateResult({
+    required this.speciesCount,
+    required this.updatedSpecies,
+    required this.imageAdded,
+    required this.audioAdded,
+    required this.failed,
   });
 }

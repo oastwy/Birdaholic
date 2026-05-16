@@ -55,7 +55,7 @@ server_media_library/
 server_media_library_optimized/
 upload_batch/
 import_lists/
-models/
+/models/
 
 # Android local SDK path config
 android/local.properties

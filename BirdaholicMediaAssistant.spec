@@ -5,7 +5,7 @@ a = Analysis(
     ['packager/birdaholic_media_assistant.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets/data/world_birds.json', 'assets/data')],
+    datas=[('assets/data/world_birds.json', 'assets/data'), ('models/osea', 'models/osea')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

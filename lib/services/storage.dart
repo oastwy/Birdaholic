@@ -13,6 +13,7 @@ class StorageService {
   static const _feedbackJournalKey = 'feedback_journal';
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
+  static const _flashcardGroupSizeKey = 'flashcard_group_size';
 
   final SharedPreferences _prefs;
 
@@ -78,6 +79,15 @@ class StorageService {
       return;
     }
     await _prefs.setString(_adminUploadTokenKey, normalized);
+  }
+
+  int get flashcardGroupSize {
+    final value = _prefs.getInt(_flashcardGroupSizeKey) ?? 10;
+    return value.clamp(1, 100);
+  }
+
+  Future<void> setFlashcardGroupSize(int value) async {
+    await _prefs.setInt(_flashcardGroupSizeKey, value.clamp(1, 100));
   }
 
   // ============ 纠错日记 ============

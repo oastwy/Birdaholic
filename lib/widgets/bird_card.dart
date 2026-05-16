@@ -28,6 +28,17 @@ class BirdCard extends StatefulWidget {
   final GlobalKey<AudioPlayerWidgetState>? audioPlayerKey;
   final bool initiallyShowAnswer;
 
+  // 额外图片（来自服务器，本地路径或网络 URL）
+  final List<String> extraImagePaths;
+  final List<String> extraImageCredits;
+
+  // 了解此鸟回调
+  final VoidCallback? onLearnMore;
+
+  // 管理员难度评分
+  final bool isAdmin;
+  final ValueChanged<int>? onDifficultyChanged;
+
   const BirdCard({
     super.key,
     required this.species,
@@ -40,6 +51,11 @@ class BirdCard extends StatefulWidget {
     this.onRevealed,
     this.audioPlayerKey,
     this.initiallyShowAnswer = false,
+    this.extraImagePaths = const [],
+    this.extraImageCredits = const [],
+    this.onLearnMore,
+    this.isAdmin = false,
+    this.onDifficultyChanged,
   });
 
   @override
@@ -51,6 +67,27 @@ class BirdCardState extends State<BirdCard>
   late AnimationController _controller;
   late Animation<double> _animation;
   bool _showFront = true;
+  final PageController _imagePageController = PageController();
+  int _imagePageIndex = 0;
+
+  List<_ImageEntry> get _allImages {
+    final result = <_ImageEntry>[];
+    if (widget.imagePath != null && File(widget.imagePath!).existsSync()) {
+      result.add(_ImageEntry(
+        path: widget.imagePath!,
+        isNetwork: false,
+        credit: widget.species.imageCredit,
+      ));
+    }
+    for (var i = 0; i < widget.extraImagePaths.length; i++) {
+      final p = widget.extraImagePaths[i];
+      final isNet = p.startsWith('http://') || p.startsWith('https://');
+      final credit =
+          i < widget.extraImageCredits.length ? widget.extraImageCredits[i] : '';
+      result.add(_ImageEntry(path: p, isNetwork: isNet, credit: credit));
+    }
+    return result;
+  }
 
   @override
   void initState() {
@@ -75,11 +112,16 @@ class BirdCardState extends State<BirdCard>
 
     _showFront = !widget.initiallyShowAnswer;
     _controller.value = widget.initiallyShowAnswer ? 1 : 0;
+    _imagePageIndex = 0;
+    if (_imagePageController.hasClients) {
+      _imagePageController.jumpToPage(0);
+    }
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _imagePageController.dispose();
     super.dispose();
   }
 
@@ -133,15 +175,12 @@ class BirdCardState extends State<BirdCard>
     );
   }
 
-  /// 正面：根据模式显示不同内容
   Widget _buildFront() {
     return _buildPromptFront();
   }
 
-  /// 题面：音频模式只听鸟鸣，图片模式只看鸟图，答案都放在背面。
   Widget _buildPromptFront() {
-    final hasImage =
-        widget.imagePath != null && File(widget.imagePath!).existsSync();
+    final images = _allImages;
     final isImagePrompt = widget.promptMode == PromptMode.image;
 
     return Container(
@@ -163,21 +202,10 @@ class BirdCardState extends State<BirdCard>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (isImagePrompt) ...[
-            if (hasImage)
-              _zoomableImage(height: 190)
+            if (images.isNotEmpty)
+              _imageCarousel(images: images, height: 190)
             else
-              Container(
-                height: 180,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Icon(Icons.image_not_supported,
-                      size: 48, color: Colors.grey[300]),
-                ),
-              ),
+              _imagePlaceholder(190),
           ] else ...[
             AudioPlayerWidget(
               key: widget.audioPlayerKey,
@@ -193,11 +221,9 @@ class BirdCardState extends State<BirdCard>
     );
   }
 
-  /// 背面：答案页（两种模式共用，但预习模式作为音频播放页）
   Widget _buildBack() {
     final sp = widget.species;
-    final hasImage =
-        widget.imagePath != null && File(widget.imagePath!).existsSync();
+    final images = _allImages;
     final isImagePrompt = widget.promptMode == PromptMode.image;
 
     return Container(
@@ -220,7 +246,10 @@ class BirdCardState extends State<BirdCard>
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isImagePrompt) ...[
-            if (hasImage) _zoomableImage(height: 170),
+            if (images.isNotEmpty)
+              _imageCarousel(images: images, height: 170)
+            else
+              _imagePlaceholder(170),
             const SizedBox(height: 10),
           ] else ...[
             AudioPlayerWidget(
@@ -234,7 +263,6 @@ class BirdCardState extends State<BirdCard>
             const SizedBox(height: 8),
           ],
           _creditLine(showImageCredit: isImagePrompt),
-          // 中文名
           Text(
             sp.cn,
             style: const TextStyle(
@@ -245,7 +273,6 @@ class BirdCardState extends State<BirdCard>
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 4),
-          // 英文名
           Text(
             sp.en,
             style: TextStyle(
@@ -255,7 +282,6 @@ class BirdCardState extends State<BirdCard>
             ),
             textAlign: TextAlign.center,
           ),
-          // 保护等级
           if (sp.consText.isNotEmpty) ...[
             const SizedBox(height: 8),
             Container(
@@ -274,7 +300,6 @@ class BirdCardState extends State<BirdCard>
               ),
             ),
           ],
-          // 栖息地
           if (sp.habitat.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(
@@ -292,14 +317,97 @@ class BirdCardState extends State<BirdCard>
               ],
             ),
           ],
+          // 了解此鸟 + 管理员难度星
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (widget.onLearnMore != null)
+                TextButton.icon(
+                  onPressed: widget.onLearnMore,
+                  icon: const Icon(Icons.menu_book_outlined, size: 16),
+                  label: const Text('了解此鸟'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF2d5016),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                ),
+            ],
+          ),
+          if (widget.isAdmin && widget.onDifficultyChanged != null)
+            _difficultyRow(),
         ],
       ),
     );
   }
 
-  Widget _zoomableImage({required double height}) {
+  Widget _imageCarousel({required List<_ImageEntry> images, required double height}) {
+    if (images.length == 1) {
+      return _singleImageView(images.first, height: height);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: height,
+          child: PageView.builder(
+            controller: _imagePageController,
+            itemCount: images.length,
+            onPageChanged: (i) => setState(() => _imagePageIndex = i),
+            itemBuilder: (context, i) =>
+                _singleImageView(images[i], height: height),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(images.length, (i) {
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: _imagePageIndex == i ? 16 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: _imagePageIndex == i
+                    ? const Color(0xFF2d5016)
+                    : Colors.grey[300],
+                borderRadius: BorderRadius.circular(3),
+              ),
+            );
+          }),
+        ),
+        if (images[_imagePageIndex].credit.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            '© ${images[_imagePageIndex].credit}',
+            style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _singleImageView(_ImageEntry entry, {required double height}) {
+    Widget img;
+    if (entry.isNetwork) {
+      img = Image.network(
+        entry.path,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) =>
+            const Center(child: Text('图片加载失败', style: TextStyle(color: Colors.grey))),
+      );
+    } else {
+      img = Image.file(
+        File(entry.path),
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) =>
+            const Center(child: Text('图片加载失败', style: TextStyle(color: Colors.grey))),
+      );
+    }
+
     return GestureDetector(
-      onTap: _showImagePreview,
+      onTap: () => _showImagePreview(entry),
       child: SizedBox(
         height: height,
         width: double.infinity,
@@ -311,19 +419,7 @@ class BirdCardState extends State<BirdCard>
               alignment: Alignment.topRight,
               children: [
                 Positioned.fill(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Image.file(
-                      File(widget.imagePath!),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Text(
-                          '图片加载失败',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: Padding(padding: const EdgeInsets.all(8), child: img),
                 ),
                 Container(
                   margin: const EdgeInsets.all(8),
@@ -338,10 +434,8 @@ class BirdCardState extends State<BirdCard>
                     children: [
                       Icon(Icons.zoom_out_map, color: Colors.white, size: 14),
                       SizedBox(width: 4),
-                      Text(
-                        '放大',
-                        style: TextStyle(color: Colors.white, fontSize: 11),
-                      ),
+                      Text('放大',
+                          style: TextStyle(color: Colors.white, fontSize: 11)),
                     ],
                   ),
                 ),
@@ -353,6 +447,47 @@ class BirdCardState extends State<BirdCard>
     );
   }
 
+  Widget _imagePlaceholder(double height) {
+    return Container(
+      height: height,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Icon(Icons.image_not_supported, size: 48, color: Colors.grey[300]),
+      ),
+    );
+  }
+
+  Widget _difficultyRow() {
+    final diff = widget.species.difficulty;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('难度：', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          ...List.generate(5, (i) {
+            final filled = i < diff;
+            return GestureDetector(
+              onTap: () => widget.onDifficultyChanged?.call(i + 1),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Icon(
+                  filled ? Icons.star_rounded : Icons.star_outline_rounded,
+                  size: 22,
+                  color: filled ? Colors.amber[700] : Colors.grey[400],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   Widget _creditLine({required bool showImageCredit}) {
     final credits = [
       if (showImageCredit && widget.species.imageCredit.isNotEmpty)
@@ -360,6 +495,21 @@ class BirdCardState extends State<BirdCard>
       if (widget.species.audioCredit.isNotEmpty)
         '音频感谢：${widget.species.audioCredit}',
     ];
+    // If carousel handles per-image credits, skip the image credit in credit line
+    if (_allImages.length > 1 && showImageCredit) {
+      final audioCreditOnly = credits
+          .where((c) => c.startsWith('音频感谢'))
+          .toList();
+      if (audioCreditOnly.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          audioCreditOnly.join(' · '),
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+        ),
+      );
+    }
     if (credits.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -371,8 +521,13 @@ class BirdCardState extends State<BirdCard>
     );
   }
 
-  void _showImagePreview() {
-    if (widget.imagePath == null) return;
+  void _showImagePreview(_ImageEntry entry) {
+    Widget img;
+    if (entry.isNetwork) {
+      img = Image.network(entry.path, fit: BoxFit.contain);
+    } else {
+      img = Image.file(File(entry.path), fit: BoxFit.contain);
+    }
     showDialog<void>(
       context: context,
       builder: (context) => Dialog(
@@ -389,8 +544,7 @@ class BirdCardState extends State<BirdCard>
                 child: Container(
                   color: Colors.black,
                   alignment: Alignment.center,
-                  child:
-                      Image.file(File(widget.imagePath!), fit: BoxFit.contain),
+                  child: img,
                 ),
               ),
             ),
@@ -407,4 +561,15 @@ class BirdCardState extends State<BirdCard>
       ),
     );
   }
+}
+
+class _ImageEntry {
+  final String path;
+  final bool isNetwork;
+  final String credit;
+  const _ImageEntry({
+    required this.path,
+    required this.isNetwork,
+    required this.credit,
+  });
 }

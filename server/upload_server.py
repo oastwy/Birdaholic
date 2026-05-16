@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 DATA_DIR = Path(os.environ.get("BIRDAHOLIC_DATA_DIR", "/data"))
@@ -74,6 +74,11 @@ def load_world_birds() -> list[dict[str, Any]]:
 
 
 WORLD_BIRDS = load_world_birds()
+WORLD_BY_SCI = {
+    str(item.get("sci", "")).strip().lower(): item
+    for item in WORLD_BIRDS
+    if item.get("sci")
+}
 
 
 def candidate_names(item: dict[str, Any]) -> list[str]:
@@ -160,18 +165,19 @@ def public_url(sci: str, kind: str, filename: str) -> str:
     return f"{PUBLIC_BASE_URL}/species/{key}/{kind}/{filename}"
 
 
-def update_index() -> None:
-    INDEX_DIR.mkdir(parents=True, exist_ok=True)
+def build_index_rows() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for manifest_path in sorted(SPECIES_DIR.glob("*/manifest.json")):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        sci = str(manifest.get("sci", "")).strip()
+        world_item = WORLD_BY_SCI.get(sci.lower(), {})
         rows.append(
             {
-                "sci": manifest.get("sci", ""),
-                "cn": manifest.get("cn", ""),
-                "en": manifest.get("en", ""),
-                "order": manifest.get("order", ""),
-                "family": manifest.get("family", ""),
+                "sci": sci,
+                "cn": manifest.get("cn", "") or world_item.get("zh", ""),
+                "en": manifest.get("en", "") or world_item.get("en", ""),
+                "order": manifest.get("order", "") or world_item.get("order", ""),
+                "family": manifest.get("family", "") or world_item.get("family", ""),
                 "species_dir": manifest_path.parent.name,
                 "manifest_url": f"{PUBLIC_BASE_URL}/species/{manifest_path.parent.name}/manifest.json",
                 "image_count": len(manifest.get("images", [])),
@@ -179,6 +185,12 @@ def update_index() -> None:
                 "source_packs": manifest.get("source_packs", []),
             }
         )
+    return rows
+
+
+def update_index() -> None:
+    INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    rows = build_index_rows()
     (INDEX_DIR / "species_media_index.json").write_text(
         json.dumps(rows, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -213,6 +225,211 @@ def search(q: str = "") -> list[dict[str, str]]:
         if len(results) >= 20:
             break
     return results
+
+
+@app.get("/api/stats")
+def stats(q: str = "") -> dict[str, Any]:
+    rows = build_index_rows()
+    query = normalize_name(q)
+    if query:
+        rows = [
+            row
+            for row in rows
+            if query in normalize_name(
+                " ".join(
+                    [
+                        str(row.get("sci", "")),
+                        str(row.get("cn", "")),
+                        str(row.get("en", "")),
+                        str(row.get("species_dir", "")),
+                    ]
+                )
+            )
+        ]
+    return {
+        "species_count": len(rows),
+        "image_count": sum(int(row.get("image_count", 0)) for row in rows),
+        "audio_count": sum(int(row.get("audio_count", 0)) for row in rows),
+        "rows": rows,
+    }
+
+
+@app.get("/stats", response_class=HTMLResponse)
+def stats_page() -> str:
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Birdaholic 服务器媒体统计</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f1e8;
+      --ink: #1f261c;
+      --muted: #66705f;
+      --line: #ddd4c2;
+      --panel: #fffdf8;
+      --green: #255c21;
+      --green-2: #e7f1df;
+      --gold: #a06a1b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 22px 28px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fffaf0;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    h1 { margin: 0 0 12px; font-size: 24px; letter-spacing: 0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    input {
+      width: min(420px, 100%);
+      font-size: 16px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: white;
+      color: var(--ink);
+    }
+    button, a.button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: var(--green);
+      color: white;
+      font-size: 15px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    main { padding: 18px 28px 28px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .label { color: var(--muted); font-size: 13px; }
+    .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .table-wrap {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: auto;
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 900px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f7ecd7; position: sticky; top: 0; z-index: 1; }
+    tr:hover td { background: var(--green-2); }
+    .num { font-variant-numeric: tabular-nums; text-align: right; }
+    .muted { color: var(--muted); }
+    .species { font-weight: 650; }
+    .sci { color: var(--muted); font-style: italic; margin-top: 2px; }
+    .empty { padding: 24px; color: var(--muted); }
+    @media (max-width: 760px) {
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .cards { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Birdaholic 服务器媒体统计</h1>
+    <div class="toolbar">
+      <input id="q" placeholder="搜索中文名 / English / 拉丁名">
+      <button id="search">搜索</button>
+      <button id="clear">清空</button>
+      <a class="button" href="/api/stats" target="_blank">查看原始 JSON</a>
+    </div>
+  </header>
+  <main>
+    <section class="cards">
+      <div class="card"><div class="label">物种数</div><div class="value" id="speciesCount">-</div></div>
+      <div class="card"><div class="label">图片数</div><div class="value" id="imageCount">-</div></div>
+      <div class="card"><div class="label">音频数</div><div class="value" id="audioCount">-</div></div>
+    </section>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>物种</th>
+            <th>分类</th>
+            <th class="num">图片</th>
+            <th class="num">音频</th>
+            <th>数据包</th>
+            <th>链接</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="6" class="empty">正在加载...</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const q = document.getElementById('q');
+    const rowsEl = document.getElementById('rows');
+    const speciesCount = document.getElementById('speciesCount');
+    const imageCount = document.getElementById('imageCount');
+    const audioCount = document.getElementById('audioCount');
+
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
+
+    async function load() {
+      rowsEl.innerHTML = '<tr><td colspan="6" class="empty">正在加载...</td></tr>';
+      const params = q.value.trim() ? '?q=' + encodeURIComponent(q.value.trim()) : '';
+      const res = await fetch('/api/stats' + params);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      speciesCount.textContent = data.species_count ?? 0;
+      imageCount.textContent = data.image_count ?? 0;
+      audioCount.textContent = data.audio_count ?? 0;
+      const rows = data.rows || [];
+      if (!rows.length) {
+        rowsEl.innerHTML = '<tr><td colspan="6" class="empty">没有匹配结果</td></tr>';
+        return;
+      }
+      rowsEl.innerHTML = rows.map(row => `
+        <tr>
+          <td>
+            <div class="species">${esc(row.cn || row.en || row.sci)}</div>
+            <div class="sci">${esc(row.sci)}</div>
+            <div class="muted">${esc(row.en || '')}</div>
+          </td>
+          <td>${esc(row.order || '')}<br><span class="muted">${esc(row.family || '')}</span></td>
+          <td class="num">${esc(row.image_count || 0)}</td>
+          <td class="num">${esc(row.audio_count || 0)}</td>
+          <td>${esc((row.source_packs || []).join(', '))}</td>
+          <td><a href="${esc(row.manifest_url)}" target="_blank">manifest</a></td>
+        </tr>
+      `).join('');
+    }
+
+    document.getElementById('search').addEventListener('click', load);
+    document.getElementById('clear').addEventListener('click', () => { q.value = ''; load(); });
+    q.addEventListener('keydown', event => { if (event.key === 'Enter') load(); });
+    load().catch(err => {
+      rowsEl.innerHTML = '<tr><td colspan="6" class="empty">加载失败：' + esc(err.message) + '</td></tr>';
+    });
+  </script>
+</body>
+</html>"""
 
 
 @app.get("/api/recognize_filename")
