@@ -1,651 +1,553 @@
 [
   {
     "cn": "麻雀",
-    "en": "麻雀",
+    "en": "Eurasian Tree Sparrow",
     "sci": "Passer montanus",
     "order": "雀形目",
     "family": "雀科",
-    "code": ""
-  },
-  {
-    "cn": "白头鹎",
-    "en": "白頭翁",
-    "sci": "Pycnonotus sinensis",
-    "order": "雀形目",
-    "family": "鹎科",
-    "code": ""
-  },
-  {
-    "cn": "八哥",
-    "en": "八哥(冠八哥)",
-    "sci": "Acridotheres cristatellus",
-    "order": "雀形目",
-    "family": "椋鸟科",
-    "code": ""
+    "code": "eutspa",
+    "description": "麻雀（Passer montanus），隶属雀形目雀科，英文名 Eurasian Tree Sparrow，eBird 编码 eutspa。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "珠颈斑鸠",
-    "en": "珠頸斑鳩",
+    "en": "Spotted Dove",
     "sci": "Spilopelia chinensis",
     "order": "鸽形目",
     "family": "鸠鸽科",
-    "code": ""
-  },
-  {
-    "cn": "山斑鸠",
-    "en": "金背鳩",
-    "sci": "Streptopelia orientalis",
-    "order": "鸽形目",
-    "family": "鸠鸽科",
-    "code": ""
-  },
-  {
-    "cn": "原鸽",
-    "en": "原鴿",
-    "sci": "Columba livia",
-    "order": "鸽形目",
-    "family": "鸠鸽科",
-    "code": ""
-  },
-  {
-    "cn": "喜鹊",
-    "en": "喜鵲",
-    "sci": "Pica serica",
-    "order": "雀形目",
-    "family": "鸦科",
-    "code": ""
-  },
-  {
-    "cn": "灰喜鹊",
-    "en": "灰喜鵲",
-    "sci": "Cyanopica cyanus",
-    "order": "雀形目",
-    "family": "鸦科",
-    "code": ""
-  },
-  {
-    "cn": "大嘴乌鸦",
-    "en": "巨嘴鴉",
-    "sci": "Corvus macrorhynchos",
-    "order": "雀形目",
-    "family": "鸦科",
-    "code": ""
-  },
-  {
-    "cn": "大杜鹃",
-    "en": "大杜鵑",
-    "sci": "Cuculus canorus",
-    "order": "鹃形目",
-    "family": "杜鹃科",
-    "code": ""
-  },
-  {
-    "cn": "褐翅鸦鹃",
-    "en": "褐翅鴉鵑",
-    "sci": "Centropus sinensis",
-    "order": "鹃形目",
-    "family": "杜鹃科",
-    "code": ""
-  },
-  {
-    "cn": "家燕",
-    "en": "家燕",
-    "sci": "Hirundo rustica",
-    "order": "雀形目",
-    "family": "燕科",
-    "code": ""
-  },
-  {
-    "cn": "金腰燕",
-    "en": "東方金腰燕",
-    "sci": "Cecropis daurica",
-    "order": "雀形目",
-    "family": "燕科",
-    "code": ""
+    "code": "spodov",
+    "description": "珠颈斑鸠（Spilopelia chinensis），隶属鸽形目鸠鸽科，英文名 Spotted Dove，eBird 编码 spodov。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "白鹡鸰",
-    "en": "白鶺鴒",
+    "en": "White Wagtail",
     "sci": "Motacilla alba",
     "order": "雀形目",
     "family": "鹡鸰科",
-    "code": ""
-  },
-  {
-    "cn": "灰鹡鸰",
-    "en": "灰鶺鴒",
-    "sci": "Motacilla cinerea",
-    "order": "雀形目",
-    "family": "鹡鸰科",
-    "code": ""
-  },
-  {
-    "cn": "田鹨",
-    "en": "大花鷚",
-    "sci": "Anthus richardi",
-    "order": "雀形目",
-    "family": "鹡鸰科",
-    "code": ""
-  },
-  {
-    "cn": "黑短脚鹎",
-    "en": "紅嘴黑鵯",
-    "sci": "Hypsipetes leucocephalus",
-    "order": "雀形目",
-    "family": "鹎科",
-    "code": ""
-  },
-  {
-    "cn": "暗绿绣眼鸟",
-    "en": "斯氏繡眼(綠繡眼)",
-    "sci": "Zosterops simplex",
-    "order": "雀形目",
-    "family": "绣眼鸟科",
-    "code": ""
-  },
-  {
-    "cn": "大山雀",
-    "en": "Japanese Tit",
-    "sci": "Parus minor",
-    "order": "雀形目",
-    "family": "山雀科",
-    "code": ""
-  },
-  {
-    "cn": "棕头鸦雀",
-    "en": "粉紅鸚嘴",
-    "sci": "Sinosuthora webbiana",
-    "order": "雀形目",
-    "family": "鸦雀科",
-    "code": ""
-  },
-  {
-    "cn": "画眉",
-    "en": "大陸畫眉",
-    "sci": "Garrulax canorus",
-    "order": "雀形目",
-    "family": "噪鹛科",
-    "code": ""
-  },
-  {
-    "cn": "棕颈钩嘴鹛",
-    "en": "Streak-breasted Scimitar-Babbler",
-    "sci": "Erythrogenys ruficollis",
-    "order": "雀形目",
-    "family": "林鹛科",
-    "code": ""
-  },
-  {
-    "cn": "乌鸫",
-    "en": "中國黑鶇",
-    "sci": "Turdus mandarinus",
-    "order": "雀形目",
-    "family": "鸫科",
-    "code": ""
-  },
-  {
-    "cn": "欧乌鸫",
-    "en": "Eurasian Blackbird",
-    "sci": "Turdus merula",
-    "order": "雀形目",
-    "family": "鸫科",
-    "code": ""
-  },
-  {
-    "cn": "北红尾鸲",
-    "en": "黃尾鴝",
-    "sci": "Phoenicurus auroreus",
-    "order": "雀形目",
-    "family": "鹟科",
-    "code": ""
-  },
-  {
-    "cn": "鹊鸲",
-    "en": "鵲鴝",
-    "sci": "Copsychus saularis",
-    "order": "雀形目",
-    "family": "鹟科",
-    "code": ""
-  },
-  {
-    "cn": "黑喉石䳭",
-    "en": "Siberian Stonechat",
-    "sci": "Saxicola maurus",
-    "order": "雀形目",
-    "family": "鹟科",
-    "code": ""
-  },
-  {
-    "cn": "北灰鹟",
-    "en": "寬嘴鶲",
-    "sci": "Muscicapa dauurica",
-    "order": "雀形目",
-    "family": "鹟科",
-    "code": ""
-  },
-  {
-    "cn": "白眉姬鹟",
-    "en": "白眉鶲",
-    "sci": "Ficedula zanthopygia",
-    "order": "雀形目",
-    "family": "鹟科",
-    "code": ""
-  },
-  {
-    "cn": "黄眉柳莺",
-    "en": "黃眉柳鶯",
-    "sci": "Phylloscopus inornatus",
-    "order": "雀形目",
-    "family": "柳莺科",
-    "code": ""
-  },
-  {
-    "cn": "东方大苇莺",
-    "en": "東方大葦鶯",
-    "sci": "Acrocephalus orientalis",
-    "order": "雀形目",
-    "family": "苇莺科",
-    "code": ""
-  },
-  {
-    "cn": "长尾缝叶莺",
-    "en": "長尾縫葉鶯",
-    "sci": "Orthotomus sutorius",
-    "order": "雀形目",
-    "family": "扇尾莺科",
-    "code": ""
-  },
-  {
-    "cn": "棕扇尾莺",
-    "en": "棕扇尾鶯",
-    "sci": "Cisticola juncidis",
-    "order": "雀形目",
-    "family": "扇尾莺科",
-    "code": ""
-  },
-  {
-    "cn": "纯色山鹪莺",
-    "en": "褐頭鷦鶯",
-    "sci": "Prinia inornata",
-    "order": "雀形目",
-    "family": "扇尾莺科",
-    "code": ""
-  },
-  {
-    "cn": "棕背伯劳",
-    "en": "棕背伯勞",
-    "sci": "Lanius schach",
-    "order": "雀形目",
-    "family": "伯劳科",
-    "code": ""
-  },
-  {
-    "cn": "黑卷尾",
-    "en": "大卷尾",
-    "sci": "Dicrurus macrocercus",
-    "order": "雀形目",
-    "family": "卷尾科",
-    "code": ""
-  },
-  {
-    "cn": "黑枕黄鹂",
-    "en": "黃鸝",
-    "sci": "Oriolus chinensis",
-    "order": "雀形目",
-    "family": "黄鹂科",
-    "code": ""
-  },
-  {
-    "cn": "灰背椋鸟",
-    "en": "灰背椋鳥",
-    "sci": "Sturnia sinensis",
-    "order": "雀形目",
-    "family": "椋鸟科",
-    "code": ""
-  },
-  {
-    "cn": "家八哥",
-    "en": "家八哥",
-    "sci": "Acridotheres tristis",
-    "order": "雀形目",
-    "family": "椋鸟科",
-    "code": ""
-  },
-  {
-    "cn": "斑文鸟",
-    "en": "斑文鳥",
-    "sci": "Lonchura punctulata",
-    "order": "雀形目",
-    "family": "梅花雀科",
-    "code": ""
-  },
-  {
-    "cn": "金翅雀",
-    "en": "金翅雀",
-    "sci": "Chloris sinica",
-    "order": "雀形目",
-    "family": "燕雀科",
-    "code": ""
-  },
-  {
-    "cn": "黄雀",
-    "en": "黃雀",
-    "sci": "Spinus spinus",
-    "order": "雀形目",
-    "family": "燕雀科",
-    "code": ""
-  },
-  {
-    "cn": "黄喉鹀",
-    "en": "黃喉鵐",
-    "sci": "Emberiza elegans",
-    "order": "雀形目",
-    "family": "鹀科",
-    "code": ""
-  },
-  {
-    "cn": "三道眉草鹀",
-    "en": "草鵐",
-    "sci": "Emberiza cioides",
-    "order": "雀形目",
-    "family": "鹀科",
-    "code": ""
-  },
-  {
-    "cn": "白鹭",
-    "en": "小白鷺",
-    "sci": "Egretta garzetta",
-    "order": "鹈形目",
-    "family": "鹭科",
-    "code": ""
-  },
-  {
-    "cn": "苍鹭",
-    "en": "蒼鷺",
-    "sci": "Ardea cinerea",
-    "order": "鹈形目",
-    "family": "鹭科",
-    "code": ""
-  },
-  {
-    "cn": "大白鹭",
-    "en": "大白鷺",
-    "sci": "Ardea alba",
-    "order": "鹈形目",
-    "family": "鹭科",
-    "code": ""
-  },
-  {
-    "cn": "牛背鹭",
-    "en": "Eastern Cattle Egret",
-    "sci": "Bubulcus coromandus",
-    "order": "鹈形目",
-    "family": "鹭科",
-    "code": ""
+    "code": "whiwag",
+    "description": "白鹡鸰（Motacilla alba），隶属雀形目鹡鸰科，英文名 White Wagtail，eBird 编码 whiwag。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "夜鹭",
-    "en": "夜鷺",
+    "en": "Black-crowned Night Heron",
     "sci": "Nycticorax nycticorax",
     "order": "鹈形目",
     "family": "鹭科",
-    "code": ""
+    "code": "bcnher",
+    "description": "夜鹭（Nycticorax nycticorax），隶属鹈形目鹭科，英文名 Black-crowned Night Heron，eBird 编码 bcnher。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "家燕",
+    "en": "Barn Swallow",
+    "sci": "Hirundo rustica",
+    "order": "雀形目",
+    "family": "燕科",
+    "code": "barswa",
+    "description": "家燕（Hirundo rustica），隶属雀形目燕科，英文名 Barn Swallow，eBird 编码 barswa。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "池鹭",
-    "en": "池鷺",
+    "en": "Chinese Pond Heron",
     "sci": "Ardeola bacchus",
     "order": "鹈形目",
     "family": "鹭科",
-    "code": ""
-  },
-  {
-    "cn": "黄斑苇鳽",
-    "en": "Yellow Bittern",
-    "sci": "Ixobrychus sinensis",
-    "order": "鹈形目",
-    "family": "鹭科",
-    "code": ""
-  },
-  {
-    "cn": "普通鸬鹚",
-    "en": "鸕鷀",
-    "sci": "Phalacrocorax carbo",
-    "order": "鲣鸟目",
-    "family": "鸬鹚科",
-    "code": ""
-  },
-  {
-    "cn": "斑嘴鸭",
-    "en": "花嘴鴨",
-    "sci": "Anas zonorhyncha",
-    "order": "雁形目",
-    "family": "鸭科",
-    "code": ""
-  },
-  {
-    "cn": "绿翅鸭",
-    "en": "小水鴨",
-    "sci": "Anas crecca",
-    "order": "雁形目",
-    "family": "鸭科",
-    "code": ""
-  },
-  {
-    "cn": "绿头鸭",
-    "en": "綠頭鴨",
-    "sci": "Anas platyrhynchos",
-    "order": "雁形目",
-    "family": "鸭科",
-    "code": ""
+    "code": "chpher1",
+    "description": "池鹭（Ardeola bacchus），隶属鹈形目鹭科，英文名 Chinese Pond Heron，eBird 编码 chpher1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "小䴙䴘",
-    "en": "小鸊鷉",
+    "en": "Little Grebe",
     "sci": "Tachybaptus ruficollis",
     "order": "䴙䴘目",
     "family": "䴙䴘科",
-    "code": ""
-  },
-  {
-    "cn": "凤头䴙䴘",
-    "en": "冠鸊鷉",
-    "sci": "Podiceps cristatus",
-    "order": "䴙䴘目",
-    "family": "䴙䴘科",
-    "code": ""
-  },
-  {
-    "cn": "白胸苦恶鸟",
-    "en": "白腹秧雞",
-    "sci": "Amaurornis phoenicurus",
-    "order": "鹤形目",
-    "family": "秧鸡科",
-    "code": ""
+    "code": "litgre1",
+    "description": "小䴙䴘（Tachybaptus ruficollis），隶属䴙䴘目䴙䴘科，英文名 Little Grebe，eBird 编码 litgre1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "黑水鸡",
-    "en": "紅冠水雞",
+    "en": "Common Moorhen",
     "sci": "Gallinula chloropus",
     "order": "鹤形目",
     "family": "秧鸡科",
-    "code": ""
+    "code": "commoo3",
+    "description": "黑水鸡（Gallinula chloropus），隶属鹤形目秧鸡科，英文名 Common Moorhen，eBird 编码 commoo3。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "白骨顶",
-    "en": "白冠雞",
-    "sci": "Fulica atra",
-    "order": "鹤形目",
-    "family": "秧鸡科",
-    "code": ""
+    "cn": "喜鹊",
+    "en": "Oriental Magpie",
+    "sci": "Pica serica",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": "orimag1",
+    "description": "喜鹊（Pica serica），隶属雀形目鸦科，英文名 Oriental Magpie，eBird 编码 orimag1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "凤头麦鸡",
-    "en": "小辮鴴",
-    "sci": "Vanellus vanellus",
-    "order": "鸻形目",
-    "family": "鸻科",
-    "code": ""
+    "cn": "白鹭",
+    "en": "Little Egret",
+    "sci": "Egretta garzetta",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": "litegr",
+    "description": "白鹭（Egretta garzetta），隶属鹈形目鹭科，英文名 Little Egret，eBird 编码 litegr。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "金眶鸻",
-    "en": "Little Ringed Plover",
-    "sci": "Charadrius dubius",
-    "order": "鸻形目",
-    "family": "鸻科",
-    "code": ""
+    "cn": "绿头鸭",
+    "en": "Mallard",
+    "sci": "Anas platyrhynchos",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": "mallar3",
+    "description": "绿头鸭（Anas platyrhynchos），隶属雁形目鸭科，英文名 Mallard，eBird 编码 mallar3。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "矶鹬",
-    "en": "磯鷸",
-    "sci": "Actitis hypoleucos",
-    "order": "鸻形目",
-    "family": "鹬科",
-    "code": ""
+    "cn": "苍鹭",
+    "en": "Grey Heron",
+    "sci": "Ardea cinerea",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": "graher1",
+    "description": "苍鹭（Ardea cinerea），隶属鹈形目鹭科，英文名 Grey Heron，eBird 编码 graher1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "青脚鹬",
-    "en": "青足鷸",
-    "sci": "Tringa nebularia",
-    "order": "鸻形目",
-    "family": "鹬科",
-    "code": ""
-  },
-  {
-    "cn": "扇尾沙锥",
-    "en": "田鷸",
-    "sci": "Gallinago gallinago",
-    "order": "鸻形目",
-    "family": "鹬科",
-    "code": ""
-  },
-  {
-    "cn": "红嘴鸥",
-    "en": "紅嘴鷗",
-    "sci": "Chroicocephalus ridibundus",
-    "order": "鸻形目",
-    "family": "鸥科",
-    "code": ""
-  },
-  {
-    "cn": "西伯利亚银鸥",
-    "en": "西伯利亞銀鷗",
-    "sci": "Larus vegae",
-    "order": "鸻形目",
-    "family": "鸥科",
-    "code": ""
-  },
-  {
-    "cn": "普通燕鸥",
-    "en": "燕鷗",
-    "sci": "Sterna hirundo",
-    "order": "鸻形目",
-    "family": "鸥科",
-    "code": ""
-  },
-  {
-    "cn": "黑鸢",
-    "en": "黑鳶",
-    "sci": "Milvus migrans",
-    "order": "鹰形目",
-    "family": "鹰科",
-    "code": ""
-  },
-  {
-    "cn": "雀鹰",
-    "en": "北雀鷹",
-    "sci": "Accipiter nisus",
-    "order": "鹰形目",
-    "family": "鹰科",
-    "code": ""
-  },
-  {
-    "cn": "普通鵟",
-    "en": "東方鵟",
-    "sci": "Buteo japonicus",
-    "order": "鹰形目",
-    "family": "鹰科",
-    "code": ""
-  },
-  {
-    "cn": "红隼",
-    "en": "紅隼",
-    "sci": "Falco tinnunculus",
-    "order": "隼形目",
-    "family": "隼科",
-    "code": ""
-  },
-  {
-    "cn": "游隼",
-    "en": "遊隼",
-    "sci": "Falco peregrinus",
-    "order": "隼形目",
-    "family": "隼科",
-    "code": ""
-  },
-  {
-    "cn": "仓鸮",
-    "en": "Eastern Barn Owl",
-    "sci": "Tyto javanica",
-    "order": "鸮形目",
-    "family": "草鸮科",
-    "code": ""
-  },
-  {
-    "cn": "红角鸮",
-    "en": "東方角鴞",
-    "sci": "Otus sunia",
-    "order": "鸮形目",
-    "family": "鸱鸮科",
-    "code": ""
-  },
-  {
-    "cn": "纵纹腹小鸮",
-    "en": "縱紋腹小鴞",
-    "sci": "Athene noctua",
-    "order": "鸮形目",
-    "family": "鸱鸮科",
-    "code": ""
+    "cn": "白头鹎",
+    "en": "Light-vented Bulbul",
+    "sci": "Pycnonotus sinensis",
+    "order": "雀形目",
+    "family": "鹎科",
+    "code": "livbul1",
+    "description": "白头鹎（Pycnonotus sinensis），隶属雀形目鹎科，英文名 Light-vented Bulbul，eBird 编码 livbul1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "普通翠鸟",
-    "en": "翠鳥",
+    "en": "Common Kingfisher",
     "sci": "Alcedo atthis",
     "order": "佛法僧目",
     "family": "翠鸟科",
-    "code": ""
+    "code": "comkin1",
+    "description": "普通翠鸟（Alcedo atthis），隶属佛法僧目翠鸟科，英文名 Common Kingfisher，eBird 编码 comkin1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "白胸翡翠",
-    "en": "蒼翡翠",
-    "sci": "Halcyon smyrnensis",
-    "order": "佛法僧目",
-    "family": "翠鸟科",
-    "code": ""
+    "cn": "金翅雀",
+    "en": "Oriental Greenfinch",
+    "sci": "Chloris sinica",
+    "order": "雀形目",
+    "family": "燕雀科",
+    "code": "origre",
+    "description": "金翅雀（Chloris sinica），隶属雀形目燕雀科，英文名 Oriental Greenfinch，eBird 编码 origre。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "绿喉蜂虎",
-    "en": "Asian Green Bee-eater",
-    "sci": "Merops orientalis",
-    "order": "佛法僧目",
-    "family": "蜂虎科",
-    "code": ""
+    "cn": "斑嘴鸭",
+    "en": "Eastern Spot-billed Duck",
+    "sci": "Anas zonorhyncha",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": "spbduc",
+    "description": "斑嘴鸭（Anas zonorhyncha），隶属雁形目鸭科，英文名 Eastern Spot-billed Duck，eBird 编码 spbduc。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰椋鸟",
+    "en": "White-cheeked Starling",
+    "sci": "Spodiopsar cineraceus",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": "whcsta1",
+    "description": "灰椋鸟（Spodiopsar cineraceus），隶属雀形目椋鸟科，英文名 White-cheeked Starling，eBird 编码 whcsta1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黄眉柳莺",
+    "en": "Yellow-browed Warbler",
+    "sci": "Phylloscopus inornatus",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": "yebwar3",
+    "description": "黄眉柳莺（Phylloscopus inornatus），隶属雀形目柳莺科，英文名 Yellow-browed Warbler，eBird 编码 yebwar3。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "大杜鹃",
+    "en": "Common Cuckoo",
+    "sci": "Cuculus canorus",
+    "order": "鹃形目",
+    "family": "杜鹃科",
+    "code": "comcuc",
+    "description": "大杜鹃（Cuculus canorus），隶属鹃形目杜鹃科，英文名 Common Cuckoo，eBird 编码 comcuc。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "戴胜",
-    "en": "戴勝",
+    "en": "Common Hoopoe",
     "sci": "Upupa epops",
     "order": "犀鸟目",
     "family": "戴胜科",
-    "code": ""
+    "code": "hoopoe",
+    "description": "戴胜（Upupa epops），隶属犀鸟目戴胜科，英文名 Common Hoopoe，eBird 编码 hoopoe。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "台湾拟啄木鸟",
-    "en": "五色鳥",
-    "sci": "Psilopogon nuchalis",
-    "order": "啄木鸟目",
-    "family": "拟啄木鸟科",
-    "code": ""
+    "cn": "褐柳莺",
+    "en": "Dusky Warbler",
+    "sci": "Phylloscopus fuscatus",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": "duswar",
+    "description": "褐柳莺（Phylloscopus fuscatus），隶属雀形目柳莺科，英文名 Dusky Warbler，eBird 编码 duswar。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黑翅长脚鹬",
+    "en": "Black-winged Stilt",
+    "sci": "Himantopus himantopus",
+    "order": "鸻形目",
+    "family": "反嘴鹬科",
+    "code": "bkwsti",
+    "description": "黑翅长脚鹬（Himantopus himantopus），隶属鸻形目反嘴鹬科，英文名 Black-winged Stilt，eBird 编码 bkwsti。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "东方大苇莺",
+    "en": "Oriental Reed Warbler",
+    "sci": "Acrocephalus orientalis",
+    "order": "雀形目",
+    "family": "苇莺科",
+    "code": "orrwar1",
+    "description": "东方大苇莺（Acrocephalus orientalis），隶属雀形目苇莺科，英文名 Oriental Reed Warbler，eBird 编码 orrwar1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰喜鹊",
+    "en": "Azure-winged Magpie",
+    "sci": "Cyanopica cyanus",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": "azwmag2",
+    "description": "灰喜鹊（Cyanopica cyanus），隶属雀形目鸦科，英文名 Azure-winged Magpie，eBird 编码 azwmag2。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "山斑鸠",
+    "en": "Oriental Turtle Dove",
+    "sci": "Streptopelia orientalis",
+    "order": "鸽形目",
+    "family": "鸠鸽科",
+    "code": "ortdov",
+    "description": "山斑鸠（Streptopelia orientalis），隶属鸽形目鸠鸽科，英文名 Oriental Turtle Dove，eBird 编码 ortdov。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "乌鸫",
+    "en": "Chinese Blackbird",
+    "sci": "Turdus mandarinus",
+    "order": "雀形目",
+    "family": "鸫科",
+    "code": "chibla1",
+    "description": "乌鸫（Turdus mandarinus），隶属雀形目鸫科，英文名 Chinese Blackbird，eBird 编码 chibla1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "树鹨",
+    "en": "Olive-backed Pipit",
+    "sci": "Anthus hodgsoni",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": "olbpip",
+    "description": "树鹨（Anthus hodgsoni），隶属雀形目鹡鸰科，英文名 Olive-backed Pipit，eBird 编码 olbpip。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红尾伯劳",
+    "en": "Brown Shrike",
+    "sci": "Lanius cristatus",
+    "order": "雀形目",
+    "family": "伯劳科",
+    "code": "brnshr",
+    "description": "红尾伯劳（Lanius cristatus），隶属雀形目伯劳科，英文名 Brown Shrike，eBird 编码 brnshr。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "白骨顶",
+    "en": "Eurasian Coot",
+    "sci": "Fulica atra",
+    "order": "鹤形目",
+    "family": "秧鸡科",
+    "code": "eurcoo",
+    "description": "白骨顶（Fulica atra），隶属鹤形目秧鸡科，英文名 Eurasian Coot，eBird 编码 eurcoo。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黑卷尾",
+    "en": "Black Drongo",
+    "sci": "Dicrurus macrocercus",
+    "order": "雀形目",
+    "family": "卷尾科",
+    "code": "bladro1",
+    "description": "黑卷尾（Dicrurus macrocercus），隶属雀形目卷尾科，英文名 Black Drongo，eBird 编码 bladro1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "矶鹬",
+    "en": "Common Sandpiper",
+    "sci": "Actitis hypoleucos",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "comsan",
+    "description": "矶鹬（Actitis hypoleucos），隶属鸻形目鹬科，英文名 Common Sandpiper，eBird 编码 comsan。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "北灰鹟",
+    "en": "Asian Brown Flycatcher",
+    "sci": "Muscicapa dauurica",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": "asbfly",
+    "description": "北灰鹟（Muscicapa dauurica），隶属雀形目鹟科，英文名 Asian Brown Flycatcher，eBird 编码 asbfly。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红喉姬鹟",
+    "en": "Taiga Flycatcher",
+    "sci": "Ficedula albicilla",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": "taifly1",
+    "description": "红喉姬鹟（Ficedula albicilla），隶属雀形目鹟科，英文名 Taiga Flycatcher，eBird 编码 taifly1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "原鸽",
+    "en": "Rock Dove",
+    "sci": "Columba livia",
+    "order": "鸽形目",
+    "family": "鸠鸽科",
+    "code": "rocpig",
+    "description": "原鸽（Columba livia），隶属鸽形目鸠鸽科，英文名 Rock Dove，eBird 编码 rocpig。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "大白鹭",
+    "en": "Great Egret",
+    "sci": "Ardea alba",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": "greegr",
+    "description": "大白鹭（Ardea alba），隶属鹈形目鹭科，英文名 Great Egret，eBird 编码 greegr。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "环颈雉",
+    "en": "Common Pheasant",
+    "sci": "Phasianus colchicus",
+    "order": "鸡形目",
+    "family": "雉科",
+    "code": "rinphe1",
+    "description": "环颈雉（Phasianus colchicus），隶属鸡形目雉科，英文名 Common Pheasant，eBird 编码 rinphe1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黄腰柳莺",
+    "en": "Pallas's Leaf Warbler",
+    "sci": "Phylloscopus proregulus",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": "palwar5",
+    "description": "黄腰柳莺（Phylloscopus proregulus），隶属雀形目柳莺科，英文名 Pallas's Leaf Warbler，eBird 编码 palwar5。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰鹡鸰",
+    "en": "Grey Wagtail",
+    "sci": "Motacilla cinerea",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": "grywag",
+    "description": "灰鹡鸰（Motacilla cinerea），隶属雀形目鹡鸰科，英文名 Grey Wagtail，eBird 编码 grywag。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "小鹀",
+    "en": "Little Bunting",
+    "sci": "Emberiza pusilla",
+    "order": "雀形目",
+    "family": "鹀科",
+    "code": "litbun",
+    "description": "小鹀（Emberiza pusilla），隶属雀形目鹀科，英文名 Little Bunting，eBird 编码 litbun。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "凤头䴙䴘",
+    "en": "Great Crested Grebe",
+    "sci": "Podiceps cristatus",
+    "order": "䴙䴘目",
+    "family": "䴙䴘科",
+    "code": "grcgre1",
+    "description": "凤头䴙䴘（Podiceps cristatus），隶属䴙䴘目䴙䴘科，英文名 Great Crested Grebe，eBird 编码 grcgre1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "八哥",
+    "en": "Crested Myna",
+    "sci": "Acridotheres cristatellus",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": "cremyn",
+    "description": "八哥（Acridotheres cristatellus），隶属雀形目椋鸟科，英文名 Crested Myna，eBird 编码 cremyn。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰头麦鸡",
+    "en": "Grey-headed Lapwing",
+    "sci": "Vanellus cinereus",
+    "order": "鸻形目",
+    "family": "鸻科",
+    "code": "gyhlap1",
+    "description": "灰头麦鸡（Vanellus cinereus），隶属鸻形目鸻科，英文名 Grey-headed Lapwing，eBird 编码 gyhlap1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "北红尾鸲",
+    "en": "Daurian Redstart",
+    "sci": "Phoenicurus auroreus",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": "daured1",
+    "description": "北红尾鸲（Phoenicurus auroreus），隶属雀形目鹟科，英文名 Daurian Redstart，eBird 编码 daured1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红隼",
+    "en": "Common Kestrel",
+    "sci": "Falco tinnunculus",
+    "order": "隼形目",
+    "family": "隼科",
+    "code": "eurkes",
+    "description": "红隼（Falco tinnunculus），隶属隼形目隼科，英文名 Common Kestrel，eBird 编码 eurkes。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "林鹬",
+    "en": "Wood Sandpiper",
+    "sci": "Tringa glareola",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "woosan",
+    "description": "林鹬（Tringa glareola），隶属鸻形目鹬科，英文名 Wood Sandpiper，eBird 编码 woosan。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "金腰燕",
+    "en": "Eastern Red-rumped Swallow",
+    "sci": "Cecropis daurica",
+    "order": "雀形目",
+    "family": "燕科",
+    "code": "y00621",
+    "description": "金腰燕（Cecropis daurica），隶属雀形目燕科，英文名 Eastern Red-rumped Swallow，eBird 编码 y00621。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "暗绿绣眼鸟",
+    "en": "Swinhoe's White-eye",
+    "sci": "Zosterops simplex",
+    "order": "雀形目",
+    "family": "绣眼鸟科",
+    "code": "swiwhe1",
+    "description": "暗绿绣眼鸟（Zosterops simplex），隶属雀形目绣眼鸟科，英文名 Swinhoe's White-eye，eBird 编码 swiwhe1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "棕背伯劳",
+    "en": "Long-tailed Shrike",
+    "sci": "Lanius schach",
+    "order": "雀形目",
+    "family": "伯劳科",
+    "code": "lotshr1",
+    "description": "棕背伯劳（Lanius schach），隶属雀形目伯劳科，英文名 Long-tailed Shrike，eBird 编码 lotshr1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "极北柳莺",
+    "en": "Arctic Warbler",
+    "sci": "Phylloscopus borealis",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": "arcwar1",
+    "description": "极北柳莺（Phylloscopus borealis），隶属雀形目柳莺科，英文名 Arctic Warbler，eBird 编码 arcwar1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "丝光椋鸟",
+    "en": "Red-billed Starling",
+    "sci": "Spodiopsar sericeus",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": "rebsta1",
+    "description": "丝光椋鸟（Spodiopsar sericeus），隶属雀形目椋鸟科，英文名 Red-billed Starling，eBird 编码 rebsta1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "四声杜鹃",
+    "en": "Indian Cuckoo",
+    "sci": "Cuculus micropterus",
+    "order": "鹃形目",
+    "family": "杜鹃科",
+    "code": "indcuc1",
+    "description": "四声杜鹃（Cuculus micropterus），隶属鹃形目杜鹃科，英文名 Indian Cuckoo，eBird 编码 indcuc1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黑尾蜡嘴雀",
+    "en": "Chinese Grosbeak",
+    "sci": "Eophona migratoria",
+    "order": "雀形目",
+    "family": "燕雀科",
+    "code": "yebgro1",
+    "description": "黑尾蜡嘴雀（Eophona migratoria），隶属雀形目燕雀科，英文名 Chinese Grosbeak，eBird 编码 yebgro1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红嘴蓝鹊",
+    "en": "Red-billed Blue Magpie",
+    "sci": "Urocissa erythroryncha",
+    "order": "雀形目",
+    "family": "鸦科",
+    "code": "rbbmag",
+    "description": "红嘴蓝鹊（Urocissa erythroryncha），隶属雀形目鸦科，英文名 Red-billed Blue Magpie，eBird 编码 rbbmag。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黑枕黄鹂",
+    "en": "Black-naped Oriole",
+    "sci": "Oriolus chinensis",
+    "order": "雀形目",
+    "family": "黄鹂科",
+    "code": "blnori1",
+    "description": "黑枕黄鹂（Oriolus chinensis），隶属雀形目黄鹂科，英文名 Black-naped Oriole，eBird 编码 blnori1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "白腰草鹬",
+    "en": "Green Sandpiper",
+    "sci": "Tringa ochropus",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "grnsan",
+    "description": "白腰草鹬（Tringa ochropus），隶属鸻形目鹬科，英文名 Green Sandpiper，eBird 编码 grnsan。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "大斑啄木鸟",
@@ -653,150 +555,448 @@
     "sci": "Dendrocopos major",
     "order": "啄木鸟目",
     "family": "啄木鸟科",
-    "code": ""
+    "code": "grswoo",
+    "description": "大斑啄木鸟（Dendrocopos major），隶属啄木鸟目啄木鸟科，英文名 Great Spotted Woodpecker，eBird 编码 grswoo。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "灰头绿啄木鸟",
-    "en": "綠啄木",
-    "sci": "Picus canus",
-    "order": "啄木鸟目",
-    "family": "啄木鸟科",
-    "code": ""
-  },
-  {
-    "cn": "灰胸竹鸡",
-    "en": "灰胸竹雞",
-    "sci": "Bambusicola thoracicus",
-    "order": "鸡形目",
-    "family": "雉科",
-    "code": ""
-  },
-  {
-    "cn": "鹌鹑",
-    "en": "鵪鶉",
-    "sci": "Coturnix japonica",
-    "order": "鸡形目",
-    "family": "雉科",
-    "code": ""
-  },
-  {
-    "cn": "环颈雉",
-    "en": "環頸雉",
-    "sci": "Phasianus colchicus",
-    "order": "鸡形目",
-    "family": "雉科",
-    "code": ""
-  },
-  {
-    "cn": "红腹锦鸡",
-    "en": "紅腹錦雞",
-    "sci": "Chrysolophus pictus",
-    "order": "鸡形目",
-    "family": "雉科",
-    "code": ""
-  },
-  {
-    "cn": "灰树鹊",
-    "en": "樹鵲",
-    "sci": "Dendrocitta formosae",
+    "cn": "白眉姬鹟",
+    "en": "Yellow-rumped Flycatcher",
+    "sci": "Ficedula zanthopygia",
     "order": "雀形目",
-    "family": "鸦科",
-    "code": ""
+    "family": "鹟科",
+    "code": "korfly1",
+    "description": "白眉姬鹟（Ficedula zanthopygia），隶属雀形目鹟科，英文名 Yellow-rumped Flycatcher，eBird 编码 korfly1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "松鸦",
-    "en": "松鴉",
-    "sci": "Garrulus glandarius",
-    "order": "雀形目",
-    "family": "鸦科",
-    "code": ""
+    "cn": "大鹰鹃",
+    "en": "Large Hawk-Cuckoo",
+    "sci": "Hierococcyx sparverioides",
+    "order": "鹃形目",
+    "family": "杜鹃科",
+    "code": "larhac2",
+    "description": "大鹰鹃（Hierococcyx sparverioides），隶属鹃形目杜鹃科，英文名 Large Hawk-Cuckoo，eBird 编码 larhac2。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "灰喉山椒鸟",
-    "en": "灰喉山椒鳥",
-    "sci": "Pericrocotus solaris",
+    "cn": "黑眉苇莺",
+    "en": "Black-browed Reed Warbler",
+    "sci": "Acrocephalus bistrigiceps",
     "order": "雀形目",
-    "family": "山椒鸟科",
-    "code": ""
+    "family": "苇莺科",
+    "code": "bbrwar1",
+    "description": "黑眉苇莺（Acrocephalus bistrigiceps），隶属雀形目苇莺科，英文名 Black-browed Reed Warbler，eBird 编码 bbrwar1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "长尾山椒鸟",
-    "en": "長尾山椒鳥",
-    "sci": "Pericrocotus ethologus",
+    "cn": "黄鹡鸰",
+    "en": "Eastern Yellow Wagtail",
+    "sci": "Motacilla tschutschensis",
     "order": "雀形目",
-    "family": "山椒鸟科",
-    "code": ""
+    "family": "鹡鸰科",
+    "code": "eaywag",
+    "description": "黄鹡鸰（Motacilla tschutschensis），隶属雀形目鹡鸰科，英文名 Eastern Yellow Wagtail，eBird 编码 eaywag。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "扇尾沙锥",
+    "en": "Common Snipe",
+    "sci": "Gallinago gallinago",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "comsni",
+    "description": "扇尾沙锥（Gallinago gallinago），隶属鸻形目鹬科，英文名 Common Snipe，eBird 编码 comsni。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "噪鹃",
+    "en": "Asian Koel",
+    "sci": "Eudynamys scolopaceus",
+    "order": "鹃形目",
+    "family": "杜鹃科",
+    "code": "asikoe2",
+    "description": "噪鹃（Eudynamys scolopaceus），隶属鹃形目杜鹃科，英文名 Asian Koel，eBird 编码 asikoe2。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰翅浮鸥",
+    "en": "Whiskered Tern",
+    "sci": "Chlidonias hybrida",
+    "order": "鸻形目",
+    "family": "鸥科",
+    "code": "whiter2",
+    "description": "灰翅浮鸥（Chlidonias hybrida），隶属鸻形目鸥科，英文名 Whiskered Tern，eBird 编码 whiter2。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "普通燕鸥",
+    "en": "Common Tern",
+    "sci": "Sterna hirundo",
+    "order": "鸻形目",
+    "family": "鸥科",
+    "code": "comter",
+    "description": "普通燕鸥（Sterna hirundo），隶属鸻形目鸥科，英文名 Common Tern，eBird 编码 comter。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰头鹀",
+    "en": "Black-faced Bunting",
+    "sci": "Emberiza spodocephala",
+    "order": "雀形目",
+    "family": "鹀科",
+    "code": "bkfbun1",
+    "description": "灰头鹀（Emberiza spodocephala），隶属雀形目鹀科，英文名 Black-faced Bunting，eBird 编码 bkfbun1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黄头鹡鸰",
+    "en": "Citrine Wagtail",
+    "sci": "Motacilla citreola",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": "citwag",
+    "description": "黄头鹡鸰（Motacilla citreola），隶属雀形目鹡鸰科，英文名 Citrine Wagtail，eBird 编码 citwag。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
     "cn": "红头长尾山雀",
-    "en": "紅頭山雀",
+    "en": "Black-throated Bushtit",
     "sci": "Aegithalos concinnus",
     "order": "雀形目",
     "family": "长尾山雀科",
-    "code": ""
+    "code": "blttit2",
+    "description": "红头长尾山雀（Aegithalos concinnus），隶属雀形目长尾山雀科，英文名 Black-throated Bushtit，eBird 编码 blttit2。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "灰蓝山雀",
-    "en": "Azure Tit",
-    "sci": "Cyanistes cyanus",
+    "cn": "鹊鸲",
+    "en": "Oriental Magpie-Robin",
+    "sci": "Copsychus saularis",
     "order": "雀形目",
-    "family": "山雀科",
-    "code": ""
+    "family": "鹟科",
+    "code": "magrob",
+    "description": "鹊鸲（Copsychus saularis），隶属雀形目鹟科，英文名 Oriental Magpie-Robin，eBird 编码 magrob。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "小云雀",
-    "en": "小雲雀",
-    "sci": "Alauda gulgula",
+    "cn": "灰头绿啄木鸟",
+    "en": "Grey-headed Woodpecker",
+    "sci": "Picus canus",
+    "order": "啄木鸟目",
+    "family": "啄木鸟科",
+    "code": "gyfwoo1",
+    "description": "灰头绿啄木鸟（Picus canus），隶属啄木鸟目啄木鸟科，英文名 Grey-headed Woodpecker，eBird 编码 gyfwoo1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "青脚鹬",
+    "en": "Common Greenshank",
+    "sci": "Tringa nebularia",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "comgre",
+    "description": "青脚鹬（Tringa nebularia），隶属鸻形目鹬科，英文名 Common Greenshank，eBird 编码 comgre。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "纯色山鹪莺",
+    "en": "Plain Prinia",
+    "sci": "Prinia inornata",
     "order": "雀形目",
-    "family": "百灵科",
-    "code": ""
+    "family": "扇尾莺科",
+    "code": "plapri1",
+    "description": "纯色山鹪莺（Prinia inornata），隶属雀形目扇尾莺科，英文名 Plain Prinia，eBird 编码 plapri1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "歌百灵",
-    "en": "Singing Bushlark",
-    "sci": "Mirafra javanica",
+    "cn": "东亚石䳭",
+    "en": "Amur Stonechat",
+    "sci": "Saxicola stejnegeri",
     "order": "雀形目",
-    "family": "百灵科",
-    "code": ""
+    "family": "鹟科",
+    "code": "stonec7",
+    "description": "东亚石䳭（Saxicola stejnegeri），隶属雀形目鹟科，英文名 Amur Stonechat，eBird 编码 stonec7。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   },
   {
-    "cn": "白喉红臀鹎",
-    "en": "白喉紅臀鵯",
-    "sci": "Pycnonotus aurigaster",
+    "cn": "发冠卷尾",
+    "en": "Hair-crested Drongo",
+    "sci": "Dicrurus hottentottus",
+    "order": "雀形目",
+    "family": "卷尾科",
+    "code": "hacdro1",
+    "description": "发冠卷尾（Dicrurus hottentottus），隶属雀形目卷尾科，英文名 Hair-crested Drongo，eBird 编码 hacdro1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红嘴鸥",
+    "en": "Black-headed Gull",
+    "sci": "Chroicocephalus ridibundus",
+    "order": "鸻形目",
+    "family": "鸥科",
+    "code": "bkhgul",
+    "description": "红嘴鸥（Chroicocephalus ridibundus），隶属鸻形目鸥科，英文名 Black-headed Gull，eBird 编码 bkhgul。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "白眉鸭",
+    "en": "Garganey",
+    "sci": "Spatula querquedula",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": "gargan",
+    "description": "白眉鸭（Spatula querquedula），隶属雁形目鸭科，英文名 Garganey，eBird 编码 gargan。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "银喉长尾山雀",
+    "en": "Silver-throated Bushtit",
+    "sci": "Aegithalos glaucogularis",
+    "order": "雀形目",
+    "family": "长尾山雀科",
+    "code": "lottit5",
+    "description": "银喉长尾山雀（Aegithalos glaucogularis），隶属雀形目长尾山雀科，英文名 Silver-throated Bushtit，eBird 编码 lottit5。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "中白鹭",
+    "en": "Medium Egret",
+    "sci": "Ardea intermedia",
+    "order": "鹈形目",
+    "family": "鹭科",
+    "code": "integr1",
+    "description": "中白鹭（Ardea intermedia），隶属鹈形目鹭科，英文名 Medium Egret，eBird 编码 integr1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "棕扇尾莺",
+    "en": "Zitting Cisticola",
+    "sci": "Cisticola juncidis",
+    "order": "雀形目",
+    "family": "扇尾莺科",
+    "code": "zitcis1",
+    "description": "棕扇尾莺（Cisticola juncidis），隶属雀形目扇尾莺科，英文名 Zitting Cisticola，eBird 编码 zitcis1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红角鸮",
+    "en": "Oriental Scops Owl",
+    "sci": "Otus sunia",
+    "order": "鸮形目",
+    "family": "鸱鸮科",
+    "code": "orsowl",
+    "description": "红角鸮（Otus sunia），隶属鸮形目鸱鸮科，英文名 Oriental Scops Owl，eBird 编码 orsowl。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "乌鹟",
+    "en": "Dark-sided Flycatcher",
+    "sci": "Muscicapa sibirica",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": "dasfly",
+    "description": "乌鹟（Muscicapa sibirica），隶属雀形目鹟科，英文名 Dark-sided Flycatcher，eBird 编码 dasfly。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "游隼",
+    "en": "Peregrine Falcon",
+    "sci": "Falco peregrinus",
+    "order": "隼形目",
+    "family": "隼科",
+    "code": "perfal",
+    "description": "游隼（Falco peregrinus），隶属隼形目隼科，英文名 Peregrine Falcon，eBird 编码 perfal。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "蓝歌鸲",
+    "en": "Siberian Blue Robin",
+    "sci": "Larvivora cyane",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": "sibrob",
+    "description": "蓝歌鸲（Larvivora cyane），隶属雀形目鹟科，英文名 Siberian Blue Robin，eBird 编码 sibrob。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红喉歌鸲",
+    "en": "Siberian Rubythroat",
+    "sci": "Calliope calliope",
+    "order": "雀形目",
+    "family": "鹟科",
+    "code": "sibrub",
+    "description": "红喉歌鸲（Calliope calliope），隶属雀形目鹟科，英文名 Siberian Rubythroat，eBird 编码 sibrub。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "普通鸬鹚",
+    "en": "Great Cormorant",
+    "sci": "Phalacrocorax carbo",
+    "order": "鲣鸟目",
+    "family": "鸬鹚科",
+    "code": "grecor",
+    "description": "普通鸬鹚（Phalacrocorax carbo），隶属鲣鸟目鸬鹚科，英文名 Great Cormorant，eBird 编码 grecor。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "红脚鹬",
+    "en": "Common Redshank",
+    "sci": "Tringa totanus",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "comred1",
+    "description": "红脚鹬（Tringa totanus），隶属鸻形目鹬科，英文名 Common Redshank，eBird 编码 comred1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰斑鸠",
+    "en": "Eurasian Collared Dove",
+    "sci": "Streptopelia decaocto",
+    "order": "鸽形目",
+    "family": "鸠鸽科",
+    "code": "eucdov",
+    "description": "灰斑鸠（Streptopelia decaocto），隶属鸽形目鸠鸽科，英文名 Eurasian Collared Dove，eBird 编码 eucdov。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "斑文鸟",
+    "en": "Scaly-breasted Munia",
+    "sci": "Lonchura punctulata",
+    "order": "雀形目",
+    "family": "梅花雀科",
+    "code": "nutman",
+    "description": "斑文鸟（Lonchura punctulata），隶属雀形目梅花雀科，英文名 Scaly-breasted Munia，eBird 编码 nutman。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "鹤鹬",
+    "en": "Spotted Redshank",
+    "sci": "Tringa erythropus",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "spored",
+    "description": "鹤鹬（Tringa erythropus），隶属鸻形目鹬科，英文名 Spotted Redshank，eBird 编码 spored。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "绿翅鸭",
+    "en": "Green-winged Teal",
+    "sci": "Anas crecca",
+    "order": "雁形目",
+    "family": "鸭科",
+    "code": "gnwtea",
+    "description": "绿翅鸭（Anas crecca），隶属雁形目鸭科，英文名 Green-winged Teal，eBird 编码 gnwtea。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "白眉鸫",
+    "en": "Eyebrowed Thrush",
+    "sci": "Turdus obscurus",
+    "order": "雀形目",
+    "family": "鸫科",
+    "code": "eyethr",
+    "description": "白眉鸫（Turdus obscurus），隶属雀形目鸫科，英文名 Eyebrowed Thrush，eBird 编码 eyethr。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "田鹨",
+    "en": "Richard's Pipit",
+    "sci": "Anthus richardi",
+    "order": "雀形目",
+    "family": "鹡鸰科",
+    "code": "ricpip1",
+    "description": "田鹨（Anthus richardi），隶属雀形目鹡鸰科，英文名 Richard's Pipit，eBird 编码 ricpip1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "灰卷尾",
+    "en": "Ashy Drongo",
+    "sci": "Dicrurus leucophaeus",
+    "order": "雀形目",
+    "family": "卷尾科",
+    "code": "ashdro1",
+    "description": "灰卷尾（Dicrurus leucophaeus），隶属雀形目卷尾科，英文名 Ashy Drongo，eBird 编码 ashdro1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "冕柳莺",
+    "en": "Eastern Crowned Warbler",
+    "sci": "Phylloscopus coronatus",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": "eacwar1",
+    "description": "冕柳莺（Phylloscopus coronatus），隶属雀形目柳莺科，英文名 Eastern Crowned Warbler，eBird 编码 eacwar1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "淡脚柳莺",
+    "en": "Pale-legged Leaf Warbler",
+    "sci": "Phylloscopus tenellipes",
+    "order": "雀形目",
+    "family": "柳莺科",
+    "code": "pllwar1",
+    "description": "淡脚柳莺（Phylloscopus tenellipes），隶属雀形目柳莺科，英文名 Pale-legged Leaf Warbler，eBird 编码 pllwar1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "崖沙燕",
+    "en": "Sand Martin",
+    "sci": "Riparia riparia",
+    "order": "雀形目",
+    "family": "燕科",
+    "code": "banswa",
+    "description": "崖沙燕（Riparia riparia），隶属雀形目燕科，英文名 Sand Martin，eBird 编码 banswa。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "小白腰雨燕",
+    "en": "House Swift",
+    "sci": "Apus nipalensis",
+    "order": "夜鹰目",
+    "family": "雨燕科",
+    "code": "houswi1",
+    "description": "小白腰雨燕（Apus nipalensis），隶属夜鹰目雨燕科，英文名 House Swift，eBird 编码 houswi1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "白腰文鸟",
+    "en": "White-rumped Munia",
+    "sci": "Lonchura striata",
+    "order": "雀形目",
+    "family": "梅花雀科",
+    "code": "whrmun",
+    "description": "白腰文鸟（Lonchura striata），隶属雀形目梅花雀科，英文名 White-rumped Munia，eBird 编码 whrmun。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黑领椋鸟",
+    "en": "Black-collared Starling",
+    "sci": "Gracupica nigricollis",
+    "order": "雀形目",
+    "family": "椋鸟科",
+    "code": "bkcsta1",
+    "description": "黑领椋鸟（Gracupica nigricollis），隶属雀形目椋鸟科，英文名 Black-collared Starling，eBird 编码 bkcsta1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "青脚滨鹬",
+    "en": "Temminck's Stint",
+    "sci": "Calidris temminckii",
+    "order": "鸻形目",
+    "family": "鹬科",
+    "code": "temsti",
+    "description": "青脚滨鹬（Calidris temminckii），隶属鸻形目鹬科，英文名 Temminck's Stint，eBird 编码 temsti。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
+  },
+  {
+    "cn": "黑短脚鹎",
+    "en": "Black Bulbul",
+    "sci": "Hypsipetes leucocephalus",
     "order": "雀形目",
     "family": "鹎科",
-    "code": ""
-  },
-  {
-    "cn": "红耳鹎",
-    "en": "紅耳鵯",
-    "sci": "Pycnonotus jocosus",
-    "order": "雀形目",
-    "family": "鹎科",
-    "code": ""
-  },
-  {
-    "cn": "栗背短脚鹎",
-    "en": "栗背短腳鵯",
-    "sci": "Hemixos castanonotus",
-    "order": "雀形目",
-    "family": "鹎科",
-    "code": ""
-  },
-  {
-    "cn": "红嘴相思鸟",
-    "en": "紅嘴相思鳥",
-    "sci": "Leiothrix lutea",
-    "order": "雀形目",
-    "family": "噪鹛科",
-    "code": ""
-  },
-  {
-    "cn": "白领凤鹛",
-    "en": "White-collared Yuhina",
-    "sci": "Parayuhina diademata",
-    "order": "雀形目",
-    "family": "绣眼鸟科",
-    "code": ""
+    "code": "blabul1",
+    "description": "黑短脚鹎（Hypsipetes leucocephalus），隶属雀形目鹎科，英文名 Black Bulbul，eBird 编码 blabul1。",
+    "description_source": "Birdaholic 根据中国鸟类名录与 Wikidata CC0 名称数据生成"
   }
 ]

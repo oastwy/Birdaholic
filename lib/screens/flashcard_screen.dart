@@ -85,6 +85,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   final _audioKey = GlobalKey<AudioPlayerWidgetState>();
   String? _swipeFeedbackText;
   bool _swipeFeedbackVisible = false;
+  Offset? _cardPointerStart;
+  Offset? _cardPointerLatest;
 
   bool get _showAnswerOnEntry =>
       _answerMode == AnswerMode.learning && _mode == StudyMode.review;
@@ -105,8 +107,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   @override
   void didUpdateWidget(covariant FlashcardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.refreshToken != widget.refreshToken ||
-        (!oldWidget.isActive && widget.isActive)) {
+    if (oldWidget.refreshToken != widget.refreshToken) {
       _loadSpecies();
     }
   }
@@ -234,7 +235,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     list = list.where(_hasPromptMedia).toList();
-    if (_effectivePromptMode == PromptMode.image && _imageDifficultyFilter > 0) {
+    if (_effectivePromptMode == PromptMode.image &&
+        _imageDifficultyFilter > 0) {
       list = list.where(_hasImageAtDifficulty).toList();
     }
 
@@ -361,19 +363,74 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     return images.any((image) => image.difficulty == _imageDifficultyFilter);
   }
 
-  List<String> _filteredImageFiles(Species species) {
-    if (_imageDifficultyFilter == 0) return species.imageFiles;
-    final files = species.images
+  List<SpeciesImageInfo> _imageEntriesForStudy(Species species) {
+    final entries = species.images.isNotEmpty
+        ? species.images
+        : species.image != null
+            ? [
+                SpeciesImageInfo(
+                  file: species.image!,
+                  credit: species.imageCredit,
+                  difficulty: species.difficulty,
+                )
+              ]
+            : const <SpeciesImageInfo>[];
+    if (_imageDifficultyFilter == 0) return entries;
+    return entries
         .where((image) => image.difficulty == _imageDifficultyFilter)
-        .map((image) => image.file)
-        .where((file) => file.isNotEmpty)
         .toList();
-    if (files.isEmpty &&
-        species.image != null &&
-        species.difficulty == _imageDifficultyFilter) {
-      files.add(species.image!);
+  }
+
+  Future<
+      ({
+        String? path,
+        String? file,
+        String credit,
+        List<String> extraPaths,
+        List<String> extraFiles,
+        List<String> extraCredits,
+      })> _getStudyImages() async {
+    final bird = _currentBird;
+    if (bird == null) {
+      return (
+        path: null,
+        file: null,
+        credit: '',
+        extraPaths: const <String>[],
+        extraFiles: const <String>[],
+        extraCredits: const <String>[],
+      );
     }
-    return files;
+    final entries = _imageEntriesForStudy(bird);
+    final paths = <String>[];
+    final files = <String>[];
+    final credits = <String>[];
+    for (final image in entries) {
+      final path = await widget.packManager.getResourcePath(image.file);
+      if (path != null) {
+        paths.add(path);
+        files.add(image.file);
+        credits.add(image.credit.isNotEmpty ? image.credit : bird.imageCredit);
+      }
+    }
+    if (paths.isEmpty) {
+      return (
+        path: null,
+        file: null,
+        credit: '',
+        extraPaths: const <String>[],
+        extraFiles: const <String>[],
+        extraCredits: const <String>[],
+      );
+    }
+    return (
+      path: paths.first,
+      file: files.first,
+      credit: credits.first,
+      extraPaths: paths.skip(1).toList(),
+      extraFiles: files.skip(1).toList(),
+      extraCredits: credits.skip(1).toList(),
+    );
   }
 
   List<String> get _availableOrders {
@@ -393,25 +450,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     for (final a in bird.audios) {
       final p = await widget.packManager.getResourcePath(a.file);
       if (p != null) paths.add(p);
-    }
-    return paths;
-  }
-
-  Future<String?> _getImagePath() async {
-    final bird = _currentBird;
-    final imageFiles = bird == null ? const <String>[] : _filteredImageFiles(bird);
-    if (bird == null || imageFiles.isEmpty) return null;
-    return widget.packManager.getResourcePath(imageFiles.first);
-  }
-
-  Future<List<String>> _getLocalExtraImagePaths() async {
-    final bird = _currentBird;
-    final imageFiles = bird == null ? const <String>[] : _filteredImageFiles(bird);
-    if (bird == null || imageFiles.length <= 1) return [];
-    final paths = <String>[];
-    for (final image in imageFiles.skip(1)) {
-      final path = await widget.packManager.getResourcePath(image);
-      if (path != null) paths.add(path);
     }
     return paths;
   }
@@ -915,7 +953,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (apiKey.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先在数据包页填写 eBird API key')));
+      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
       return;
     }
 
@@ -1070,6 +1108,45 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _buildDeck();
   }
 
+  Widget _difficultySelector() {
+    String labelFor(int value) {
+      if (value == 0) return '全部';
+      return List.filled(value, '⭐').join();
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Text('难度:', style: TextStyle(fontSize: 13)),
+          ...List.generate(6, (i) {
+            final selected = _imageDifficultyFilter == i;
+            return ChoiceChip(
+              label: Text(
+                labelFor(i),
+                style: TextStyle(
+                  fontSize: i == 0 ? 12 : 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              selected: selected,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              selectedColor: const Color(0xFF2d5016).withValues(alpha: 0.16),
+              onSelected: (_) {
+                setState(() => _imageDifficultyFilter = i);
+                _buildDeck();
+              },
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   void _restart() {
     setState(() {
       _correctCount = 0;
@@ -1117,6 +1194,31 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                       ),
                     ),
                   ),
+                  TextButton.icon(
+                    onPressed: _applyEBirdDeckFilter,
+                    icon: Icon(
+                      Icons.place_outlined,
+                      size: 18,
+                      color: _ebirdFilterSci.isEmpty
+                          ? const Color(0xFF2d5016)
+                          : Colors.white,
+                    ),
+                    label: Text(
+                      _ebirdFilterSci.isEmpty ? '地点筛选' : _ebirdFilterLabel,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: _ebirdFilterSci.isEmpty
+                          ? const Color(0xFF2d5016)
+                          : Colors.white,
+                      backgroundColor: _ebirdFilterSci.isEmpty
+                          ? const Color(0xFF2d5016).withValues(alpha: 0.08)
+                          : const Color(0xFF2d5016),
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   TextButton.icon(
                     onPressed: () => setState(
                       () => _showAdvancedControls = !_showAdvancedControls,
@@ -1249,41 +1351,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                if (_promptMode == PromptMode.image) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      const SizedBox(
-                        width: 44,
-                        child: Text('难度:', style: TextStyle(fontSize: 13)),
-                      ),
-                      SizedBox(
-                        height: 32,
-                        child: DropdownButton<int>(
-                          value: _imageDifficultyFilter,
-                          isDense: true,
-                          underline: const SizedBox(),
-                          items: const [
-                            DropdownMenuItem(value: 0, child: Text('全部')),
-                            DropdownMenuItem(value: 1, child: Text('1')),
-                            DropdownMenuItem(value: 2, child: Text('2')),
-                            DropdownMenuItem(value: 3, child: Text('3')),
-                            DropdownMenuItem(value: 4, child: Text('4')),
-                            DropdownMenuItem(value: 5, child: Text('5')),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() => _imageDifficultyFilter = v);
-                            _buildDeck();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                ],
+                _difficultySelector(),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     const Text('筛选:', style: TextStyle(fontSize: 13)),
@@ -1309,17 +1378,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                           setState(() => _filter = v);
                           _buildDeck();
                         },
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'eBird 地点',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: _applyEBirdDeckFilter,
-                      icon: Icon(
-                        Icons.place_outlined,
-                        color: _ebirdFilterSci.isEmpty
-                            ? Colors.grey[700]
-                            : const Color(0xFF2d5016),
                       ),
                     ),
                     const Spacer(),
@@ -1435,12 +1493,21 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         if (_deck.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                _deckSummary,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _deckSummary,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _effectivePromptMode == PromptMode.image
+                      ? '手势：左右切换同一物种照片；到边界后切换物种。上滑认识，下滑不认识。'
+                      : '手势：上滑认识，下滑不认识；底部按钮切换上一种/下一种。',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+              ],
             ),
           ),
         Expanded(
@@ -1460,8 +1527,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                           : FutureBuilder<List<Object?>>(
                               future: Future.wait<Object?>([
                                 _getAudioPaths(),
-                                _getImagePath(),
-                                _getLocalExtraImagePaths(),
+                                _getStudyImages(),
                               ]),
                               builder: (context, snapshot) {
                                 if (!snapshot.hasData) {
@@ -1470,20 +1536,29 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 }
                                 final audioPaths =
                                     snapshot.data![0] as List<String>;
-                                final imagePath = snapshot.data![1] as String?;
-                                final localExtraImagePaths =
-                                    snapshot.data![2] as List<String>;
-                                final localExtraCredits = bird.images
-                                    .skip(1)
-                                    .map((item) => item.credit)
-                                    .toList();
+                                final studyImage = snapshot.data![1] as ({
+                                  String? path,
+                                  String? file,
+                                  String credit,
+                                  List<String> extraPaths,
+                                  List<String> extraFiles,
+                                  List<String> extraCredits,
+                                });
+                                final imagePath = studyImage.path;
                                 final extraImagePaths = [
-                                  ...localExtraImagePaths,
-                                  ..._extraImagePaths,
+                                  ...studyImage.extraPaths,
+                                  if (_imageDifficultyFilter == 0)
+                                    ..._extraImagePaths,
+                                ];
+                                final extraImageSourceFiles = [
+                                  ...studyImage.extraFiles,
+                                  if (_imageDifficultyFilter == 0)
+                                    ...const <String>[],
                                 ];
                                 final extraImageCredits = [
-                                  ...localExtraCredits,
-                                  ..._extraImageCredits,
+                                  ...studyImage.extraCredits,
+                                  if (_imageDifficultyFilter == 0)
+                                    ..._extraImageCredits,
                                 ];
                                 final labels = bird.audios
                                     .map((a) => a.displayLabel)
@@ -1496,17 +1571,25 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                       ? _buildQuizLayout(
                                           bird: bird,
                                           imagePath: imagePath,
+                                          imageSourceFile: studyImage.file,
+                                          imageCredit: studyImage.credit,
                                           audioPaths: audioPaths,
                                           labels: labels,
                                           extraImagePaths: extraImagePaths,
+                                          extraImageSourceFiles:
+                                              extraImageSourceFiles,
                                           extraImageCredits: extraImageCredits,
                                         )
                                       : _buildCardScroller(
                                           bird: bird,
                                           imagePath: imagePath,
+                                          imageSourceFile: studyImage.file,
+                                          imageCredit: studyImage.credit,
                                           audioPaths: audioPaths,
                                           labels: labels,
                                           extraImagePaths: extraImagePaths,
+                                          extraImageSourceFiles:
+                                              extraImageSourceFiles,
                                           extraImageCredits: extraImageCredits,
                                         ),
                                 );
@@ -1562,33 +1645,27 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   ),
                   if (_mode != StudyMode.quiz) ...[
                     const SizedBox(height: 6),
-                    if (_answered)
-                      _actionButton(
-                        label: _isFinished ? '已完成' : '下一张',
-                        color: const Color(0xFF2d5016),
-                        enabled: !_isFinished,
-                        onPressed: _nextCard,
-                      )
-                    else
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _actionButton(
-                              label: '✓ 认识',
-                              color: Colors.green,
-                              onPressed: _markCorrect,
-                            ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _actionButton(
+                            label: '上一种',
+                            color: Colors.grey[700]!,
+                            enabled: _idx > 0,
+                            onPressed: _previousCard,
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _actionButton(
-                              label: '✗ 不认识',
-                              color: Colors.red,
-                              onPressed: _markWrong,
-                            ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _actionButton(
+                            label: _isFinished ? '已完成' : '下一种',
+                            color: const Color(0xFF2d5016),
+                            enabled: !_isFinished,
+                            onPressed: _nextCard,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
                   ],
                 ],
               ),
@@ -1707,9 +1784,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   Widget _buildQuizLayout({
     required Species bird,
     required String? imagePath,
+    required String? imageSourceFile,
+    required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
     required List<String> extraImagePaths,
+    required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
   }) {
     return LayoutBuilder(
@@ -1722,9 +1802,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                 child: _gestureCard(
                   bird: bird,
                   imagePath: imagePath,
+                  imageSourceFile: imageSourceFile,
+                  imageCredit: imageCredit,
                   audioPaths: audioPaths,
                   labels: labels,
                   extraImagePaths: extraImagePaths,
+                  extraImageSourceFiles: extraImageSourceFiles,
                   extraImageCredits: extraImageCredits,
                 ),
               ),
@@ -1740,9 +1823,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   Widget _buildCardScroller({
     required Species bird,
     required String? imagePath,
+    required String? imageSourceFile,
+    required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
     required List<String> extraImagePaths,
+    required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
   }) {
     return SingleChildScrollView(
@@ -1758,9 +1844,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
             child: _gestureCard(
               bird: bird,
               imagePath: imagePath,
+              imageSourceFile: imageSourceFile,
+              imageCredit: imageCredit,
               audioPaths: audioPaths,
               labels: labels,
               extraImagePaths: extraImagePaths,
+              extraImageSourceFiles: extraImageSourceFiles,
               extraImageCredits: extraImageCredits,
             ),
           ),
@@ -1772,41 +1861,38 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   Widget _gestureCard({
     required Species bird,
     required String? imagePath,
+    required String? imageSourceFile,
+    required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
     required List<String> extraImagePaths,
+    required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
   }) {
     return Stack(
       children: [
-        GestureDetector(
-          onHorizontalDragEnd: (details) {
-            final vx = details.primaryVelocity ?? 0;
-            if (vx < -250) _nextCard();
-            if (vx > 250) _previousCard();
-          },
-          onVerticalDragEnd: (details) {
-            final vy = details.primaryVelocity ?? 0;
-            if (vy < -250) {
-              _showSwipeFeedback(true);
-              _markCorrect();
-            }
-            if (vy > 250) {
-              _showSwipeFeedback(false);
-              _markWrong();
-            }
-          },
+        Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: _startCardPointer,
+          onPointerMove: _updateCardPointer,
+          onPointerUp: (_) => _finishCardPointer(),
+          onPointerCancel: (_) => _clearCardPointer(),
           child: BirdCard(
             key: _cardKey,
             species: bird,
             imagePath: imagePath,
+            imageSourceFile: imageSourceFile,
+            imageCredit: imageCredit,
             audioPaths: audioPaths,
             audioLabels: labels,
             audioPlayerKey: _audioKey,
+            onPreviousSpecies: _previousCard,
+            onNextSpecies: _nextCard,
             mode: _mode,
             promptMode: _effectivePromptMode,
             initiallyShowAnswer: _showAnswerOnEntry,
             extraImagePaths: extraImagePaths,
+            extraImageSourceFiles: extraImageSourceFiles,
             extraImageCredits: extraImageCredits,
             isAdmin: widget.storage.isAdminMode,
             onDifficultyChanged: (diff) async {
@@ -1871,6 +1957,38 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           ),
       ],
     );
+  }
+
+  void _startCardPointer(PointerDownEvent event) {
+    _cardPointerStart = event.position;
+    _cardPointerLatest = event.position;
+  }
+
+  void _updateCardPointer(PointerMoveEvent event) {
+    _cardPointerLatest = event.position;
+  }
+
+  void _finishCardPointer() {
+    final start = _cardPointerStart;
+    final latest = _cardPointerLatest;
+    _clearCardPointer();
+    if (start == null || latest == null) return;
+    final delta = latest - start;
+    final dx = delta.dx;
+    final dy = delta.dy;
+    if (dy.abs() < 54 || dy.abs() < dx.abs() * 1.35) return;
+    if (dy < 0) {
+      _showSwipeFeedback(true);
+      _markCorrect();
+    } else {
+      _showSwipeFeedback(false);
+      _markWrong();
+    }
+  }
+
+  void _clearCardPointer() {
+    _cardPointerStart = null;
+    _cardPointerLatest = null;
   }
 
   Widget _roundIconAction({

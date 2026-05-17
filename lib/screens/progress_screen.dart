@@ -39,6 +39,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   String? _loadError;
   PodcastEpisode? _podcastEpisode;
   bool _podcastLoading = true;
+  int _homeBannerPage = 0;
 
   @override
   void initState() {
@@ -94,6 +95,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final studied = masteryMap.values
         .where((m) => m.knownCount > 0 || m.unknownCount > 0)
         .length;
+    final currentPackStudied = _species.where((species) {
+      final mastery = masteryMap[species.cn];
+      return mastery != null &&
+          (mastery.knownCount > 0 || mastery.unknownCount > 0);
+    }).length;
+    final currentPackProgress =
+        _species.isEmpty ? 0.0 : currentPackStudied / _species.length;
     final unfamiliarNames = widget.storage.getUnfamiliarSpecies();
     final weakSpecies = _buildWeakSpecies(masteryMap);
     final checkInDates = widget.storage.getCheckInDates();
@@ -117,7 +125,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                '先去“数据包”安装试用包或导入自己的鸟种包，之后这里会显示复习建议。',
+                '先去“设置”里的数据包管理安装中国常见鸟 100，之后这里会显示复习建议。',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey[600]),
               ),
@@ -189,7 +197,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          _podcastCard(),
+          _newUserGuideCard(),
+          const SizedBox(height: 14),
+          _homeBannerCarousel(
+            currentPackStudied: currentPackStudied,
+            currentPackTotal: _species.length,
+            currentPackProgress: currentPackProgress,
+          ),
           const SizedBox(height: 14),
           Row(
             children: [
@@ -363,6 +377,204 @@ class _ProgressScreenState extends State<ProgressScreen> {
       return scoreB.compareTo(scoreA);
     });
     return mapped;
+  }
+
+  Widget _newUserGuideCard() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2d5016).withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF2d5016).withValues(alpha: 0.12),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.tips_and_updates_outlined,
+                  size: 18, color: Color(0xFF2d5016)),
+              SizedBox(width: 8),
+              Text(
+                '新手三步',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _guideStep('1', '先装“中国常见鸟 100”，不填 API key 也能开始。'),
+          const SizedBox(height: 6),
+          _guideStep('2', '去“预习”看图、听声、记特征，再回首页打卡。'),
+          const SizedBox(height: 6),
+          _guideStep('3', '学习时左右换同种照片，上滑认识，下滑不认识。'),
+        ],
+      ),
+    );
+  }
+
+  Widget _guideStep(String number, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: Color(0xFF2d5016),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            number,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(fontSize: 13, color: Colors.grey[800]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _homeBannerCarousel({
+    required int currentPackStudied,
+    required int currentPackTotal,
+    required double currentPackProgress,
+  }) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 136,
+          child: PageView(
+            onPageChanged: (index) {
+              setState(() => _homeBannerPage = index);
+            },
+            children: [
+              _podcastCard(),
+              _updateNoticeCard(
+                studied: currentPackStudied,
+                total: currentPackTotal,
+                progress: currentPackProgress,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(2, (index) {
+            final active = _homeBannerPage == index;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: active ? 18 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFF2d5016) : Colors.grey[300],
+                borderRadius: BorderRadius.circular(999),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _updateNoticeCard({
+    required int studied,
+    required int total,
+    required double progress,
+  }) {
+    final percent = (progress * 100).round();
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.campaign_outlined,
+                    size: 16, color: Color(0xFF2d5016)),
+                SizedBox(width: 6),
+                Text(
+                  '更新通知',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2d5016),
+                  ),
+                ),
+                Spacer(),
+                Icon(Icons.swipe_rounded, size: 15, color: Colors.grey),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '当前版本已支持中国内置名录、图片难度和多包叠加学习。',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: progress.clamp(0, 1),
+                          minHeight: 8,
+                          backgroundColor: Colors.grey[200],
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF2d5016),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '$percent%',
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2d5016),
+                      ),
+                    ),
+                    Text(
+                      '$studied/$total 种',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _podcastCard() {

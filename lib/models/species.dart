@@ -63,6 +63,8 @@ class Species {
   final String family; // 科
   final String cons; // 保护等级: "1" | "2" | ""
   final String habitat; // 栖息地
+  final String description; // 简介
+  final String descriptionSource; // 简介来源
   final List<AudioInfo> audios; // 音频列表
   final String? image; // 图片相对路径
   final List<SpeciesImageInfo> images; // 多图列表，第一张通常是封面
@@ -81,6 +83,8 @@ class Species {
     this.family = '',
     this.cons = '',
     this.habitat = '',
+    this.description = '',
+    this.descriptionSource = '',
     this.audios = const [],
     this.image,
     this.images = const [],
@@ -122,6 +126,8 @@ class Species {
     String? family,
     String? cons,
     String? habitat,
+    String? description,
+    String? descriptionSource,
     List<AudioInfo>? audios,
     String? image,
     List<SpeciesImageInfo>? images,
@@ -139,6 +145,8 @@ class Species {
       family: family ?? this.family,
       cons: cons ?? this.cons,
       habitat: habitat ?? this.habitat,
+      description: description ?? this.description,
+      descriptionSource: descriptionSource ?? this.descriptionSource,
       audios: audios ?? this.audios,
       image: image ?? this.image,
       images: images ?? this.images,
@@ -222,6 +230,8 @@ class Species {
       family: (json['family'] as String?) ?? '',
       cons: (json['cons'] as String?) ?? '',
       habitat: (json['habitat'] as String?) ?? '',
+      description: (json['description'] as String?)?.trim() ?? '',
+      descriptionSource: (json['description_source'] as String?)?.trim() ?? '',
       audios: audioList,
       image: legacyImage ??
           (normalizedImages.isNotEmpty ? normalizedImages.first.file : null),
@@ -243,6 +253,9 @@ class Species {
         if (family.isNotEmpty) 'family': family,
         if (cons.isNotEmpty) 'cons': cons,
         'habitat': habitat,
+        if (description.isNotEmpty) 'description': description,
+        if (descriptionSource.isNotEmpty)
+          'description_source': descriptionSource,
         'audios': audios.map((a) => a.toJson()).toList(),
         if (image != null) 'image': image,
         if (images.isNotEmpty) 'images': images.map((i) => i.toJson()).toList(),

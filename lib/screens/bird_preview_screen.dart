@@ -119,7 +119,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
     if (apiKey.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先在数据包页填写 eBird API key')),
+        const SnackBar(content: Text('请先在设置页填写 eBird API key')),
       );
       return;
     }
@@ -485,6 +485,24 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
                             fontSize: 13, color: Colors.white54)),
                   ],
                 ),
+              ],
+              if (sp.description.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  sp.description,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: Colors.white70,
+                  ),
+                ),
+                if (sp.descriptionSource.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    '简介来源：${sp.descriptionSource}',
+                    style: const TextStyle(fontSize: 11, color: Colors.white38),
+                  ),
+                ],
               ],
             ],
           ),

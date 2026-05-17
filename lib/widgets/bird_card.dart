@@ -19,17 +19,22 @@ enum PromptMode {
 class BirdCard extends StatefulWidget {
   final Species species;
   final String? imagePath;
+  final String? imageSourceFile;
+  final String imageCredit;
   final List<String> audioPaths;
   final List<String> audioLabels;
   final StudyMode mode;
   final PromptMode promptMode;
   final VoidCallback? onAudioStarted;
   final VoidCallback? onRevealed;
+  final VoidCallback? onPreviousSpecies;
+  final VoidCallback? onNextSpecies;
   final GlobalKey<AudioPlayerWidgetState>? audioPlayerKey;
   final bool initiallyShowAnswer;
 
   // 额外图片（来自服务器，本地路径或网络 URL）
   final List<String> extraImagePaths;
+  final List<String> extraImageSourceFiles;
   final List<String> extraImageCredits;
 
   // 了解此鸟回调
@@ -38,21 +43,27 @@ class BirdCard extends StatefulWidget {
   // 管理员难度评分
   final bool isAdmin;
   final ValueChanged<int>? onDifficultyChanged;
-  final void Function(String imageFile, int difficulty)? onImageDifficultyChanged;
+  final void Function(String imageFile, int difficulty)?
+      onImageDifficultyChanged;
 
   const BirdCard({
     super.key,
     required this.species,
     this.imagePath,
+    this.imageSourceFile,
+    this.imageCredit = '',
     this.audioPaths = const [],
     this.audioLabels = const [],
     this.mode = StudyMode.review,
     this.promptMode = PromptMode.audio,
     this.onAudioStarted,
     this.onRevealed,
+    this.onPreviousSpecies,
+    this.onNextSpecies,
     this.audioPlayerKey,
     this.initiallyShowAnswer = false,
     this.extraImagePaths = const [],
+    this.extraImageSourceFiles = const [],
     this.extraImageCredits = const [],
     this.onLearnMore,
     this.isAdmin = false,
@@ -71,13 +82,16 @@ class BirdCardState extends State<BirdCard>
   bool _showFront = true;
   final PageController _imagePageController = PageController();
   int _imagePageIndex = 0;
+  Offset? _imagePointerStart;
+  Offset? _imagePointerLatest;
 
   List<_ImageEntry> get _allImages {
     final result = <_ImageEntry>[];
     if (widget.imagePath != null && File(widget.imagePath!).existsSync()) {
-      final sourceFile = widget.species.imageFiles.isNotEmpty
-          ? widget.species.imageFiles.first
-          : null;
+      final sourceFile = widget.imageSourceFile ??
+          (widget.species.imageFiles.isNotEmpty
+              ? widget.species.imageFiles.first
+              : null);
       SpeciesImageInfo? sourceImage;
       if (sourceFile != null) {
         for (final image in widget.species.images) {
@@ -90,7 +104,9 @@ class BirdCardState extends State<BirdCard>
       result.add(_ImageEntry(
         path: widget.imagePath!,
         isNetwork: false,
-        credit: widget.species.imageCredit,
+        credit: widget.imageCredit.isNotEmpty
+            ? widget.imageCredit
+            : widget.species.imageCredit,
         sourceFile: sourceFile,
         difficulty: sourceImage?.difficulty ?? widget.species.difficulty,
       ));
@@ -98,9 +114,28 @@ class BirdCardState extends State<BirdCard>
     for (var i = 0; i < widget.extraImagePaths.length; i++) {
       final p = widget.extraImagePaths[i];
       final isNet = p.startsWith('http://') || p.startsWith('https://');
-      final credit =
-          i < widget.extraImageCredits.length ? widget.extraImageCredits[i] : '';
-      result.add(_ImageEntry(path: p, isNetwork: isNet, credit: credit));
+      final credit = i < widget.extraImageCredits.length
+          ? widget.extraImageCredits[i]
+          : '';
+      final sourceFile = i < widget.extraImageSourceFiles.length
+          ? widget.extraImageSourceFiles[i]
+          : null;
+      SpeciesImageInfo? sourceImage;
+      if (sourceFile != null) {
+        for (final image in widget.species.images) {
+          if (image.file == sourceFile) {
+            sourceImage = image;
+            break;
+          }
+        }
+      }
+      result.add(_ImageEntry(
+        path: p,
+        isNetwork: isNet,
+        credit: credit,
+        sourceFile: sourceFile,
+        difficulty: sourceImage?.difficulty ?? widget.species.difficulty,
+      ));
     }
     return result;
   }
@@ -357,21 +392,37 @@ class BirdCardState extends State<BirdCard>
     );
   }
 
-  Widget _imageCarousel({required List<_ImageEntry> images, required double height}) {
+  Widget _imageCarousel(
+      {required List<_ImageEntry> images, required double height}) {
     if (images.length == 1) {
-      return _singleImageView(images.first, height: height);
+      return Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _startImagePointer,
+        onPointerMove: _updateImagePointer,
+        onPointerUp: (_) => _finishImagePointer(images),
+        onPointerCancel: (_) => _clearImagePointer(),
+        child: _singleImageView(images.first, height: height),
+      );
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           height: height,
-          child: PageView.builder(
-            controller: _imagePageController,
-            itemCount: images.length,
-            onPageChanged: (i) => setState(() => _imagePageIndex = i),
-            itemBuilder: (context, i) =>
-                _singleImageView(images[i], height: height),
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _startImagePointer,
+            onPointerMove: _updateImagePointer,
+            onPointerUp: (_) => _finishImagePointer(images),
+            onPointerCancel: (_) => _clearImagePointer(),
+            child: PageView.builder(
+              controller: _imagePageController,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: images.length,
+              onPageChanged: (i) => setState(() => _imagePageIndex = i),
+              itemBuilder: (context, i) =>
+                  _singleImageView(images[i], height: height),
+            ),
           ),
         ),
         const SizedBox(height: 6),
@@ -404,21 +455,70 @@ class BirdCardState extends State<BirdCard>
     );
   }
 
+  void _startImagePointer(PointerDownEvent event) {
+    _imagePointerStart = event.position;
+    _imagePointerLatest = event.position;
+  }
+
+  void _updateImagePointer(PointerMoveEvent event) {
+    _imagePointerLatest = event.position;
+  }
+
+  void _finishImagePointer(List<_ImageEntry> images) {
+    final start = _imagePointerStart;
+    final latest = _imagePointerLatest;
+    _clearImagePointer();
+    if (start == null || latest == null || images.isEmpty) return;
+
+    final delta = latest - start;
+    final dx = delta.dx;
+    final dy = delta.dy;
+    if (dx.abs() < 44 || dx.abs() < dy.abs() * 1.25) return;
+
+    if (dx < 0) {
+      if (_imagePageIndex < images.length - 1) {
+        _imagePageController.animateToPage(
+          _imagePageIndex + 1,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      } else {
+        widget.onNextSpecies?.call();
+      }
+      return;
+    }
+
+    if (_imagePageIndex > 0) {
+      _imagePageController.animateToPage(
+        _imagePageIndex - 1,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    } else {
+      widget.onPreviousSpecies?.call();
+    }
+  }
+
+  void _clearImagePointer() {
+    _imagePointerStart = null;
+    _imagePointerLatest = null;
+  }
+
   Widget _singleImageView(_ImageEntry entry, {required double height}) {
     Widget img;
     if (entry.isNetwork) {
       img = Image.network(
         entry.path,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) =>
-            const Center(child: Text('图片加载失败', style: TextStyle(color: Colors.grey))),
+        errorBuilder: (_, __, ___) => const Center(
+            child: Text('图片加载失败', style: TextStyle(color: Colors.grey))),
       );
     } else {
       img = Image.file(
         File(entry.path),
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) =>
-            const Center(child: Text('图片加载失败', style: TextStyle(color: Colors.grey))),
+        errorBuilder: (_, __, ___) => const Center(
+            child: Text('图片加载失败', style: TextStyle(color: Colors.grey))),
       );
     }
 
@@ -472,7 +572,8 @@ class BirdCardState extends State<BirdCard>
         borderRadius: BorderRadius.circular(12),
       ),
       child: Center(
-        child: Icon(Icons.image_not_supported, size: 48, color: Colors.grey[300]),
+        child:
+            Icon(Icons.image_not_supported, size: 48, color: Colors.grey[300]),
       ),
     );
   }
@@ -523,17 +624,19 @@ class BirdCardState extends State<BirdCard>
   }
 
   Widget _creditLine({required bool showImageCredit}) {
+    final currentImageCredit = widget.imageCredit.isNotEmpty
+        ? widget.imageCredit
+        : widget.species.imageCredit;
     final credits = [
-      if (showImageCredit && widget.species.imageCredit.isNotEmpty)
-        '图片感谢：${widget.species.imageCredit}',
+      if (showImageCredit && currentImageCredit.isNotEmpty)
+        '图片感谢：$currentImageCredit',
       if (widget.species.audioCredit.isNotEmpty)
         '音频感谢：${widget.species.audioCredit}',
     ];
     // If carousel handles per-image credits, skip the image credit in credit line
     if (_allImages.length > 1 && showImageCredit) {
-      final audioCreditOnly = credits
-          .where((c) => c.startsWith('音频感谢'))
-          .toList();
+      final audioCreditOnly =
+          credits.where((c) => c.startsWith('音频感谢')).toList();
       if (audioCreditOnly.isEmpty) return const SizedBox.shrink();
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),

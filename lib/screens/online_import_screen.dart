@@ -530,7 +530,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
     if (apiKey.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先在数据包页填写 eBird API key')));
+      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
       return;
     }
 
@@ -692,7 +692,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                 children: [
                   Text(
                     '1. 会优先从 Birdaholic 服务器下载已优化媒体\n'
-                    '2. 如需按地点导入，请在“数据包”页填写 eBird API key\n'
+                    '2. 如需按地点导入，请在“设置”页填写 eBird API key\n'
                     '3. 这里可直接输入、搜索，或导入 txt / csv / json\n'
                     '4. 填写 Xeno-Canto API key 后，可补充服务器暂无的鸟鸣\n'
                     '5. 下载会在后台继续进行，完成后自动生成并激活数据包',

@@ -63,6 +63,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   final _chinaScrollController = ScrollController();
   List<EbirdLocationPreset> _locationResults = EBirdService.presets;
   final Map<String, GlobalKey> _orderHeaderKeys = {};
+  String? _chinaRailOrder;
 
   // Pack preview mode
   final _packPageController = PageController();
@@ -72,11 +73,13 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   @override
   void initState() {
     super.initState();
+    _chinaScrollController.addListener(_updateChinaRailOrder);
     _loadSpecies();
   }
 
   @override
   void dispose() {
+    _chinaScrollController.removeListener(_updateChinaRailOrder);
     _locationController.dispose();
     _searchController.dispose();
     _chinaScrollController.dispose();
@@ -87,8 +90,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   @override
   void didUpdateWidget(covariant SpeciesListScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.refreshToken != widget.refreshToken ||
-        (!oldWidget.isActive && widget.isActive)) {
+    if (oldWidget.refreshToken != widget.refreshToken) {
       _loadSpecies();
     }
   }
@@ -161,6 +163,9 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
               (json['protection'] as String? ?? '').trim(),
             ),
             habitat: _buildChinaHabitat((json['code'] as String? ?? '').trim()),
+            description: (json['description'] as String? ?? '').trim(),
+            descriptionSource:
+                (json['description_source'] as String? ?? '').trim(),
             audios: existing?.audios ?? const [],
             image: existing?.image,
             enAlt:
@@ -415,7 +420,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     if (apiKey.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先在数据包页填写 eBird API key')));
+      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
       return;
     }
 
@@ -463,7 +468,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     if (apiKey.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先在数据包页填写 eBird API key')));
+      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
       return;
     }
 
@@ -540,11 +545,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     if (_source == 'active') {
       final index = filtered.indexWhere((species) => species.order == order);
       if (index >= 0) {
-        _packPageController.animateToPage(
-          index,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-        );
+        _packPageController.jumpToPage(index);
       }
       return;
     }
@@ -552,12 +553,32 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     final key = _orderHeaderKeys[order];
     final context = key?.currentContext;
     if (context != null) {
+      setState(() => _chinaRailOrder = order);
       Scrollable.ensureVisible(
         context,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
+        duration: Duration.zero,
         alignment: 0.08,
       );
+    }
+  }
+
+  void _updateChinaRailOrder() {
+    if (_source != 'china' || _orderHeaderKeys.isEmpty) return;
+    String? bestOrder;
+    double bestTop = double.negativeInfinity;
+    for (final entry in _orderHeaderKeys.entries) {
+      final context = entry.value.currentContext;
+      if (context == null) continue;
+      final box = context.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) continue;
+      final top = box.localToGlobal(Offset.zero).dy;
+      if (top <= 180 && top > bestTop) {
+        bestTop = top;
+        bestOrder = entry.key;
+      }
+    }
+    if (bestOrder != null && bestOrder != _chinaRailOrder && mounted) {
+      setState(() => _chinaRailOrder = bestOrder);
     }
   }
 
@@ -1080,7 +1101,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         if (railOrders.length > 1)
           _OrderIndexRail(
             orders: railOrders,
-            currentOrder: null,
+            currentOrder: _chinaRailOrder,
             onOrderSelected: (order) => _jumpToOrder(filtered, order),
           ),
       ],
@@ -1473,6 +1494,16 @@ class _BirdInlinePageState extends State<_BirdInlinePage> {
                     AudioPlayerWidget(
                       audioPaths: localAudioPaths,
                       audioLabels: localAudioLabels,
+                    ),
+                  ],
+                  if (sp.description.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      sp.description,
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 13, height: 1.45),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                   if (features.isNotEmpty) ...[

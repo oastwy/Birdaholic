@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/storage.dart';
 import '../services/pack_manager.dart';
@@ -63,6 +64,184 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已设置每组 $_groupSize 张')),
+    );
+  }
+
+  Future<void> _editApiSettings() async {
+    final xenoController = TextEditingController(
+      text: widget.storage.getXenoCantoApiKey(),
+    );
+    final ebirdController = TextEditingController(
+      text: widget.storage.getEBirdApiKey(),
+    );
+    final adminController = TextEditingController(
+      text: widget.storage.getAdminUploadToken(),
+    );
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('API Key 与管理员模式'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: xenoController,
+              decoration: const InputDecoration(
+                labelText: 'Xeno-Canto API Key',
+                hintText: '用于第三方鸟鸣补充下载',
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ebirdController,
+              decoration: const InputDecoration(
+                labelText: 'eBird API Key',
+                hintText: '用于地点/附近鸟种筛选',
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: adminController,
+              decoration: const InputDecoration(
+                labelText: '管理员上传密钥',
+                hintText: '填写后开启管理员上传功能',
+              ),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved == true) {
+      await widget.storage.setXenoCantoApiKey(xenoController.text);
+      await widget.storage.setEBirdApiKey(ebirdController.text);
+      await widget.storage.setAdminUploadToken(adminController.text);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.storage.isAdminMode ? '设置已保存，管理员模式已开启' : '设置已保存',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openFeedbackJournal() async {
+    final entries = widget.storage.getFeedbackJournal();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.75,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      '纠错日记',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (entries.isNotEmpty)
+                      TextButton(
+                        onPressed: () async {
+                          final text = entries.map((item) {
+                            final species = item.speciesCn.isNotEmpty
+                                ? '${item.speciesCn} (${item.speciesSci})'
+                                : item.speciesSci;
+                            return '[${item.createdAt.substring(0, 16).replaceFirst('T', ' ')}] '
+                                '${item.page}${species.isNotEmpty ? ' · $species' : ''}\n${item.message}';
+                          }).join('\n\n');
+                          await Clipboard.setData(ClipboardData(text: text));
+                          if (!ctx.mounted) return;
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(content: Text('已复制纠错日记')),
+                          );
+                        },
+                        child: const Text('复制'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (entries.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        '还没有记录。\n在闪卡页点纠错按钮即可保存。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: entries.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final item = entries[index];
+                        return Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.speciesCn.isNotEmpty
+                                      ? '${item.speciesCn} · ${item.speciesSci}'
+                                      : item.page,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.createdAt
+                                      .substring(0, 16)
+                                      .replaceFirst('T', ' '),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(item.message),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -149,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: ListTile(
             leading: const Icon(Icons.folder_zip, color: Color(0xFF2d5016)),
             title: const Text('数据包管理'),
-            subtitle: const Text('安装中国常见鸟 100、按中国名录下载、导入/更新/删除数据包'),
+            subtitle: const Text('安装、下载、导入、更新和删除数据包'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.push(
@@ -166,6 +345,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               );
             },
+          ),
+        ),
+        const SizedBox(height: 10),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.key, color: Color(0xFF2d5016)),
+                title: const Text('API Key 与管理员模式'),
+                subtitle: Text(
+                  widget.storage.getEBirdApiKey().isEmpty &&
+                          widget.storage.getXenoCantoApiKey().isEmpty &&
+                          !widget.storage.isAdminMode
+                      ? '未填写'
+                      : widget.storage.isAdminMode
+                          ? '已配置，管理员模式已开启'
+                          : '已配置',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _editApiSettings,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(
+                  Icons.menu_book_outlined,
+                  color: Color(0xFF2d5016),
+                ),
+                title: const Text('纠错日记'),
+                subtitle:
+                    Text('${widget.storage.getFeedbackJournal().length} 条记录'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openFeedbackJournal,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
