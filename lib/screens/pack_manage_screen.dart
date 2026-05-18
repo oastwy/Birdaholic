@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../models/data_pack.dart';
 import '../services/download_task_service.dart';
@@ -36,8 +37,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
   bool _loading = false;
   String? _activePackDir;
   String _mediaUpdateStatus = '';
-
-
 
   @override
   void initState() {
@@ -144,7 +143,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
       showDragHandle: true,
       builder: (ctx) => _ServerDownloadSheet(
         packManager: widget.packManager,
-        onDownloadChinaCatalog: _downloadFullChinaCatalog,
         onInstalled: () {
           _loadPacks();
           widget.onPackChanged?.call();
@@ -245,10 +243,19 @@ class _PackManageScreenState extends State<PackManageScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                '先用 eBird 国家/地区代码取得物种名录，再逐个从自建服务器下载；服务器没有的物种会继续尝试 Xeno-Canto 音频和 iNaturalist/Wikimedia 图片。',
+                '中国完整名录不需要 eBird API；其它国家/地区可用 eBird 代码取得名录，再逐个从服务器下载。',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
               const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, '__china_full__'),
+                  icon: const Icon(Icons.list_alt_outlined),
+                  label: const Text('下载中国完整名录（无需 eBird）'),
+                ),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: controller,
                 textCapitalization: TextCapitalization.characters,
@@ -260,6 +267,15 @@ class _PackManageScreenState extends State<PackManageScreen> {
                   ),
                 ),
                 onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(ctx, '__current_location__'),
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('使用当前位置（经纬度）'),
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -315,7 +331,145 @@ class _PackManageScreenState extends State<PackManageScreen> {
     controller.dispose();
     final countryCode = result?.trim();
     if (countryCode == null || countryCode.isEmpty) return;
+    if (countryCode == '__china_full__') {
+      await _downloadFullChinaCatalog();
+      return;
+    }
     await _downloadCountrySpecies(countryCode);
+  }
+
+  Future<void> _showLocationSpeciesDownloadSheet() async {
+    final controller = TextEditingController(text: 'CN-53');
+    final distanceController = TextEditingController(text: '25');
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '按地点逐物种下载',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '输入 eBird 地区/热点代码，或输入经纬度。系统会先获取该地点鸟种，再逐个从服务器下载媒体。',
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  labelText: '地点、热点或经纬度',
+                  hintText: '例如 云南、那邦、CN-53、L3124991、24.7,97.6',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: distanceController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: '经纬度半径 km',
+                  hintText: '1-50，默认 25',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: EBirdService.presets.take(9).map((preset) {
+                  return ActionChip(
+                    label: Text(preset.label),
+                    onPressed: () => controller.text = preset.code,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final value = controller.text.trim();
+                    final dist = distanceController.text.trim();
+                    Navigator.pop(
+                      ctx,
+                      dist.isEmpty ? value : '$value|$dist',
+                    );
+                  },
+                  icon: const Icon(Icons.place_outlined),
+                  label: const Text('开始按地点下载'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final query = result?.trim();
+    final distanceKm = int.tryParse(distanceController.text.trim()) ?? 25;
+    controller.dispose();
+    distanceController.dispose();
+    if (query == null || query.isEmpty) return;
+    if (query == '__current_location__') {
+      await _downloadFromCurrentLocation(distanceKm: distanceKm);
+      return;
+    }
+    final parts = query.split('|');
+    await _downloadLocationSpecies(
+      parts.first,
+      distanceKm: parts.length > 1 ? int.tryParse(parts[1]) ?? 25 : distanceKm,
+    );
+  }
+
+  Future<void> _downloadFromCurrentLocation({int distanceKm = 25}) async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) throw Exception('手机定位服务未开启');
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception('未授予定位权限');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('定位权限已被永久拒绝，请到系统设置中开启');
+      }
+      final position = await Geolocator.getLastKnownPosition() ??
+          await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.low,
+              timeLimit: Duration(seconds: 20),
+            ),
+          );
+      await _downloadLocationSpecies(
+        '${position.latitude.toStringAsFixed(6)},${position.longitude.toStringAsFixed(6)}',
+        distanceKm: distanceKm,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('当前位置下载失败: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _downloadCountrySpecies(String countryCode) async {
@@ -377,6 +531,86 @@ class _PackManageScreenState extends State<PackManageScreen> {
     }
   }
 
+  Future<void> _downloadLocationSpecies(
+    String locationQuery, {
+    int distanceKm = 25,
+  }) async {
+    final apiKey = widget.storage.getEBirdApiKey();
+    if (apiKey.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
+      return;
+    }
+
+    try {
+      setState(() => _loading = true);
+      final normalized = locationQuery.trim();
+      final service = EBirdService(apiKey: apiKey);
+      final coords = _parseCoordinates(normalized);
+      final matches = coords == null
+          ? await service.fetchSpeciesMatches(normalized)
+          : await service.fetchNearbySpeciesMatches(
+              latitude: coords.$1,
+              longitude: coords.$2,
+              distanceKm: distanceKm.clamp(1, 50),
+            );
+      final label = coords == null
+          ? EBirdService.normalizeLocationCode(normalized)
+          : '${coords.$1.toStringAsFixed(3)},${coords.$2.toStringAsFixed(3)}';
+      final speciesList = await _speciesEntriesFromEbirdMatches(matches, label);
+      if (!mounted) return;
+      if (speciesList.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('地点 $label 没有匹配到可下载鸟种')),
+        );
+        return;
+      }
+
+      final started = DownloadTaskService.instance.start(
+        speciesList: speciesList,
+        packName: '地点-$label 鸟种库',
+        region: label,
+        packManager: widget.packManager,
+        storage: widget.storage,
+        allowApiFallback: true,
+        onPackActivated: () {
+          _loadPacks();
+          widget.onPackChanged?.call();
+        },
+      );
+      if (!started) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已有下载任务正在后台进行')),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已开始按 $label 逐物种下载 ${speciesList.length} 种')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('启动地点下载失败: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  (double, double)? _parseCoordinates(String value) {
+    final parts = value
+        .trim()
+        .split(RegExp(r'[,，\s]+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.length < 2) return null;
+    final lat = double.tryParse(parts[0]);
+    final lng = double.tryParse(parts[1]);
+    if (lat == null || lng == null) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return (lat, lng);
+  }
 
   Future<void> _downloadChinaSpecies(List<SpeciesEntry> speciesList) async {
     final started = DownloadTaskService.instance.start(
@@ -408,7 +642,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
   }
 
   Future<List<SpeciesEntry>> _speciesEntriesFromChinaCatalog() async {
-    final raw = await rootBundle.loadString('assets/data/china_birds_zheng.json');
+    final raw =
+        await rootBundle.loadString('assets/data/china_birds_zheng.json');
     final data = jsonDecode(raw) as List<dynamic>;
     return data
         .whereType<Map<String, dynamic>>()
@@ -606,13 +841,12 @@ class _PackManageScreenState extends State<PackManageScreen> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // 导入按钮
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '数据包管理：可安装内置中国常见鸟 100，也可按内置中国名录逐物种下载；eBird 只作为高级地区筛选。',
+              '数据包管理：本地包、服务器整包、国家名录和地点名录都在这里处理；学习页只保留学习本身。',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
@@ -629,8 +863,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.file_upload),
-              label: Text(_loading ? '导入中...' : '📂 导入数据包 (.zip)'),
+                  : const Icon(Icons.file_upload_outlined),
+              label: Text(_loading ? '导入中...' : '本地导入 (.zip)'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2d5016),
                 foregroundColor: Colors.white,
@@ -642,7 +876,37 @@ class _PackManageScreenState extends State<PackManageScreen> {
             ),
           ),
         ),
-        // 内置数据包列表
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _loading
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => OnlineImportScreen(
+                            packManager: widget.packManager,
+                            storage: widget.storage,
+                          ),
+                        ),
+                      ).then((_) => _loadPacks());
+                    },
+              icon: const Icon(Icons.cloud_download_outlined),
+              label: const Text('在线导入（Xeno-Canto）'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue[700],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
         ...PackManager.builtinPacks.map((info) => Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
               child: SizedBox(
@@ -697,11 +961,21 @@ class _PackManageScreenState extends State<PackManageScreen> {
             child: OutlinedButton.icon(
               onPressed: _loading ? null : _showCountrySpeciesDownloadSheet,
               icon: const Icon(Icons.public),
-              label: const Text('按 eBird 国家名录逐物种下载'),
+              label: const Text('按国家名录逐物种下载'),
             ),
           ),
         ),
-        const SizedBox(height: 2),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _loading ? null : _showLocationSpeciesDownloadSheet,
+              icon: const Icon(Icons.place_outlined),
+              label: const Text('按地点逐物种下载'),
+            ),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SizedBox(
@@ -717,37 +991,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
             ),
           ),
         ),
-        // 在线导入按钮
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => OnlineImportScreen(
-                      packManager: widget.packManager,
-                      storage: widget.storage,
-                    ),
-                  ),
-                ).then((_) => _loadPacks());
-              },
-              icon: const Icon(Icons.cloud_download),
-              label: const Text('🌐 在线导入（Xeno-Canto）'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue[700],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ),
-
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
           child: Row(
@@ -802,93 +1045,146 @@ class _PackManageScreenState extends State<PackManageScreen> {
                     final isActive = pack.packDir == _activePackDir;
 
                     return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      child: ListTile(
-                        leading: const Icon(
-                          Icons.folder_zip,
-                          color: Color(0xFF2d5016),
-                        ),
-                        title: Text(
-                          pack.displayName,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          '${pack.speciesCount} 种鸟 · ${pack.audioCount} 音频 · ${pack.imageCount} 图片\n${pack.region} · v${pack.version} · ${pack.created}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            FutureBuilder<bool>(
-                              future: widget.packManager.isPackEnabled(pack.packDir),
-                              builder: (context, snapshot) {
-                                final enabled = snapshot.data ?? isActive;
-                                return Switch(
-                                  value: enabled,
-                                  onChanged: (value) async {
-                                    await widget.packManager
-                                        .setPackEnabled(pack.packDir, value);
-                                    if (value) {
-                                      await widget.packManager
-                                          .setActivePack(pack.packDir);
-                                    }
-                                    await _loadPacks();
-                                    widget.onPackChanged?.call();
-                                  },
-                                );
-                              },
-                            ),
-                            if (isActive)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.folder_zip,
+                                  color: Color(0xFF2d5016),
                                 ),
-                                decoration: BoxDecoration(
-                                  color: Colors.green[50],
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '使用中',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.green[700],
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        pack.displayName,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _PackStatChip(
+                                            label: '${pack.speciesCount} 种',
+                                          ),
+                                          _PackStatChip(
+                                            label: '${pack.audioCount} 音频',
+                                          ),
+                                          _PackStatChip(
+                                            label: '${pack.imageCount} 图片',
+                                          ),
+                                          if (pack.region.trim().isNotEmpty)
+                                            _PackStatChip(label: pack.region),
+                                          _PackStatChip(
+                                            label: 'v${pack.version}',
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.account_tree_outlined,
-                                size: 20,
-                              ),
-                              tooltip: '类群概览',
-                              onPressed: () => _showPackOrderOverview(pack),
+                                if (isActive)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green[50],
+                                      borderRadius: BorderRadius.circular(9),
+                                    ),
+                                    child: Text(
+                                      '主包',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.green[700],
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.archive_outlined,
-                                size: 20,
-                              ),
-                              tooltip: '导出备份',
-                              onPressed:
-                                  _loading ? null : () => _exportPack(pack),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.check_circle_outline,
-                                size: 20,
-                              ),
-                              tooltip: '设为当前主包',
-                              onPressed: () => _activatePack(pack),
-                            ),
-                            IconButton(
-                              icon: Icon(
-                                Icons.delete_outline,
-                                size: 20,
-                                color: Colors.red[400],
-                              ),
-                              tooltip: '删除',
-                              onPressed: () => _deletePack(pack),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                FutureBuilder<bool>(
+                                  future: widget.packManager
+                                      .isPackEnabled(pack.packDir),
+                                  builder: (context, snapshot) {
+                                    final enabled = snapshot.data ?? isActive;
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Switch(
+                                          value: enabled,
+                                          onChanged: (value) async {
+                                            await widget.packManager
+                                                .setPackEnabled(
+                                              pack.packDir,
+                                              value,
+                                            );
+                                            if (value) {
+                                              await widget.packManager
+                                                  .setActivePack(pack.packDir);
+                                            }
+                                            await _loadPacks();
+                                            widget.onPackChanged?.call();
+                                          },
+                                        ),
+                                        const Text('启用'),
+                                      ],
+                                    );
+                                  },
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.account_tree_outlined,
+                                    size: 20,
+                                  ),
+                                  tooltip: '类群概览',
+                                  onPressed: () => _showPackOrderOverview(pack),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.archive_outlined,
+                                    size: 20,
+                                  ),
+                                  tooltip: '导出备份',
+                                  onPressed:
+                                      _loading ? null : () => _exportPack(pack),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.check_circle_outline,
+                                    size: 20,
+                                  ),
+                                  tooltip: '设为当前主包',
+                                  onPressed: () => _activatePack(pack),
+                                ),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                    color: Colors.red[400],
+                                  ),
+                                  tooltip: '删除',
+                                  onPressed: () => _deletePack(pack),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -898,6 +1194,24 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 ),
         ),
       ],
+    );
+  }
+}
+
+class _PackStatChip extends StatelessWidget {
+  final String label;
+
+  const _PackStatChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.grey.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 12)),
     );
   }
 }
@@ -926,12 +1240,10 @@ class _CountryCodeChip extends StatelessWidget {
 class _ServerDownloadSheet extends StatefulWidget {
   final PackManager packManager;
   final VoidCallback onInstalled;
-  final Future<void> Function() onDownloadChinaCatalog;
 
   const _ServerDownloadSheet({
     required this.packManager,
     required this.onInstalled,
-    required this.onDownloadChinaCatalog,
   });
 
   @override
@@ -969,28 +1281,6 @@ class _ServerDownloadSheetState extends State<_ServerDownloadSheet> {
     }
   }
 
-  Future<void> _downloadChinaCatalog() async {
-    try {
-      if (DownloadTaskService.instance.isRunning) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已有下载任务正在后台进行')),
-        );
-        return;
-      }
-      await widget.onDownloadChinaCatalog();
-      if (!mounted) return;
-      Navigator.pop(context);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('启动中国名录下载失败: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -1006,63 +1296,10 @@ class _ServerDownloadSheetState extends State<_ServerDownloadSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              '整包适合网络稳定时；逐物种下载更适合长任务，遇到网络异常也方便继续。',
+              '整包适合网络稳定时；如果网络容易中断，建议返回上一层使用逐物种下载。',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF2d5016)),
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color(0xFF2d5016).withValues(alpha: 0.04),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.list_alt_outlined,
-                        color: Color(0xFF2d5016)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '按名录逐物种下载（推荐）',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '下载中国完整名录全部物种，不需要 eBird API；已完成物种会保留，适合防止网络异常。',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton(
-                      onPressed: DownloadTaskService.instance.isRunning
-                          ? null
-                          : _downloadChinaCatalog,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF2d5016),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('下载全部'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
             ...PackManager.remotePacks.map((info) {
               final task = DownloadTaskService.instance.snapshot;
               final isDownloading = task.isRunning &&
@@ -1121,7 +1358,8 @@ class _ServerDownloadSheetState extends State<_ServerDownloadSheet> {
                                 ),
                                 IconButton(
                                   tooltip: '取消下载',
-                                  onPressed: DownloadTaskService.instance.cancel,
+                                  onPressed:
+                                      DownloadTaskService.instance.cancel,
                                   icon: const Icon(Icons.close, size: 18),
                                 ),
                               ],

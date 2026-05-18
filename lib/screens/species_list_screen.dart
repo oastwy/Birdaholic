@@ -3,11 +3,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
 
 import '../models/species.dart';
 import '../services/download_task_service.dart';
-import '../services/ebird_service.dart';
 import '../services/order_taxonomy.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
@@ -45,23 +43,14 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
 
   List<Species> _activeSpecies = [];
   List<Species> _chinaSpecies = [];
-  Map<String, String> _chinaCodeBySci = {};
   final Set<String> _selectedSci = <String>{};
-  String _source = 'china';
+  final String _source = 'active';
   String _filter = 'all';
   String _orderFilter = 'all';
   String _search = '';
-  String _locationFilterLabel = '';
-  Set<String> _locationSpeciesCodes = {};
-  Set<String> _locationScientificNames = {};
-  Set<String> _locationCommonNames = {};
-  bool _locationLoading = false;
-  bool _nearbyLoading = false;
   bool _loading = true;
-  final _locationController = TextEditingController();
   final _searchController = TextEditingController();
   final _chinaScrollController = ScrollController();
-  List<EbirdLocationPreset> _locationResults = EBirdService.presets;
   final Map<String, GlobalKey> _orderHeaderKeys = {};
   String? _chinaRailOrder;
 
@@ -80,7 +69,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   @override
   void dispose() {
     _chinaScrollController.removeListener(_updateChinaRailOrder);
-    _locationController.dispose();
     _searchController.dispose();
     _chinaScrollController.dispose();
     _packPageController.dispose();
@@ -104,7 +92,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         setState(() {
           _activeSpecies = activeList;
           _chinaSpecies = chinaList;
-          _chinaCodeBySci = _buildChinaCodeMap();
           _selectedSci.removeWhere(
             (sci) => !_chinaSpecies.any((species) => species.sci == sci),
           );
@@ -117,7 +104,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         setState(() {
           _activeSpecies = [];
           _chinaSpecies = chinaList;
-          _chinaCodeBySci = _buildChinaCodeMap();
           _selectedSci.removeWhere(
             (sci) => !_chinaSpecies.any((species) => species.sci == sci),
           );
@@ -125,17 +111,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         });
       }
     }
-  }
-
-  Map<String, String> _buildChinaCodeMap() {
-    final map = <String, String>{};
-    for (final species in _chinaSpecies) {
-      final code = _extractCodeFromHabitat(species.habitat);
-      if (code.isNotEmpty) {
-        map[species.sci.trim().toLowerCase()] = code;
-      }
-    }
-    return map;
   }
 
   Future<List<Species>> _loadChinaSpecies(List<Species> activeList) async {
@@ -186,12 +161,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   String _buildChinaHabitat(String code) {
     if (code.isEmpty) return '';
     return 'ebird:$code';
-  }
-
-  String _extractCodeFromHabitat(String habitat) {
-    const prefix = 'ebird:';
-    if (!habitat.startsWith(prefix)) return '';
-    return habitat.substring(prefix.length).trim().toLowerCase();
   }
 
   String _normalizeProtection(String value) {
@@ -308,10 +277,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   List<Species> get _filteredSpecies {
     var list = <Species>[..._displayedSpecies];
 
-    if (_source == 'china' && _locationSpeciesCodes.isNotEmpty) {
-      list = list.where(_matchesLocationFilter).toList();
-    }
-
     switch (_filter) {
       case 'audio':
         list = list.where((species) => species.hasAudio).toList();
@@ -348,52 +313,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     return list;
   }
 
-  int get _locationMatchedCount {
-    if (_source != 'china' || _locationSpeciesCodes.isEmpty) return 0;
-    return _displayedSpecies.where(_matchesLocationFilter).length;
-  }
-
-  bool _matchesLocationFilter(Species species) {
-    final code = _chinaCodeBySci[species.sci.trim().toLowerCase()] ?? '';
-    if (code.isNotEmpty && _locationSpeciesCodes.contains(code.toLowerCase())) {
-      return true;
-    }
-
-    final sci = _normalizeSpeciesText(species.sci);
-    if (sci.isNotEmpty && _locationScientificNames.contains(sci)) return true;
-
-    final names = {
-      _normalizeSpeciesText(species.en),
-      ...species.enAlt.map(_normalizeSpeciesText),
-    }..removeWhere((name) => name.isEmpty);
-    return names.any(_locationCommonNames.contains);
-  }
-
-  String _normalizeSpeciesText(String value) {
-    return value
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'[\u2018\u2019`]'), "'")
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  void _setLocationMatches(Set<EbirdSpeciesMatch> matches) {
-    _locationSpeciesCodes = matches
-        .map((item) => item.code.trim().toLowerCase())
-        .where((code) => code.isNotEmpty)
-        .toSet();
-    _locationScientificNames = matches
-        .map((item) => _normalizeSpeciesText(item.scientificName))
-        .where((name) => name.isNotEmpty)
-        .toSet();
-    _locationCommonNames = matches
-        .map((item) => _normalizeSpeciesText(item.commonName))
-        .where((name) => name.isNotEmpty)
-        .toSet();
-  }
-
   List<String> get _availableOrders {
     return _ordersFor(_displayedSpecies);
   }
@@ -408,138 +327,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   }
 
   String _orderLabel(String order) => BirdOrderTaxonomy.label(order);
-
-  void _searchLocationPresets(String value) {
-    setState(() {
-      _locationResults = EBirdService.searchPresets(value);
-    });
-  }
-
-  Future<void> _applyLocationFilter(String query) async {
-    final apiKey = widget.storage.getEBirdApiKey();
-    if (apiKey.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
-      return;
-    }
-
-    final normalizedQuery = query.trim();
-    if (normalizedQuery.isEmpty) return;
-
-    setState(() => _locationLoading = true);
-    try {
-      final service = EBirdService(apiKey: apiKey);
-      final nearby = _parseCoordinates(normalizedQuery);
-      final matches = nearby == null
-          ? await service.fetchSpeciesMatches(normalizedQuery)
-          : await service.fetchNearbySpeciesMatches(
-              latitude: nearby.$1,
-              longitude: nearby.$2,
-              distanceKm: nearby.$3,
-            );
-      if (!mounted) return;
-      setState(() {
-        _source = 'china';
-        _filter = 'all';
-        _orderFilter = 'all';
-        _search = '';
-        _searchController.clear();
-        _locationFilterLabel = normalizedQuery;
-        _setLocationMatches(matches);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已按地点匹配 $_locationMatchedCount 种本地鸟种')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('地点筛选失败: $e')));
-    } finally {
-      if (mounted) {
-        setState(() => _locationLoading = false);
-      }
-    }
-  }
-
-  Future<void> _applyCurrentLocationFilter() async {
-    final apiKey = widget.storage.getEBirdApiKey();
-    if (apiKey.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
-      return;
-    }
-
-    setState(() => _nearbyLoading = true);
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw Exception('手机定位服务未开启');
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied) {
-        throw Exception('未授予定位权限');
-      }
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception('定位权限已被永久拒绝，请到系统设置中开启');
-      }
-
-      final position = await Geolocator.getLastKnownPosition() ??
-          await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.low,
-              timeLimit: Duration(seconds: 20),
-            ),
-          );
-
-      final service = EBirdService(apiKey: apiKey);
-      final matches = await service.fetchNearbySpeciesMatches(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        distanceKm: 25,
-      );
-      if (!mounted) return;
-      setState(() {
-        _source = 'china';
-        _filter = 'all';
-        _orderFilter = 'all';
-        _search = '';
-        _searchController.clear();
-        _locationFilterLabel =
-            '当前位置 ${position.latitude.toStringAsFixed(3)}, ${position.longitude.toStringAsFixed(3)}';
-        _setLocationMatches(matches);
-        _locationController.text =
-            '${position.latitude.toStringAsFixed(5)},${position.longitude.toStringAsFixed(5)}';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已按附近 25km 匹配 $_locationMatchedCount 种本地鸟种')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('附近鸟种查询失败: $e')));
-    } finally {
-      if (mounted) setState(() => _nearbyLoading = false);
-    }
-  }
-
-  void _clearLocationFilter() {
-    setState(() {
-      _locationFilterLabel = '';
-      _locationSpeciesCodes = {};
-      _locationScientificNames = {};
-      _locationCommonNames = {};
-      _locationController.clear();
-      _locationResults = EBirdService.presets;
-    });
-  }
 
   void _jumpToOrder(List<Species> filtered, String order) {
     if (_source == 'active') {
@@ -704,10 +491,10 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
       child: Row(
         children: [
-          // Source chips
-          _sourceChipSmall('名录', 'china'),
-          const SizedBox(width: 6),
-          _sourceChipSmall('数据包', 'active'),
+          Text(
+            '当前数据包 ${filtered.length} 种',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
           const Spacer(),
           // Filter/sort
           if (_availableOrders.isNotEmpty)
@@ -757,30 +544,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     );
   }
 
-  Widget _sourceChipSmall(String label, String value) {
-    final selected = _source == value;
-    return GestureDetector(
-      onTap: () => setState(() => _source = value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF2d5016)
-              : Colors.grey.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: selected ? Colors.white : Colors.grey[700],
-            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-
   // ─── China list view (unchanged) ─────────────────────────────────────────
 
   Widget _buildChinaListView(List<Species> filtered) {
@@ -806,124 +569,11 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: Row(
-                      children: [
-                        Expanded(child: _sourceChip('鸟种名录', 'china')),
-                        const SizedBox(width: 8),
-                        Expanded(child: _sourceChip('当前数据包', 'active')),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.place_outlined, size: 18),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  '按地点筛选学习范围',
-                                  style: TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                                const Spacer(),
-                                if (_locationFilterLabel.isNotEmpty)
-                                  TextButton(
-                                    onPressed: _clearLocationFilter,
-                                    child: const Text('清除'),
-                                  ),
-                              ],
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: _nearbyLoading
-                                      ? null
-                                      : _applyCurrentLocationFilter,
-                                  icon: _nearbyLoading
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2),
-                                        )
-                                      : const Icon(Icons.my_location),
-                                  label: const Text('使用当前位置查附近鸟种'),
-                                ),
-                              ),
-                            ),
-                            TextField(
-                              controller: _locationController,
-                              onChanged: _searchLocationPresets,
-                              decoration: InputDecoration(
-                                hintText: '输入云南、那邦、eBird代码，或经纬度 24.7,97.6',
-                                prefixIcon: const Icon(Icons.search),
-                                suffixIcon: _locationLoading
-                                    ? const Padding(
-                                        padding: EdgeInsets.all(12),
-                                        child: SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                      )
-                                    : IconButton(
-                                        icon: const Icon(Icons.arrow_forward),
-                                        onPressed: () => _applyLocationFilter(
-                                          _locationController.text,
-                                        ),
-                                      ),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              onSubmitted: _applyLocationFilter,
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _locationResults.take(5).map((item) {
-                                return ActionChip(
-                                  label: Text(item.label),
-                                  onPressed: () {
-                                    _locationController.text = item.label;
-                                    _applyLocationFilter(item.code);
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                            if (_locationFilterLabel.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  '当前地点：$_locationFilterLabel · 匹配 $_locationMatchedCount 种',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
                     padding: const EdgeInsets.all(12),
                     child: TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
-                        hintText: '搜索鸟种名录、中英文名或学名...',
+                        hintText: '搜索当前数据包、中英文名或学名...',
                         prefixIcon: const Icon(Icons.search),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(20),
@@ -985,7 +635,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                     child: Row(
                       children: [
                         Text(
-                          '鸟种名录 ${filtered.length} 种',
+                          '当前数据包 ${filtered.length} 种',
                           style:
                               TextStyle(fontSize: 13, color: Colors.grey[600]),
                         ),
@@ -1106,33 +756,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
           ),
       ],
     );
-  }
-
-  Widget _sourceChip(String label, String value) {
-    final selected = _source == value;
-    return FilledButton(
-      onPressed: () => setState(() => _source = value),
-      style: FilledButton.styleFrom(
-        backgroundColor: selected ? const Color(0xFF2d5016) : Colors.grey[200],
-        foregroundColor: selected ? Colors.white : Colors.grey[800],
-      ),
-      child: Text(label),
-    );
-  }
-
-  (double, double, int)? _parseCoordinates(String value) {
-    final parts = value
-        .trim()
-        .split(RegExp(r'[,，\s]+'))
-        .where((part) => part.isNotEmpty)
-        .toList();
-    if (parts.length < 2) return null;
-    final lat = double.tryParse(parts[0]);
-    final lng = double.tryParse(parts[1]);
-    final dist = parts.length >= 3 ? int.tryParse(parts[2]) ?? 25 : 25;
-    if (lat == null || lng == null) return null;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-    return (lat, lng, dist);
   }
 
   Widget _filterChip(String label, String value) {

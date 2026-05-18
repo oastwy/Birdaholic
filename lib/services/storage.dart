@@ -14,6 +14,7 @@ class StorageService {
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
   static const _flashcardGroupSizeKey = 'flashcard_group_size';
+  static const _newUserGuideDismissedKey = 'new_user_guide_dismissed';
 
   final SharedPreferences _prefs;
 
@@ -79,6 +80,13 @@ class StorageService {
       return;
     }
     await _prefs.setString(_adminUploadTokenKey, normalized);
+  }
+
+  bool get isNewUserGuideDismissed =>
+      _prefs.getBool(_newUserGuideDismissedKey) ?? false;
+
+  Future<void> dismissNewUserGuide() async {
+    await _prefs.setBool(_newUserGuideDismissedKey, true);
   }
 
   int get flashcardGroupSize {

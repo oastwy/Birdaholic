@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/species.dart';
+import '../services/app_update_service.dart';
 import '../services/pack_manager.dart';
 import '../services/podcast_service.dart';
 import '../services/storage.dart';
@@ -38,14 +39,19 @@ class _ProgressScreenState extends State<ProgressScreen> {
   List<Species> _species = [];
   String? _loadError;
   PodcastEpisode? _podcastEpisode;
+  AppUpdateInfo? _updateInfo;
   bool _podcastLoading = true;
+  bool _updateLoading = true;
   int _homeBannerPage = 0;
+  bool _guideDismissed = false;
 
   @override
   void initState() {
     super.initState();
     _load();
     _loadPodcast();
+    _loadUpdateInfo();
+    _guideDismissed = widget.storage.isNewUserGuideDismissed;
   }
 
   Future<void> _loadPodcast() async {
@@ -54,6 +60,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
     setState(() {
       _podcastEpisode = ep;
       _podcastLoading = false;
+    });
+  }
+
+  Future<void> _loadUpdateInfo() async {
+    final info = await AppUpdateService.fetchLatest();
+    if (!mounted) return;
+    setState(() {
+      _updateInfo = info;
+      _updateLoading = false;
     });
   }
 
@@ -197,8 +212,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          _newUserGuideCard(),
-          const SizedBox(height: 14),
+          if (!_guideDismissed) ...[
+            _newUserGuideCard(),
+            const SizedBox(height: 14),
+          ],
           _homeBannerCarousel(
             currentPackStudied: currentPackStudied,
             currentPackTotal: _species.length,
@@ -392,14 +409,24 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.tips_and_updates_outlined,
+              const Icon(Icons.tips_and_updates_outlined,
                   size: 18, color: Color(0xFF2d5016)),
-              SizedBox(width: 8),
-              Text(
+              const SizedBox(width: 8),
+              const Text(
                 '新手三步',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: '关闭新手引导',
+                visualDensity: VisualDensity.compact,
+                onPressed: () async {
+                  await widget.storage.dismissNewUserGuide();
+                  if (mounted) setState(() => _guideDismissed = true);
+                },
+                icon: const Icon(Icons.close, size: 18),
               ),
             ],
           ),
@@ -498,80 +525,91 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final percent = (progress * 100).round();
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.campaign_outlined,
-                    size: 16, color: Color(0xFF2d5016)),
-                SizedBox(width: 6),
-                Text(
-                  '更新通知',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF2d5016),
+      child: InkWell(
+        onTap: () => launchUrl(
+          Uri.parse(AppUpdateService.downloadUrl),
+          mode: LaunchMode.externalApplication,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.campaign_outlined,
+                      size: 16, color: Color(0xFF2d5016)),
+                  SizedBox(width: 6),
+                  Text(
+                    '更新通知',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2d5016),
+                    ),
                   ),
-                ),
-                Spacer(),
-                Icon(Icons.swipe_rounded, size: 15, color: Colors.grey),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '当前版本已支持中国内置名录、图片难度和多包叠加学习。',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: progress.clamp(0, 1),
-                          minHeight: 8,
-                          backgroundColor: Colors.grey[200],
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            Color(0xFF2d5016),
+                  Spacer(),
+                  Icon(Icons.swipe_rounded, size: 15, color: Colors.grey),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _updateLoading
+                              ? '正在检查最新版本...'
+                              : (_updateInfo == null
+                                  ? '打开下载页查看最新版'
+                                  : '${_updateInfo!.title}'
+                                      '${_updateInfo!.releaseDate.isEmpty ? '' : ' · ${_updateInfo!.releaseDate}'}'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
+                        const SizedBox(height: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: progress.clamp(0, 1),
+                            minHeight: 8,
+                            backgroundColor: Colors.grey[200],
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Color(0xFF2d5016),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        _updateInfo?.version ?? '$percent%',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2d5016),
+                        ),
+                      ),
+                      Text(
+                        _updateInfo == null ? '$studied/$total 种' : '下载页',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '$percent%',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2d5016),
-                      ),
-                    ),
-                    Text(
-                      '$studied/$total 种',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

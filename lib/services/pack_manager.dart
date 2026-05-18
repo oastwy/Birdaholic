@@ -72,13 +72,6 @@ class PackManager {
   /// 服务器可下载数据包（备案通过后可换为域名）
   static const remotePacks = [
     RemotePackInfo(
-      url: 'http://124.223.101.188:8080/packs/brisbane_v1.0_opt.zip',
-      dirName: 'brisbane_v1',
-      label: '布里斯班包 v1.0（50种）',
-      description: '50种鸟 · 澳大利亚东南部',
-      sizeBytes: 90177536,
-    ),
-    RemotePackInfo(
       url: 'http://124.223.101.188:8080/packs/china_birds_v1.0_opt.zip',
       dirName: 'china_birds_v1',
       label: '中国全鸟种 v1.0（1519种）',
@@ -134,7 +127,39 @@ class PackManager {
     return dirs.contains(packDir);
   }
 
-  Future<void> _addEnabledPackDir(SharedPreferences prefs, String packDir) async {
+  Future<String?> findWritablePackDirForSpecies(String sci) async {
+    final normalized = sci.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+
+    final candidates = <String>[];
+    final active = await getActivePackDir();
+    if (active != null && active.isNotEmpty) candidates.add(active);
+    for (final dir in await getEnabledPackDirs()) {
+      if (!candidates.contains(dir)) candidates.add(dir);
+    }
+    for (final pack in await getInstalledPacks()) {
+      if (!candidates.contains(pack.packDir)) candidates.add(pack.packDir);
+    }
+
+    for (final dir in candidates) {
+      final speciesFile = File('$dir/species.json');
+      if (!await speciesFile.exists()) continue;
+      try {
+        final speciesList = jsonDecode(await speciesFile.readAsString());
+        if (speciesList is! List) continue;
+        for (final item in speciesList.whereType<Map>()) {
+          final itemSci = (item['sci'] as String? ?? '').trim().toLowerCase();
+          if (itemSci == normalized) return dir;
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _addEnabledPackDir(
+      SharedPreferences prefs, String packDir) async {
     final dirs = prefs.getStringList(_enabledPackDirsKey)?.toList() ?? [];
     if (!dirs.contains(packDir)) {
       dirs.add(packDir);
@@ -762,8 +787,7 @@ class PackManager {
       }
     }
     if (merged.isEmpty) throw Exception('数据包损坏，缺少 species.json');
-    return merged.values.toList()
-      ..sort((a, b) => a.cn.compareTo(b.cn));
+    return merged.values.toList()..sort((a, b) => a.cn.compareTo(b.cn));
   }
 
   Species _mergeSpecies(Species base, Species incoming) {
@@ -951,10 +975,9 @@ class PackManager {
   }
 
   Future<Species> replaceSpeciesImageFromFile(
-    Species species,
-    String sourcePath,
-  ) async {
-    final packDir = await getActivePackDir();
+      Species species, String sourcePath,
+      {String? packDirOverride}) async {
+    final packDir = packDirOverride ?? await getActivePackDir();
     if (packDir == null) throw Exception('未加载任何数据包');
 
     final source = File(sourcePath);
@@ -1017,11 +1040,9 @@ class PackManager {
     return Species.fromJson(updatedItem);
   }
 
-  Future<Species> addSpeciesAudioFromFile(
-    Species species,
-    String sourcePath,
-  ) async {
-    final packDir = await getActivePackDir();
+  Future<Species> addSpeciesAudioFromFile(Species species, String sourcePath,
+      {String? packDirOverride}) async {
+    final packDir = packDirOverride ?? await getActivePackDir();
     if (packDir == null) throw Exception('未加载任何数据包');
 
     final source = File(sourcePath);

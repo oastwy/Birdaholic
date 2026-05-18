@@ -84,6 +84,8 @@ class BirdCardState extends State<BirdCard>
   int _imagePageIndex = 0;
   Offset? _imagePointerStart;
   Offset? _imagePointerLatest;
+  int? _difficultyOverride;
+  final Map<String, int> _imageDifficultyOverrides = {};
 
   List<_ImageEntry> get _allImages {
     final result = <_ImageEntry>[];
@@ -164,6 +166,8 @@ class BirdCardState extends State<BirdCard>
     _showFront = !widget.initiallyShowAnswer;
     _controller.value = widget.initiallyShowAnswer ? 1 : 0;
     _imagePageIndex = 0;
+    _difficultyOverride = null;
+    _imageDifficultyOverrides.clear();
     if (_imagePageController.hasClients) {
       _imagePageController.jumpToPage(0);
     }
@@ -583,9 +587,10 @@ class BirdCardState extends State<BirdCard>
     final currentImage = images.isNotEmpty
         ? images[_imagePageIndex.clamp(0, images.length - 1)]
         : null;
+    final imageKey = currentImage?.sourceFile ?? currentImage?.path;
     final diff = widget.promptMode == PromptMode.image && currentImage != null
-        ? currentImage.difficulty
-        : widget.species.difficulty;
+        ? (_imageDifficultyOverrides[imageKey] ?? currentImage.difficulty)
+        : (_difficultyOverride ?? widget.species.difficulty);
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
@@ -600,11 +605,16 @@ class BirdCardState extends State<BirdCard>
                 if (widget.promptMode == PromptMode.image &&
                     currentImage?.sourceFile != null &&
                     widget.onImageDifficultyChanged != null) {
+                  setState(() {
+                    _imageDifficultyOverrides[currentImage!.sourceFile!] =
+                        value;
+                  });
                   widget.onImageDifficultyChanged!(
                     currentImage!.sourceFile!,
                     value,
                   );
                 } else {
+                  setState(() => _difficultyOverride = value);
                   widget.onDifficultyChanged?.call(value);
                 }
               },

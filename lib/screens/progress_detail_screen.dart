@@ -56,7 +56,8 @@ class ProgressDetailScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   '学习过 $studied 种，累计答题 ${stats.total} 次，当前正确率 ${(stats.accuracy * 100).round()}%。',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), height: 1.45),
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9), height: 1.45),
                 ),
               ],
             ),
@@ -72,7 +73,8 @@ class ProgressDetailScreen extends StatelessWidget {
             children: [
               _statCard('已学习', '$studied', '出现过学习记录的鸟种数', Colors.green),
               _statCard('已掌握', '$mastered', '连续认识达到 3 次', Colors.teal),
-              _statCard('正确率', '${(stats.accuracy * 100).round()}%', '累计答题准确率', Colors.blue),
+              _statCard('正确率', '${(stats.accuracy * 100).round()}%', '累计答题准确率',
+                  Colors.blue),
               _statCard('收藏', '${favorites.length}', '已标星保存', Colors.amber),
               _statCard('不熟悉', '${unfamiliar.length}', '待优先复习', Colors.orange),
               _statCard('总答题', '${stats.total}', '累计答题数量', Colors.purple),
@@ -109,14 +111,18 @@ class ProgressDetailScreen extends StatelessWidget {
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
                 child: ListTile(
-                  title: Text(item.cn, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  title: Text(item.cn,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(
                     '${item.sci}\n${knownLast ? "最近一次答对" : "最近一次答错"} · ${_formatTime(mastery.lastTime)}',
                     style: TextStyle(color: Colors.grey[700], height: 1.35),
                   ),
                   isThreeLine: true,
                   trailing: FilledButton(
-                    onPressed: () => onJumpToFlashcard(item),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      onJumpToFlashcard(item);
+                    },
                     child: const Text('去学习'),
                   ),
                 ),
@@ -151,14 +157,19 @@ class ProgressDetailScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
+          Text(title,
+              style: TextStyle(
+                  fontSize: 13, color: color, fontWeight: FontWeight.w600)),
           const Spacer(),
           Text(
             value,
-            style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: color),
+            style: TextStyle(
+                fontSize: 30, fontWeight: FontWeight.bold, color: color),
           ),
           const SizedBox(height: 8),
-          Text(hint, style: TextStyle(fontSize: 13, color: Colors.grey[700], height: 1.4)),
+          Text(hint,
+              style: TextStyle(
+                  fontSize: 13, color: Colors.grey[700], height: 1.4)),
         ],
       ),
     );
@@ -176,7 +187,8 @@ class ProgressDetailScreen extends StatelessWidget {
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Text(subtitle, style: TextStyle(color: Colors.grey[600], height: 1.4)),
+          Text(subtitle,
+              style: TextStyle(color: Colors.grey[600], height: 1.4)),
         ],
       ),
     );

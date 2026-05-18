@@ -37,6 +37,12 @@
 	<string>用于按当前位置查找附近鸟类记录地点；App 不会在后台持续追踪你的位置。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于从文件或相册导入鸟类清单和数据包。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于保存或更新你导入的鸟类图片资料。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于拍摄或导入鸟类照片作为本地学习资料。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于导入或处理鸟类声音资料。</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

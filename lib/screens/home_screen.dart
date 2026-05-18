@@ -29,6 +29,7 @@ class HomeScreen extends StatefulWidget {
 class HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _packVersion = 0;
+  bool _flashcardFocus = false;
   final _flashcardKey = GlobalKey<FlashcardScreenState>();
   DownloadTaskStatus _lastTaskStatus =
       DownloadTaskService.instance.snapshot.status;
@@ -36,7 +37,10 @@ class HomeScreenState extends State<HomeScreen> {
   static const _titles = ['总览', '闪卡学习', '鸟种', '收藏夹', '设置'];
 
   void jumpToPreview() {
-    setState(() => _tab = 2);
+    setState(() {
+      _tab = 2;
+      _flashcardFocus = false;
+    });
   }
 
   /// 从列表页跳转到闪卡
@@ -44,6 +48,7 @@ class HomeScreenState extends State<HomeScreen> {
     setState(() => _tab = 1);
     // 延迟一帧，等闪卡页面渲染完成
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _flashcardKey.currentState?.enterFocusMode();
       _flashcardKey.currentState?.jumpTo(species);
     });
   }
@@ -51,6 +56,7 @@ class HomeScreenState extends State<HomeScreen> {
   void _startSession(String filter, StudyMode mode, PromptMode promptMode) {
     setState(() => _tab = 1);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _flashcardKey.currentState?.enterFocusMode();
       _flashcardKey.currentState?.startSession(
         filter: filter,
         mode: mode,
@@ -63,6 +69,7 @@ class HomeScreenState extends State<HomeScreen> {
     setState(() {
       _packVersion++;
       _tab = 0;
+      _flashcardFocus = false;
     });
   }
 
@@ -290,11 +297,13 @@ class HomeScreenState extends State<HomeScreen> {
             }
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: _tab == 1 ? null : Text(_titles[_tab]),
-              centerTitle: true,
-              toolbarHeight: _tab == 1 ? 44 : null,
-            ),
+            appBar: _tab == 1 && _flashcardFocus
+                ? null
+                : AppBar(
+                    title: _tab == 1 ? null : Text(_titles[_tab]),
+                    centerTitle: true,
+                    toolbarHeight: _tab == 1 ? 44 : null,
+                  ),
             body: Stack(
               children: [
                 Positioned.fill(
@@ -316,6 +325,10 @@ class HomeScreenState extends State<HomeScreen> {
                         storage: widget.storage,
                         refreshToken: _packVersion,
                         isActive: _tab == 1,
+                        onFocusChanged: (value) {
+                          if (_flashcardFocus == value) return;
+                          setState(() => _flashcardFocus = value);
+                        },
                       ),
                       SpeciesListScreen(
                         packManager: widget.packManager,
@@ -349,35 +362,47 @@ class HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-            bottomNavigationBar: BottomNavigationBar(
-              currentIndex: _tab,
-              onTap: (i) => setState(() => _tab = i),
-              type: BottomNavigationBarType.fixed,
-              selectedItemColor: const Color(0xFF2d5016),
-              unselectedItemColor: Colors.grey,
-              items: const [
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.dashboard_rounded),
-                  label: '总览',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.headphones),
-                  label: '闪卡',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.list),
-                  label: '鸟种',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.star),
-                  label: '收藏',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.settings_outlined),
-                  label: '设置',
-                ),
-              ],
-            ),
+            bottomNavigationBar: _tab == 1 && _flashcardFocus
+                ? null
+                : BottomNavigationBar(
+                    currentIndex: _tab,
+                    onTap: (i) {
+                      setState(() {
+                        _tab = i;
+                        if (i != 1) _flashcardFocus = false;
+                      });
+                      if (i == 1) {
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _flashcardKey.currentState?.enterFocusMode(),
+                        );
+                      }
+                    },
+                    type: BottomNavigationBarType.fixed,
+                    selectedItemColor: const Color(0xFF2d5016),
+                    unselectedItemColor: Colors.grey,
+                    items: const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.dashboard_rounded),
+                        label: '总览',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.headphones),
+                        label: '闪卡',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.list),
+                        label: '鸟种',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.star),
+                        label: '收藏',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.settings_outlined),
+                        label: '设置',
+                      ),
+                    ],
+                  ),
           ),
         );
       },

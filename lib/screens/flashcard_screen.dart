@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../models/species.dart';
 import '../services/admin_upload_service.dart';
@@ -28,6 +29,7 @@ class FlashcardScreen extends StatefulWidget {
   final StorageService storage;
   final int refreshToken;
   final bool isActive;
+  final ValueChanged<bool>? onFocusChanged;
 
   const FlashcardScreen({
     super.key,
@@ -35,6 +37,7 @@ class FlashcardScreen extends StatefulWidget {
     required this.storage,
     required this.refreshToken,
     required this.isActive,
+    this.onFocusChanged,
   });
 
   @override
@@ -64,7 +67,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   AnswerMode _answerMode = AnswerMode.review;
   StudyMode _mode = StudyMode.review;
   PromptMode _promptMode = PromptMode.audio;
-  bool _showAdvancedControls = false;
+  bool _focusMode = false;
 
   int _correctCount = 0; // session totals (used in restart resets)
   int _wrongCount = 0;
@@ -75,6 +78,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   bool _showGroupComplete = false;
   int _groupCorrect = 0;
   int _groupWrong = 0;
+  final List<Species> _groupWrongSpecies = [];
 
   // Extra images from server for current bird
   List<String> _extraImagePaths = [];
@@ -83,10 +87,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   final _cardKey = GlobalKey<BirdCardState>();
   final _audioKey = GlobalKey<AudioPlayerWidgetState>();
-  String? _swipeFeedbackText;
-  bool _swipeFeedbackVisible = false;
-  Offset? _cardPointerStart;
-  Offset? _cardPointerLatest;
+  Offset? _studyPointerStart;
+  Offset? _studyPointerLatest;
 
   bool get _showAnswerOnEntry =>
       _answerMode == AnswerMode.learning && _mode == StudyMode.review;
@@ -97,6 +99,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   bool get _isGroupFinished =>
       _deck.isNotEmpty && _idx >= _groupEnd - 1 && _answered;
+
+  void _setFocusMode(bool value) {
+    if (_focusMode == value) return;
+    setState(() => _focusMode = value);
+    widget.onFocusChanged?.call(value);
+  }
 
   @override
   void initState() {
@@ -109,6 +117,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.refreshToken != widget.refreshToken) {
       _loadSpecies();
+    }
+    if (!oldWidget.isActive && widget.isActive && !_focusMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => enterFocusMode());
     }
   }
 
@@ -301,6 +312,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupOffset = 0;
       _groupCorrect = 0;
       _groupWrong = 0;
+      _groupWrongSpecies.clear();
       _showGroupComplete = false;
       _quizChoiceCache.clear();
       _extraImagePaths = [];
@@ -461,6 +473,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         _idx = di;
         _resetCardFace();
       });
+      enterFocusMode();
       _prepareQuizChoices();
       _scheduleAutoPlay();
       return;
@@ -471,6 +484,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         _filter = 'all';
         _order = 'alpha';
       });
+      enterFocusMode();
       _buildDeck();
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _jumpToSpecies(target),
@@ -507,16 +521,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
   }
 
-  void _showSwipeFeedback(bool correct) {
-    setState(() {
-      _swipeFeedbackText = correct ? '认识' : '不认识';
-      _swipeFeedbackVisible = true;
-    });
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) setState(() => _swipeFeedbackVisible = false);
-    });
-  }
-
   void _recordAnswer(Species bird, {required bool isCorrect}) {
     _audioKey.currentState?.stop();
     _answered = true;
@@ -528,6 +532,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     } else {
       _wrongCount++;
       _groupWrong++;
+      if (!_groupWrongSpecies.any((item) => item.sci == bird.sci)) {
+        _groupWrongSpecies.add(bird);
+      }
       widget.storage.markWrong();
       widget.storage.markSpeciesUnknown(bird.cn);
     }
@@ -562,8 +569,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     _selectedChoiceSci = choice.sci;
     _recordAnswer(bird, isCorrect: choice.sci == bird.sci);
+    _showAnswer();
     if (!_isFinished) {
-      Future.delayed(const Duration(milliseconds: 1100), _nextCard);
+      Future.delayed(const Duration(milliseconds: 1600), _nextCard);
     }
   }
 
@@ -683,6 +691,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupOffset = nextOffset;
       _groupCorrect = 0;
       _groupWrong = 0;
+      _groupWrongSpecies.clear();
       _idx = nextOffset;
       _extraImagePaths = [];
       _extraImageCredits = [];
@@ -707,6 +716,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _showGroupComplete = false;
       _groupCorrect = 0;
       _groupWrong = 0;
+      _groupWrongSpecies.clear();
       _idx = _groupOffset;
       _extraImagePaths = [];
       _extraImageCredits = [];
@@ -714,6 +724,29 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _quizChoiceCache.clear();
       _resetCardFace();
     });
+    _prepareQuizChoices();
+    _scheduleAutoPlay();
+    _fetchExtraImages();
+  }
+
+  void _reviewGroupWrongs() {
+    if (!mounted || _groupWrongSpecies.isEmpty) return;
+    final wrongs = _groupWrongSpecies.toList()..shuffle(Random());
+    setState(() {
+      _deck = wrongs;
+      _groupOffset = 0;
+      _idx = 0;
+      _groupCorrect = 0;
+      _groupWrong = 0;
+      _groupWrongSpecies.clear();
+      _showGroupComplete = false;
+      _extraImagePaths = [];
+      _extraImageCredits = [];
+      _extraImagesForSci = null;
+      _quizChoiceCache.clear();
+      _resetCardFace();
+    });
+    enterFocusMode();
     _prepareQuizChoices();
     _scheduleAutoPlay();
     _fetchExtraImages();
@@ -877,7 +910,16 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (path == null || path.isEmpty) return;
 
     try {
-      await widget.packManager.replaceSpeciesImageFromFile(bird, path);
+      final packDir =
+          await widget.packManager.findWritablePackDirForSpecies(bird.sci);
+      if (packDir == null) {
+        throw Exception('当前已安装数据包中找不到这个鸟种，无法写入本地媒体');
+      }
+      await widget.packManager.replaceSpeciesImageFromFile(
+        bird,
+        path,
+        packDirOverride: packDir,
+      );
       if (widget.storage.isAdminMode) {
         await AdminUploadService().uploadMedia(
           species: bird,
@@ -919,7 +961,16 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (path == null || path.isEmpty) return;
 
     try {
-      await widget.packManager.addSpeciesAudioFromFile(bird, path);
+      final packDir =
+          await widget.packManager.findWritablePackDirForSpecies(bird.sci);
+      if (packDir == null) {
+        throw Exception('当前已安装数据包中找不到这个鸟种，无法写入本地媒体');
+      }
+      await widget.packManager.addSpeciesAudioFromFile(
+        bird,
+        path,
+        packDirOverride: packDir,
+      );
       if (widget.storage.isAdminMode) {
         await AdminUploadService().uploadMedia(
           species: bird,
@@ -980,20 +1031,29 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                '输入国家、地区或热点代码，把当前闪卡范围收窄到这个地点出现过的鸟种。',
+                '输入国家/地区/热点代码，或经纬度，把当前闪卡范围收窄到这个地点出现过的鸟种。',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
                 decoration: InputDecoration(
-                  hintText: '例如 中国、云南、那邦、CN、CN-53、L3124991',
+                  hintText: '例如 云南、那邦、CN-53、L3124991、24.7,97.6',
                   prefixIcon: const Icon(Icons.search),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(ctx, '__current_location__'),
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('使用当前位置'),
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -1039,14 +1099,24 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     try {
       setState(() => _loading = true);
-      final matches = await EBirdService(apiKey: apiKey).fetchSpeciesMatches(
-        query,
-      );
+      final service = EBirdService(apiKey: apiKey);
+      final coords = query == '__current_location__'
+          ? await _getCurrentCoordinates()
+          : _parseCoordinates(query);
+      final matches = coords == null
+          ? await service.fetchSpeciesMatches(query)
+          : await service.fetchNearbySpeciesMatches(
+              latitude: coords.$1,
+              longitude: coords.$2,
+              distanceKm: coords.$3,
+            );
       final sciSet = await _matchEBirdToScientificNames(matches);
       if (!mounted) return;
       setState(() {
         _ebirdFilterSci = sciSet;
-        _ebirdFilterLabel = EBirdService.normalizeLocationCode(query);
+        _ebirdFilterLabel = coords == null
+            ? EBirdService.normalizeLocationCode(query)
+            : '${coords.$1.toStringAsFixed(3)},${coords.$2.toStringAsFixed(3)}';
       });
       _buildDeck();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1060,6 +1130,42 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  (double, double, int)? _parseCoordinates(String value) {
+    final parts = value
+        .trim()
+        .split(RegExp(r'[,，\s]+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.length < 2) return null;
+    final lat = double.tryParse(parts[0]);
+    final lng = double.tryParse(parts[1]);
+    final dist = parts.length >= 3 ? int.tryParse(parts[2]) ?? 25 : 25;
+    if (lat == null || lng == null) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return (lat, lng, dist.clamp(1, 50));
+  }
+
+  Future<(double, double, int)> _getCurrentCoordinates() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) throw Exception('手机定位服务未开启');
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied) throw Exception('未授予定位权限');
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception('定位权限已被永久拒绝，请到系统设置中开启');
+    }
+    final position = await Geolocator.getLastKnownPosition() ??
+        await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+    return (position.latitude, position.longitude, 25);
   }
 
   Future<Set<String>> _matchEBirdToScientificNames(
@@ -1106,9 +1212,20 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _quizChoiceCache.clear();
     });
     _buildDeck();
+    enterFocusMode();
   }
 
-  Widget _difficultySelector() {
+  void enterFocusMode() {
+    if (!mounted || _focusMode) return;
+    _setFocusMode(true);
+  }
+
+  void exitFocusMode() {
+    if (!mounted || !_focusMode) return;
+    _setFocusMode(false);
+  }
+
+  Widget _difficultySelector([StateSetter? sheetSetState]) {
     String labelFor(int value) {
       if (value == 0) return '全部';
       return List.filled(value, '⭐').join();
@@ -1138,6 +1255,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               selectedColor: const Color(0xFF2d5016).withValues(alpha: 0.16),
               onSelected: (_) {
                 setState(() => _imageDifficultyFilter = i);
+                sheetSetState?.call(() {});
                 _buildDeck();
               },
             );
@@ -1154,14 +1272,234 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupOffset = 0;
       _groupCorrect = 0;
       _groupWrong = 0;
+      _groupWrongSpecies.clear();
       _showGroupComplete = false;
     });
-    widget.storage.resetStats();
     _buildDeck();
   }
 
   /// 提供给外部跳转
   void jumpTo(Species target) => _jumpToSpecies(target);
+
+  Future<void> _openFilterSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, sheetSetState) {
+          void refresh(VoidCallback fn, {bool rebuildDeck = true}) {
+            setState(fn);
+            sheetSetState(() {});
+            if (rebuildDeck) _buildDeck();
+          }
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '闪卡筛选',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.place_outlined, size: 18),
+                        label: Text(
+                          _ebirdFilterSci.isEmpty ? '地点筛选' : _ebirdFilterLabel,
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await _applyEBirdDeckFilter();
+                        },
+                      ),
+                      if (_ebirdFilterSci.isNotEmpty)
+                        ActionChip(
+                          avatar: const Icon(Icons.clear, size: 18),
+                          label: const Text('清除地点'),
+                          onPressed: () {
+                            refresh(() {
+                              _ebirdFilterSci = const {};
+                              _ebirdFilterLabel = '';
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('模式',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<AnswerMode>(
+                    segments: const [
+                      ButtonSegment(
+                          value: AnswerMode.learning, label: Text('学习')),
+                      ButtonSegment(
+                          value: AnswerMode.review, label: Text('复习')),
+                    ],
+                    selected: {_answerMode},
+                    onSelectionChanged: (v) => refresh(
+                      () {
+                        _answerMode = v.first;
+                        _correctCount = 0;
+                        _wrongCount = 0;
+                        _resetCardFace();
+                      },
+                      rebuildDeck: false,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('题型',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<StudyMode>(
+                    segments: const [
+                      ButtonSegment(value: StudyMode.review, label: Text('判断')),
+                      ButtonSegment(value: StudyMode.quiz, label: Text('选择')),
+                    ],
+                    selected: {_mode},
+                    onSelectionChanged: (v) => refresh(() {
+                      _mode = v.first;
+                      _correctCount = 0;
+                      _wrongCount = 0;
+                      _resetCardFace();
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('出题',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<PromptMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: PromptMode.audio,
+                        icon: Icon(Icons.headphones, size: 16),
+                        label: Text('音频'),
+                      ),
+                      ButtonSegment(
+                        value: PromptMode.image,
+                        icon: Icon(Icons.image_outlined, size: 16),
+                        label: Text('图片'),
+                      ),
+                    ],
+                    selected: {_promptMode},
+                    onSelectionChanged: (v) => refresh(() {
+                      _promptMode = v.first;
+                      _correctCount = 0;
+                      _wrongCount = 0;
+                      _resetCardFace();
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  _difficultySelector(sheetSetState),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _filter,
+                          decoration: const InputDecoration(
+                            labelText: '范围',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'all', child: Text('全部')),
+                            DropdownMenuItem(
+                                value: 'studied', child: Text('已学习')),
+                            DropdownMenuItem(
+                                value: 'unseen', child: Text('未学习')),
+                            DropdownMenuItem(
+                              value: 'unfamiliar',
+                              child: Text('不熟悉'),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v == null) return;
+                            refresh(() => _filter = v);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _order,
+                          decoration: const InputDecoration(
+                            labelText: '顺序',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                                value: 'random', child: Text('随机')),
+                            DropdownMenuItem(
+                              value: 'review_time',
+                              child: Text('久未复习'),
+                            ),
+                            DropdownMenuItem(
+                                value: 'wrong', child: Text('错误多')),
+                          ],
+                          onChanged: (v) {
+                            if (v == null) return;
+                            refresh(() => _order = v);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_availableOrders.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _taxonomicOrder,
+                      decoration: const InputDecoration(
+                        labelText: '按目筛选',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                            value: 'all', child: Text('全部目')),
+                        ..._availableOrders.map(
+                          (order) => DropdownMenuItem(
+                            value: order,
+                            child: Text(_orderLabel(order)),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        refresh(() => _taxonomicOrder = v);
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        enterFocusMode();
+                      },
+                      icon: const Icon(Icons.fullscreen),
+                      label: const Text('开始全屏答题'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1169,277 +1507,45 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    _effectivePromptMode == PromptMode.audio
-                        ? Icons.headphones
-                        : Icons.image_outlined,
-                    size: 18,
-                    color: const Color(0xFF2d5016),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _deckSummary,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _applyEBirdDeckFilter,
-                    icon: Icon(
-                      Icons.place_outlined,
-                      size: 18,
-                      color: _ebirdFilterSci.isEmpty
-                          ? const Color(0xFF2d5016)
-                          : Colors.white,
-                    ),
-                    label: Text(
-                      _ebirdFilterSci.isEmpty ? '地点筛选' : _ebirdFilterLabel,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: _ebirdFilterSci.isEmpty
-                          ? const Color(0xFF2d5016)
-                          : Colors.white,
-                      backgroundColor: _ebirdFilterSci.isEmpty
-                          ? const Color(0xFF2d5016).withValues(alpha: 0.08)
-                          : const Color(0xFF2d5016),
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  TextButton.icon(
-                    onPressed: () => setState(
-                      () => _showAdvancedControls = !_showAdvancedControls,
-                    ),
-                    icon: Icon(
-                      _showAdvancedControls ? Icons.expand_less : Icons.tune,
-                      size: 18,
-                    ),
-                    label: Text(_showAdvancedControls ? '收起' : '筛选'),
-                  ),
-                ],
-              ),
-              if (_showAdvancedControls) ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 44,
-                      child: Text('模式:', style: TextStyle(fontSize: 13)),
-                    ),
-                    SegmentedButton<AnswerMode>(
-                        segments: const [
-                          ButtonSegment(
-                            value: AnswerMode.learning,
-                            label: Text('学习', style: TextStyle(fontSize: 12)),
-                          ),
-                          ButtonSegment(
-                            value: AnswerMode.review,
-                            label: Text('复习', style: TextStyle(fontSize: 12)),
-                          ),
-                        ],
-                        selected: {
-                          _answerMode
-                        },
-                        onSelectionChanged: (v) {
-                          setState(() {
-                            _answerMode = v.first;
-                            _correctCount = 0;
-                            _wrongCount = 0;
-                            _resetCardFace();
-                          });
-                        },
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        )),
-                  ],
+        if (!_focusMode)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: Row(
+              children: [
+                Icon(
+                  _effectivePromptMode == PromptMode.audio
+                      ? Icons.headphones
+                      : Icons.image_outlined,
+                  size: 18,
+                  color: const Color(0xFF2d5016),
                 ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 44,
-                      child: Text('题型:', style: TextStyle(fontSize: 13)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _deckSummary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                     ),
-                    SegmentedButton<StudyMode>(
-                        segments: const [
-                          ButtonSegment(
-                            value: StudyMode.review,
-                            label: Text('判断', style: TextStyle(fontSize: 12)),
-                          ),
-                          ButtonSegment(
-                            value: StudyMode.quiz,
-                            label: Text('选择', style: TextStyle(fontSize: 12)),
-                          ),
-                        ],
-                        selected: {
-                          _mode
-                        },
-                        onSelectionChanged: (v) {
-                          setState(() {
-                            _mode = v.first;
-                            _correctCount = 0;
-                            _wrongCount = 0;
-                            _resetCardFace();
-                          });
-                          _buildDeck();
-                        },
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        )),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 44,
-                      child: Text('出题:', style: TextStyle(fontSize: 13)),
-                    ),
-                    SegmentedButton<PromptMode>(
-                        segments: const [
-                          ButtonSegment(
-                            value: PromptMode.audio,
-                            icon: Icon(Icons.headphones, size: 16),
-                            label: Text('音频', style: TextStyle(fontSize: 12)),
-                          ),
-                          ButtonSegment(
-                            value: PromptMode.image,
-                            icon: Icon(Icons.image_outlined, size: 16),
-                            label: Text('图片', style: TextStyle(fontSize: 12)),
-                          ),
-                        ],
-                        selected: {
-                          _promptMode
-                        },
-                        onSelectionChanged: (v) {
-                          setState(() {
-                            _promptMode = v.first;
-                            _correctCount = 0;
-                            _wrongCount = 0;
-                            _resetCardFace();
-                          });
-                          _buildDeck();
-                        },
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        )),
-                  ],
+                TextButton.icon(
+                  onPressed: _openFilterSheet,
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('筛选'),
                 ),
-                const SizedBox(height: 6),
-                _difficultySelector(),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Text('筛选:', style: TextStyle(fontSize: 13)),
-                    const SizedBox(width: 4),
-                    SizedBox(
-                      height: 32,
-                      child: DropdownButton<String>(
-                        value: _filter,
-                        isDense: true,
-                        underline: const SizedBox(),
-                        items: const [
-                          DropdownMenuItem(value: 'all', child: Text('全部')),
-                          DropdownMenuItem(
-                              value: 'studied', child: Text('已学习')),
-                          DropdownMenuItem(value: 'unseen', child: Text('未学习')),
-                          DropdownMenuItem(
-                            value: 'unfamiliar',
-                            child: Text('不熟悉'),
-                          ),
-                        ],
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() => _filter = v);
-                          _buildDeck();
-                        },
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_availableOrders.isNotEmpty) ...[
-                      const Text('目:', style: TextStyle(fontSize: 13)),
-                      const SizedBox(width: 4),
-                      SizedBox(
-                        height: 32,
-                        width: 96,
-                        child: DropdownButton<String>(
-                          value: _taxonomicOrder,
-                          isExpanded: true,
-                          isDense: true,
-                          underline: const SizedBox(),
-                          items: [
-                            const DropdownMenuItem(
-                                value: 'all', child: Text('全部')),
-                            ..._availableOrders.map(
-                              (order) => DropdownMenuItem(
-                                value: order,
-                                child: Text(_orderLabel(order),
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() => _taxonomicOrder = v);
-                            _buildDeck();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    const Text('顺序:', style: TextStyle(fontSize: 13)),
-                    const SizedBox(width: 4),
-                    SizedBox(
-                      height: 32,
-                      child: DropdownButton<String>(
-                        value: _order,
-                        isDense: true,
-                        underline: const SizedBox(),
-                        items: const [
-                          DropdownMenuItem(value: 'random', child: Text('随机')),
-                          DropdownMenuItem(
-                              value: 'review_time', child: Text('久未复习')),
-                          DropdownMenuItem(value: 'wrong', child: Text('错误多')),
-                        ],
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() => _order = v);
-                          _buildDeck();
-                        },
-                      ),
-                    ),
-                  ],
+                IconButton(
+                  tooltip: '进入全屏学习',
+                  onPressed: enterFocusMode,
+                  icon: const Icon(Icons.fullscreen, size: 20),
                 ),
               ],
-            ],
+            ),
           ),
-        ),
-        if (_deck.isNotEmpty) ...[
+        if (_focusMode && _deck.isNotEmpty) _buildFocusHeader(),
+        if (!_focusMode && _deck.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
@@ -1490,7 +1596,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
             ),
           ),
         ],
-        if (_deck.isNotEmpty)
+        if (!_focusMode && _deck.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Column(
@@ -1567,36 +1673,47 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 16),
-                                  child: _mode == StudyMode.quiz
-                                      ? _buildQuizLayout(
-                                          bird: bird,
-                                          imagePath: imagePath,
-                                          imageSourceFile: studyImage.file,
-                                          imageCredit: studyImage.credit,
-                                          audioPaths: audioPaths,
-                                          labels: labels,
-                                          extraImagePaths: extraImagePaths,
-                                          extraImageSourceFiles:
-                                              extraImageSourceFiles,
-                                          extraImageCredits: extraImageCredits,
-                                        )
-                                      : _buildCardScroller(
-                                          bird: bird,
-                                          imagePath: imagePath,
-                                          imageSourceFile: studyImage.file,
-                                          imageCredit: studyImage.credit,
-                                          audioPaths: audioPaths,
-                                          labels: labels,
-                                          extraImagePaths: extraImagePaths,
-                                          extraImageSourceFiles:
-                                              extraImageSourceFiles,
-                                          extraImageCredits: extraImageCredits,
-                                        ),
+                                  child: _studyGestureSurface(
+                                    enabled:
+                                        _focusMode && _mode == StudyMode.review,
+                                    child: _mode == StudyMode.quiz
+                                        ? _buildQuizLayout(
+                                            bird: bird,
+                                            imagePath: imagePath,
+                                            imageSourceFile: studyImage.file,
+                                            imageCredit: studyImage.credit,
+                                            audioPaths: audioPaths,
+                                            labels: labels,
+                                            extraImagePaths: extraImagePaths,
+                                            extraImageSourceFiles:
+                                                extraImageSourceFiles,
+                                            extraImageCredits:
+                                                extraImageCredits,
+                                          )
+                                        : _buildCardScroller(
+                                            bird: bird,
+                                            imagePath: imagePath,
+                                            imageSourceFile: studyImage.file,
+                                            imageCredit: studyImage.credit,
+                                            audioPaths: audioPaths,
+                                            labels: labels,
+                                            extraImagePaths: extraImagePaths,
+                                            extraImageSourceFiles:
+                                                extraImageSourceFiles,
+                                            extraImageCredits:
+                                                extraImageCredits,
+                                          ),
+                                  ),
                                 );
                               },
                             ),
         ),
-        if (bird != null && !_isFinished)
+        if (_focusMode &&
+            bird != null &&
+            !_isFinished &&
+            _mode != StudyMode.quiz)
+          _buildFocusAnswerDock(),
+        if (!_focusMode && bird != null && !_isFinished)
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -1781,6 +1898,57 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     );
   }
 
+  Widget _buildFocusHeader() {
+    final total = _groupEnd - _groupOffset;
+    final current = total <= 0 ? 0 : _idx - _groupOffset + 1;
+    final progress = total <= 0 ? 0.0 : current / total;
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: exitFocusMode,
+                  icon: const Icon(Icons.fullscreen_exit, size: 18),
+                  label: const Text('退出'),
+                ),
+                Expanded(
+                  child: Text(
+                    total <= 0 ? _deckSummary : '第 $current/$total 张',
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _openFilterSheet,
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('筛选'),
+                ),
+              ],
+            ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress.clamp(0, 1),
+                minHeight: 4,
+                backgroundColor: Colors.grey[200],
+                color: const Color(0xFF2d7d32),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildQuizLayout({
     required Species bird,
     required String? imagePath,
@@ -1831,6 +1999,54 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
   }) {
+    if (_focusMode) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: 430,
+                      maxHeight: constraints.maxHeight,
+                    ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: _mode == StudyMode.review &&
+                              !_answered &&
+                              !_showAnswerOnEntry
+                          ? _reveal
+                          : null,
+                      child: _gestureCard(
+                        bird: bird,
+                        imagePath: imagePath,
+                        imageSourceFile: imageSourceFile,
+                        imageCredit: imageCredit,
+                        audioPaths: audioPaths,
+                        labels: labels,
+                        extraImagePaths: extraImagePaths,
+                        extraImageSourceFiles: extraImageSourceFiles,
+                        extraImageCredits: extraImageCredits,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (!_revealed && !_showAnswerOnEntry && !_answered)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '先看答案，再判断是否认识',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ),
+            ],
+          );
+        },
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 132),
       child: Column(
@@ -1871,124 +2087,154 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }) {
     return Stack(
       children: [
-        Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: _startCardPointer,
-          onPointerMove: _updateCardPointer,
-          onPointerUp: (_) => _finishCardPointer(),
-          onPointerCancel: (_) => _clearCardPointer(),
-          child: BirdCard(
-            key: _cardKey,
-            species: bird,
-            imagePath: imagePath,
-            imageSourceFile: imageSourceFile,
-            imageCredit: imageCredit,
-            audioPaths: audioPaths,
-            audioLabels: labels,
-            audioPlayerKey: _audioKey,
-            onPreviousSpecies: _previousCard,
-            onNextSpecies: _nextCard,
-            mode: _mode,
-            promptMode: _effectivePromptMode,
-            initiallyShowAnswer: _showAnswerOnEntry,
-            extraImagePaths: extraImagePaths,
-            extraImageSourceFiles: extraImageSourceFiles,
-            extraImageCredits: extraImageCredits,
-            isAdmin: widget.storage.isAdminMode,
-            onDifficultyChanged: (diff) async {
-              final packDir = await widget.packManager.getActivePackDir();
-              if (packDir == null) return;
-              await widget.packManager
-                  .saveSpeciesDifficulty(packDir, bird.sci, diff);
-              await _loadSpecies();
-            },
-            onImageDifficultyChanged: (imageFile, diff) async {
-              final packDir = await widget.packManager.getActivePackDir();
-              if (packDir == null) return;
-              await widget.packManager.saveSpeciesImageDifficulty(
-                packDir,
-                bird.sci,
-                imageFile,
-                diff,
-              );
-              await _loadSpecies();
-            },
-            onLearnMore: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => BirdPreviewScreen(
-                    species: bird,
-                    packManager: widget.packManager,
-                    storage: widget.storage,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        // 滑动反馈浮层
-        if (_swipeFeedbackText != null)
-          AnimatedOpacity(
-            opacity: _swipeFeedbackVisible ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 180),
-            child: IgnorePointer(
-              child: Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-                  decoration: BoxDecoration(
-                    color:
-                        (_swipeFeedbackText == '认识' ? Colors.green : Colors.red)
-                            .withValues(alpha: 0.88),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _swipeFeedbackText == '认识' ? '认识 ✓' : '不认识 ✗',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+        BirdCard(
+          key: _cardKey,
+          species: bird,
+          imagePath: imagePath,
+          imageSourceFile: imageSourceFile,
+          imageCredit: imageCredit,
+          audioPaths: audioPaths,
+          audioLabels: labels,
+          audioPlayerKey: _audioKey,
+          onPreviousSpecies: _mode == StudyMode.quiz ? null : _previousCard,
+          onNextSpecies: _mode == StudyMode.quiz ? null : _nextCard,
+          mode: _mode,
+          promptMode: _effectivePromptMode,
+          initiallyShowAnswer: _showAnswerOnEntry,
+          extraImagePaths: extraImagePaths,
+          extraImageSourceFiles: extraImageSourceFiles,
+          extraImageCredits: extraImageCredits,
+          isAdmin: widget.storage.isAdminMode,
+          onDifficultyChanged: (diff) async {
+            final packDir = await widget.packManager
+                .findWritablePackDirForSpecies(bird.sci);
+            if (packDir == null) return;
+            await widget.packManager.saveSpeciesDifficulty(
+              packDir,
+              bird.sci,
+              diff,
+            );
+            await _loadSpecies();
+          },
+          onImageDifficultyChanged: (imageFile, diff) async {
+            final packDir = await widget.packManager
+                .findWritablePackDirForSpecies(bird.sci);
+            if (packDir == null) return;
+            await widget.packManager.saveSpeciesImageDifficulty(
+              packDir,
+              bird.sci,
+              imageFile,
+              diff,
+            );
+            await _loadSpecies();
+          },
+          onLearnMore: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => BirdPreviewScreen(
+                  species: bird,
+                  packManager: widget.packManager,
+                  storage: widget.storage,
                 ),
               ),
-            ),
-          ),
+            );
+          },
+        ),
       ],
     );
   }
 
-  void _startCardPointer(PointerDownEvent event) {
-    _cardPointerStart = event.position;
-    _cardPointerLatest = event.position;
+  Widget _studyGestureSurface({
+    required bool enabled,
+    required Widget child,
+  }) {
+    if (!enabled) return child;
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (event) {
+        _studyPointerStart = event.position;
+        _studyPointerLatest = event.position;
+      },
+      onPointerMove: (event) {
+        _studyPointerLatest = event.position;
+      },
+      onPointerCancel: (_) {
+        _studyPointerStart = null;
+        _studyPointerLatest = null;
+      },
+      onPointerUp: (_) => _finishStudyPointer(),
+      child: child,
+    );
   }
 
-  void _updateCardPointer(PointerMoveEvent event) {
-    _cardPointerLatest = event.position;
-  }
-
-  void _finishCardPointer() {
-    final start = _cardPointerStart;
-    final latest = _cardPointerLatest;
-    _clearCardPointer();
-    if (start == null || latest == null) return;
+  void _finishStudyPointer() {
+    final start = _studyPointerStart;
+    final latest = _studyPointerLatest;
+    _studyPointerStart = null;
+    _studyPointerLatest = null;
+    if (start == null || latest == null || _mode == StudyMode.quiz) return;
     final delta = latest - start;
     final dx = delta.dx;
     final dy = delta.dy;
-    if (dy.abs() < 54 || dy.abs() < dx.abs() * 1.35) return;
+
+    if (dx.abs() > 64 &&
+        dx.abs() > dy.abs() * 1.35 &&
+        _effectivePromptMode == PromptMode.audio) {
+      if (dx < 0) {
+        _nextCard();
+      } else {
+        _previousCard();
+      }
+      return;
+    }
+
+    if (_answered || dy.abs() < 70 || dy.abs() < dx.abs() * 1.35) return;
     if (dy < 0) {
-      _showSwipeFeedback(true);
       _markCorrect();
     } else {
-      _showSwipeFeedback(false);
       _markWrong();
     }
   }
 
-  void _clearCardPointer() {
-    _cardPointerStart = null;
-    _cardPointerLatest = null;
+  Widget _buildFocusAnswerDock() {
+    final canGrade = _revealed || _showAnswerOnEntry || _answered;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+        child: canGrade
+            ? Row(
+                children: [
+                  Expanded(
+                    child: _actionButton(
+                      label: '不认识',
+                      color: Colors.red[600]!,
+                      enabled: !_answered,
+                      onPressed: _markWrong,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _actionButton(
+                      label: '认识',
+                      color: const Color(0xFF2d7d32),
+                      enabled: !_answered,
+                      onPressed: _markCorrect,
+                    ),
+                  ),
+                ],
+              )
+            : SizedBox(
+                width: double.infinity,
+                child: _actionButton(
+                  label: '看答案',
+                  color: const Color(0xFF2d5016),
+                  onPressed: _showAnswer,
+                ),
+              ),
+      ),
+    );
   }
 
   Widget _roundIconAction({
@@ -2101,35 +2347,33 @@ class FlashcardScreenState extends State<FlashcardScreen> {
             ),
           ],
           const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 10,
             children: [
               OutlinedButton.icon(
                 onPressed: _retryGroup,
                 icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('重学本组'),
               ),
-              if (hasMore) ...[
-                const SizedBox(width: 16),
-                FilledButton.icon(
-                  onPressed: _advanceGroup,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF2d7d32),
-                  ),
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                  label: const Text('继续下一组'),
+              if (_groupWrongSpecies.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: _reviewGroupWrongs,
+                  icon: const Icon(Icons.priority_high_rounded, size: 18),
+                  label: const Text('复习错题'),
                 ),
-              ] else ...[
-                const SizedBox(width: 16),
-                FilledButton.icon(
-                  onPressed: _restart,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF2d7d32),
-                  ),
-                  icon: const Icon(Icons.celebration, size: 18),
-                  label: const Text('全部完成，重新开始'),
+              FilledButton.icon(
+                onPressed: hasMore ? _advanceGroup : _restart,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF2d7d32),
                 ),
-              ],
+                icon: Icon(
+                  hasMore ? Icons.arrow_forward_rounded : Icons.celebration,
+                  size: 18,
+                ),
+                label: Text(hasMore ? '继续下一组' : '全部完成，重新开始'),
+              ),
             ],
           ),
         ],
