@@ -527,7 +527,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => launchUrl(
-          Uri.parse(AppUpdateService.downloadUrl),
+          Uri.parse(_updateInfo?.downloadUrl ?? AppUpdateService.downloadUrl),
           mode: LaunchMode.externalApplication,
         ),
         child: Padding(

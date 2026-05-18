@@ -39,30 +39,30 @@ class AppUpdateService {
     var title = 'Birdaholic v$appVersionName';
 
     try {
-      final response = await http.get(Uri.parse(downloadUrl), headers: {
+      final response = await http.get(Uri.parse(_githubLatestUrl), headers: {
         'User-Agent': 'Birdaholic/$appVersionName',
       }).timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {
-        final html = utf8.decode(response.bodyBytes);
-        version = _parseVersion(html) ?? version;
-        date = _parseDate(html) ?? date;
-        title = 'Birdaholic v$version';
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final tag = (data['tag_name'] as String? ?? '').trim();
+        if (tag.isNotEmpty) {
+          version = tag.replaceFirst(RegExp(r'^[vV]'), '');
+          title = 'Birdaholic v$version';
+        }
+        date = _formatIsoDate((data['published_at'] as String? ?? '').trim());
       }
     } catch (_) {}
 
     if (date.isEmpty) {
       try {
-        final response = await http.get(Uri.parse(_githubLatestUrl), headers: {
+        final response = await http.get(Uri.parse(downloadUrl), headers: {
           'User-Agent': 'Birdaholic/$appVersionName',
         }).timeout(const Duration(seconds: 8));
         if (response.statusCode == 200) {
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
-          final tag = (data['tag_name'] as String? ?? '').trim();
-          if (tag.isNotEmpty) {
-            version = tag.replaceFirst(RegExp(r'^[vV]'), '');
-            title = 'Birdaholic v$version';
-          }
-          date = _formatIsoDate((data['published_at'] as String? ?? '').trim());
+          final html = utf8.decode(response.bodyBytes);
+          version = _parseVersion(html) ?? version;
+          date = _parseDate(html) ?? date;
+          title = 'Birdaholic v$version';
         }
       } catch (_) {}
     }
