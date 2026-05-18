@@ -1544,7 +1544,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               ],
             ),
           ),
-        if (_focusMode && _deck.isNotEmpty) _buildFocusHeader(),
+        if (_focusMode) _buildFocusHeader(),
         if (!_focusMode && _deck.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),

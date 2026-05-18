@@ -444,10 +444,15 @@ async def upload(
     token: str = Form(""),
     sci: str = Form(""),
     contributor: str = Form("用户上传"),
+    difficulty: int = Form(0),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     check_token(authorization, token)
     SPECIES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Clamp difficulty to [1, 5]; 0 means "not specified"
+    if difficulty:
+        difficulty = max(1, min(5, difficulty))
 
     selected = None
     if sci.strip():
@@ -477,6 +482,9 @@ async def upload(
             shutil.copyfileobj(upload_file.file, handle)
 
         manifest = load_manifest(target_sci, item)
+        # Persist difficulty at the species level (overwrites if newer value provided)
+        if difficulty:
+            manifest["difficulty"] = difficulty
         if kind == "images":
             manifest.setdefault("images", []).append(
                 {
