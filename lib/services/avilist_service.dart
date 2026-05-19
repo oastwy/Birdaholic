@@ -7,7 +7,7 @@ import '../models/avilist_species.dart';
 class AviListService {
   static const _assetPath = 'assets/data/avilist_species.json';
 
-  List<AviListSpecies>? _cache;
+  static List<AviListSpecies>? _cache;
 
   Future<List<AviListSpecies>> loadAllSpecies() async {
     if (_cache != null) return _cache!;
@@ -20,7 +20,7 @@ class AviListService {
   }
 
   // sci (lowercase) → AviList sequence index, -1 if not found
-  Map<String, int>? _sciIndex;
+  static Map<String, int>? _sciIndex;
 
   Future<Map<String, int>> _getSciIndex() async {
     if (_sciIndex != null) return _sciIndex!;

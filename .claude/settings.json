@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/wuyang/.flutter-sdk/bin/flutter analyze *)",
+      "Bash(curl -sI *)",
+      "Bash(claude mcp list *)"
+    ]
+  }
+}

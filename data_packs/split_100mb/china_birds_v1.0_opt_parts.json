@@ -1,0 +1,37 @@
+{
+  "source": "china_birds_v1.0_opt.zip",
+  "max_mb": 100,
+  "part_count": 6,
+  "parts": [
+    {
+      "file": "china_birds_v1.0_opt_part01.zip",
+      "bytes": 98823578,
+      "mb": 94.2
+    },
+    {
+      "file": "china_birds_v1.0_opt_part02.zip",
+      "bytes": 98992178,
+      "mb": 94.4
+    },
+    {
+      "file": "china_birds_v1.0_opt_part03.zip",
+      "bytes": 99352499,
+      "mb": 94.7
+    },
+    {
+      "file": "china_birds_v1.0_opt_part04.zip",
+      "bytes": 99404983,
+      "mb": 94.8
+    },
+    {
+      "file": "china_birds_v1.0_opt_part05.zip",
+      "bytes": 98234288,
+      "mb": 93.7
+    },
+    {
+      "file": "china_birds_v1.0_opt_part06.zip",
+      "bytes": 43333316,
+      "mb": 41.3
+    }
+  ]
+}
