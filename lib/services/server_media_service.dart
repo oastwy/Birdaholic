@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class ServerMediaService {
-  static const defaultBaseUrl = 'http://124.223.101.188:8080';
+  static const defaultBaseUrl = 'https://birding.today';
 
   final String baseUrl;
   final http.Client _client;

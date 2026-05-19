@@ -72,7 +72,7 @@ class PackManager {
   /// 服务器可下载数据包（备案通过后可换为域名）
   static const remotePacks = [
     RemotePackInfo(
-      url: 'http://124.223.101.188:8080/packs/china_birds_v1.0_opt.zip',
+      url: 'https://birding.today/packs/china_birds_v1.0_opt.zip',
       dirName: 'china_birds_v1',
       label: '中国全鸟种 v1.0（1519种）',
       description: '1519种鸟 · 中国全鸟种',
