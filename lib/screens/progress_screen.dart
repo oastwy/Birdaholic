@@ -810,9 +810,20 @@ class _ProgressScreenState extends State<ProgressScreen> {
             style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            '${species.sci}\n$subtitle',
-            style: TextStyle(color: Colors.grey[700], height: 1.35),
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                text: species.sci,
+                style: TextStyle(
+                    color: Colors.grey[700],
+                    height: 1.35,
+                    fontStyle: FontStyle.italic),
+              ),
+              TextSpan(
+                text: '\n$subtitle',
+                style: TextStyle(color: Colors.grey[700], height: 1.35),
+              ),
+            ]),
           ),
         ),
         trailing: Column(

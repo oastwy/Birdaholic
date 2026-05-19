@@ -36,6 +36,24 @@ class AdminUploadService {
     }
   }
 
+  Future<void> setDifficulty({
+    required String sci,
+    required int difficulty,
+    required String token,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/set_difficulty'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'sci': sci, 'difficulty': difficulty}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('难度上传失败: ${response.statusCode} ${response.body}');
+    }
+  }
+
   Future<void> uploadIdentificationFeatures({
     required Species species,
     required String features,

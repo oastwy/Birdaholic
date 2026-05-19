@@ -5,8 +5,8 @@ import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import '../services/download_task_service.dart';
 import '../widgets/bird_card.dart';
-import 'favorites_screen.dart';
 import 'flashcard_screen.dart';
+import 'news_screen.dart';
 import 'progress_screen.dart';
 import 'settings_screen.dart';
 import 'species_list_screen.dart';
@@ -34,7 +34,7 @@ class HomeScreenState extends State<HomeScreen> {
   DownloadTaskStatus _lastTaskStatus =
       DownloadTaskService.instance.snapshot.status;
 
-  static const _titles = ['总览', '闪卡学习', '鸟种', '收藏夹', '设置'];
+  static const _titles = ['总览', '闪卡学习', '鸟种', '资讯', '设置'];
 
   void jumpToPreview() {
     setState(() {
@@ -338,13 +338,7 @@ class HomeScreenState extends State<HomeScreen> {
                         refreshToken: _packVersion,
                         isActive: _tab == 2,
                       ),
-                      FavoritesScreen(
-                        packManager: widget.packManager,
-                        storage: widget.storage,
-                        onJumpToFlashcard: jumpToFlashcard,
-                        refreshToken: _packVersion,
-                        isActive: _tab == 3,
-                      ),
+                      const NewsScreen(),
                       SettingsScreen(
                         packManager: widget.packManager,
                         storage: widget.storage,
@@ -394,8 +388,8 @@ class HomeScreenState extends State<HomeScreen> {
                         label: '鸟种',
                       ),
                       BottomNavigationBarItem(
-                        icon: Icon(Icons.star),
-                        label: '收藏',
+                        icon: Icon(Icons.newspaper_outlined),
+                        label: '资讯',
                       ),
                       BottomNavigationBarItem(
                         icon: Icon(Icons.settings_outlined),

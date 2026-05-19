@@ -772,6 +772,108 @@ class _PackManageScreenState extends State<PackManageScreen> {
     }
   }
 
+  Future<void> _showDifficultyStats(DataPack pack) async {
+    final file = File('${pack.packDir}/species.json');
+    if (!await file.exists()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('这个数据包缺少 species.json')));
+      return;
+    }
+    final rows = (jsonDecode(await file.readAsString()) as List<dynamic>)
+        .whereType<Map<String, dynamic>>()
+        .toList();
+
+    // Count per species difficulty
+    final speciesByDiff = <int, List<Map<String, dynamic>>>{};
+    for (final row in rows) {
+      final d = ((row['difficulty'] as int?) ?? 1).clamp(1, 5);
+      speciesByDiff.putIfAbsent(d, () => []).add(row);
+    }
+
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        int? expanded;
+        return StatefulBuilder(
+          builder: (ctx, setS) => DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.6,
+            minChildSize: 0.4,
+            maxChildSize: 0.92,
+            builder: (ctx, ctrl) => ListView(
+              controller: ctrl,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+              children: [
+                Text('${pack.displayName} · 难度统计',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text('共 ${rows.length} 种',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                const SizedBox(height: 12),
+                ...List.generate(5, (i) {
+                  final d = i + 1;
+                  final items = speciesByDiff[d] ?? [];
+                  final stars = List.filled(d, '⭐').join();
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: Text(stars,
+                              style: const TextStyle(fontSize: 16)),
+                          title: Text('难度 $d · ${items.length} 种'),
+                          trailing: items.isEmpty
+                              ? null
+                              : Icon(expanded == d
+                                  ? Icons.expand_less
+                                  : Icons.expand_more),
+                          onTap: items.isEmpty
+                              ? null
+                              : () => setS(
+                                  () => expanded = expanded == d ? null : d),
+                        ),
+                        if (expanded == d && items.isNotEmpty)
+                          Padding(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: items
+                                  .map((r) => Chip(
+                                        label: Text(
+                                          (r['cn'] as String?)
+                                                  ?.isNotEmpty ==
+                                                  true
+                                              ? r['cn'] as String
+                                              : (r['sci'] as String? ??
+                                                  '?'),
+                                          style: const TextStyle(
+                                              fontSize: 12),
+                                        ),
+                                        visualDensity:
+                                            VisualDensity.compact,
+                                      ))
+                                  .toList(),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _showPackOrderOverview(DataPack pack) async {
     final file = File('${pack.packDir}/species.json');
     if (!await file.exists()) {
@@ -1157,6 +1259,15 @@ class _PackManageScreenState extends State<PackManageScreen> {
                                   ),
                                   tooltip: '类群概览',
                                   onPressed: () => _showPackOrderOverview(pack),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.star_half_outlined,
+                                    size: 20,
+                                  ),
+                                  tooltip: '难度统计',
+                                  onPressed: () =>
+                                      _showDifficultyStats(pack),
                                 ),
                                 IconButton(
                                   icon: const Icon(

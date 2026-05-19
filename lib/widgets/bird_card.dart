@@ -671,14 +671,16 @@ class BirdCardState extends State<BirdCard>
   void _showImagePreview(_ImageEntry entry) {
     Widget img;
     if (entry.isNetwork) {
-      img = Image.network(entry.path, fit: BoxFit.contain);
+      img = Image.network(entry.path, fit: BoxFit.cover,
+          width: double.infinity, height: double.infinity);
     } else {
-      img = Image.file(File(entry.path), fit: BoxFit.contain);
+      img = Image.file(File(entry.path), fit: BoxFit.cover,
+          width: double.infinity, height: double.infinity);
     }
     showDialog<void>(
       context: context,
       builder: (context) => Dialog(
-        insetPadding: const EdgeInsets.all(12),
+        insetPadding: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
@@ -686,11 +688,11 @@ class BirdCardState extends State<BirdCard>
               behavior: HitTestBehavior.opaque,
               onTap: () => Navigator.pop(context),
               child: InteractiveViewer(
-                minScale: 0.8,
-                maxScale: 5,
-                child: Container(
-                  color: Colors.black,
-                  alignment: Alignment.center,
+                minScale: 1.0,
+                maxScale: 8,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: double.infinity,
                   child: img,
                 ),
               ),

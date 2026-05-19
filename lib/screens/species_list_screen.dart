@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/species.dart';
 import '../services/download_task_service.dart';
+import '../services/avilist_service.dart';
 import '../services/order_taxonomy.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
@@ -58,12 +59,17 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   final _packPageController = PageController();
   int _packPageIndex = 0;
   bool _showSearchBar = false;
+  bool _showFavOnly = false;
+  Map<String, int> _aviIndex = const {};
 
   @override
   void initState() {
     super.initState();
     _chinaScrollController.addListener(_updateChinaRailOrder);
     _loadSpecies();
+    AviListService().getSciIndexMap().then((idx) {
+      if (mounted) setState(() => _aviIndex = idx);
+    });
   }
 
   @override
@@ -287,6 +293,12 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       list = list.where((species) => species.order == _orderFilter).toList();
     }
 
+    if (_showFavOnly) {
+      list = list
+          .where((species) => widget.storage.isFavorite(species.cn))
+          .toList();
+    }
+
     if (_search.isNotEmpty) {
       final query = _search.toLowerCase();
       list = list
@@ -306,6 +318,10 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       final orderB = BirdOrderTaxonomy.info(b.order);
       final byOrder = orderA.sortWeight.compareTo(orderB.sortWeight);
       if (byOrder != 0) return byOrder;
+      // Within same order: sort by AviList index if available
+      final idxA = _aviIndex[a.sci.trim().toLowerCase()] ?? 999999;
+      final idxB = _aviIndex[b.sci.trim().toLowerCase()] ?? 999999;
+      if (idxA != idxB) return idxA.compareTo(idxB);
       final aName = a.cn.isNotEmpty ? a.cn : a.sci;
       final bName = b.cn.isNotEmpty ? b.cn : b.sci;
       return aName.compareTo(bName);
@@ -520,6 +536,22 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                 ),
               ],
             ),
+          // Favorites filter
+          IconButton(
+            icon: Icon(
+              _showFavOnly ? Icons.star_rounded : Icons.star_outline_rounded,
+              size: 20,
+              color: _showFavOnly ? Colors.amber : null,
+            ),
+            tooltip: _showFavOnly ? '显示全部' : '只看收藏',
+            onPressed: () {
+              setState(() {
+                _showFavOnly = !_showFavOnly;
+                _packPageIndex = 0;
+              });
+              _packPageController.jumpToPage(0);
+            },
+          ),
           // Search toggle
           IconButton(
             icon: Icon(

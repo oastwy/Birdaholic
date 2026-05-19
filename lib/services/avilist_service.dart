@@ -19,6 +19,27 @@ class AviListService {
     return _cache!;
   }
 
+  // sci (lowercase) → AviList sequence index, -1 if not found
+  Map<String, int>? _sciIndex;
+
+  Future<Map<String, int>> _getSciIndex() async {
+    if (_sciIndex != null) return _sciIndex!;
+    final all = await loadAllSpecies();
+    final map = <String, int>{};
+    for (var i = 0; i < all.length; i++) {
+      map[all[i].sci.trim().toLowerCase()] = i;
+    }
+    _sciIndex = map;
+    return map;
+  }
+
+  Future<Map<String, int>> getSciIndexMap() => _getSciIndex();
+
+  Future<int> aviListIndexOf(String sci) async {
+    final idx = await _getSciIndex();
+    return idx[sci.trim().toLowerCase()] ?? 999999;
+  }
+
   Future<List<AviListSpecies>> search(
     String query, {
     int limit = 30,
