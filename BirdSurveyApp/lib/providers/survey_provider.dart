@@ -154,24 +154,12 @@ class SurveyProvider extends ChangeNotifier {
         _searchQuery.isEmpty
             ? List<BirdSpecies>.from(_nearbySpecies)
             : _applyFilter(_nearbySpecies, _searchQuery);
-    if (isTransect && _currentSession?.observationEvents.isNotEmpty == true) {
-      final recent = <String, int>{};
-      final events =
-          _currentSession!.observationEvents
-              .where(
-                (e) =>
-                    e.type == 'species_count' ||
-                    e.type == 'field_count' ||
-                    e.type == 'nested_field_count',
-              )
-              .toList();
-      for (int i = 0; i < events.length; i++) {
-        recent[events[i].ebirdCode] = i;
-      }
+    final priorityCodes = _previousTransectPointSpeciesOrder();
+    if (priorityCodes.isNotEmpty) {
       result.sort((a, b) {
-        final ai = recent[a.ebird] ?? -1;
-        final bi = recent[b.ebird] ?? -1;
-        if (ai != bi) return bi.compareTo(ai);
+        final ai = priorityCodes[a.ebird] ?? 1 << 30;
+        final bi = priorityCodes[b.ebird] ?? 1 << 30;
+        if (ai != bi) return ai.compareTo(bi);
         return b.ebirdFrequency.compareTo(a.ebirdFrequency);
       });
     }
@@ -211,6 +199,30 @@ class SurveyProvider extends ChangeNotifier {
       }
       return false;
     }).toList();
+  }
+
+  Map<String, int> _previousTransectPointSpeciesOrder() {
+    final session = _currentSession;
+    if (session == null || session.surveyMode != 'transect') return {};
+    final activeId = session.activeTransectPointId;
+    if (activeId.isEmpty) return {};
+    final activeIndex = session.transectTrack.indexWhere(
+      (p) => p.id == activeId,
+    );
+    if (activeIndex <= 0) return {};
+    final previousId = session.transectTrack[activeIndex - 1].id;
+    final order = <String, int>{};
+    for (final event in session.observationEvents.where(
+      (e) =>
+          e.trackPointId == previousId &&
+          (e.type == 'species_count' ||
+              e.type == 'field_count' ||
+              e.type == 'nested_field_count') &&
+          e.delta > 0,
+    )) {
+      order.putIfAbsent(event.ebirdCode, () => order.length);
+    }
+    return order;
   }
 
   List<BirdSpecies> get recordedSpecies {
