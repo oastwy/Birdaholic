@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/data_pack.dart';
+import 'order_taxonomy.dart';
 import '../models/species.dart';
 import 'download_cancel.dart';
 import 'server_media_service.dart';
@@ -952,9 +953,11 @@ class PackManager {
   ) {
     final info = taxonomy[species.sci.trim().toLowerCase()];
     if (info == null) return species;
+    // info.order 已是 AviList 权威值（中文，由 _buildTaxonomyIndex 转换得到），
+    // 强制覆盖 species 中可能错误的 order；family 保留 species 自身，没填时才从 AviList 拿。
     return species.copyWith(
       cn: info.zh.isNotEmpty ? info.zh : species.cn,
-      order: species.order.isNotEmpty ? species.order : info.order,
+      order: info.order.isNotEmpty ? info.order : species.order,
       family: species.family.isNotEmpty ? species.family : info.family,
     );
   }
@@ -965,7 +968,8 @@ class PackManager {
 
   Future<Map<String, _SpeciesNameTaxonomy>> _buildTaxonomyIndex() async {
     final index = <String, _SpeciesNameTaxonomy>{};
-    Future<void> mergeAsset(String asset, {required bool preferZh}) async {
+    Future<void> mergeAsset(String asset,
+        {required bool preferZh, bool authoritativeOrder = false}) async {
       final text = await rootBundle.loadString(asset);
       final data = jsonDecode(text) as List<dynamic>;
       for (final raw in data) {
@@ -975,11 +979,18 @@ class PackManager {
         final key = sci.toLowerCase();
         final old = index[key];
         final zh = (item['zh'] as String? ?? '').trim();
-        final order = (item['order'] as String? ?? '').trim();
+        var order = (item['order'] as String? ?? '').trim();
         final family = (item['family'] as String? ?? '').trim();
+        // AviList 的 order 是拉丁名（Apodiformes 等），统一转中文
+        if (authoritativeOrder && order.isNotEmpty) {
+          order = BirdOrderTaxonomy.label(order);
+        }
         index[key] = _SpeciesNameTaxonomy(
           zh: preferZh && zh.isNotEmpty ? zh : (old?.zh ?? zh),
-          order: old?.order.isNotEmpty == true ? old!.order : order,
+          // AviList 是权威 order 源，强制覆盖；其它源只填空缺
+          order: authoritativeOrder && order.isNotEmpty
+              ? order
+              : (old?.order.isNotEmpty == true ? old!.order : order),
           family: old?.family.isNotEmpty == true ? old!.family : family,
         );
       }
@@ -987,6 +998,9 @@ class PackManager {
 
     await mergeAsset('assets/data/world_birds.json', preferZh: false);
     await mergeAsset('assets/data/china_birds_zheng.json', preferZh: true);
+    // AviList 放最后并标记为权威，让它覆盖前面的（错误的）order
+    await mergeAsset('assets/data/avilist_species.json',
+        preferZh: false, authoritativeOrder: true);
     return index;
   }
 

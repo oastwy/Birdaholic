@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/admin_upload_service.dart';
 import '../services/storage.dart';
 import '../services/pack_manager.dart';
 import 'about_screen.dart';
@@ -102,7 +103,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final saved = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('API Key 与管理员模式'),
+        title: const Text('API Key 与上传身份'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -127,8 +128,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             TextField(
               controller: adminController,
               decoration: const InputDecoration(
-                labelText: '管理员上传密钥',
-                hintText: '填写后开启管理员上传功能',
+                labelText: '上传 Token',
+                hintText: '管理员 / 内测用户填写各自 Token，保存后自动识别身份',
               ),
               obscureText: true,
             ),
@@ -150,15 +151,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (saved == true) {
       await widget.storage.setXenoCantoApiKey(xenoController.text);
       await widget.storage.setEBirdApiKey(ebirdController.text);
-      await widget.storage.setAdminUploadToken(adminController.text);
+      final newToken = adminController.text.trim();
+      await widget.storage.setAdminUploadToken(newToken);
+      String identityMsg = '';
+      if (newToken.isNotEmpty) {
+        try {
+          final who = await AdminUploadService().whoami(token: newToken);
+          if (who != null) {
+            await widget.storage.setUserIdentity(role: who.role, name: who.name);
+            identityMsg = who.role == 'admin' ? '（管理员）' : '（内测：${who.name}）';
+          } else {
+            await widget.storage.setUserIdentity(role: '', name: '');
+            identityMsg = '（Token 无效）';
+          }
+        } catch (_) {
+          identityMsg = '（无法连接服务器，身份未识别）';
+        }
+      } else {
+        await widget.storage.setUserIdentity(role: '', name: '');
+      }
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.storage.isAdminMode ? '设置已保存，管理员模式已开启' : '设置已保存',
-          ),
-        ),
+        SnackBar(content: Text('设置已保存$identityMsg')),
       );
     }
   }
@@ -365,15 +380,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.key, color: Color(0xFF2d5016)),
-                title: const Text('API Key 与管理员模式'),
+                title: const Text('API Key 与上传身份'),
                 subtitle: Text(
                   widget.storage.getEBirdApiKey().isEmpty &&
                           widget.storage.getXenoCantoApiKey().isEmpty &&
-                          !widget.storage.isAdminMode
+                          widget.storage.getAdminUploadToken().isEmpty
                       ? '未填写'
                       : widget.storage.isAdminMode
-                          ? '已配置，管理员模式已开启'
-                          : '已配置',
+                          ? '管理员（${widget.storage.getUserName()}）'
+                          : widget.storage.isBetaMode
+                              ? '内测用户（${widget.storage.getUserName()}）'
+                              : '已配置',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _editApiSettings,

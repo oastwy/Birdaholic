@@ -1,6 +1,6 @@
 name: bird_flashcard
 description: 鸟鸣闪卡学习工具
-version: 1.4.3+46
+version: 1.4.9+52
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -17,6 +17,7 @@ dependencies:
   geolocator: ^13.0.4
   url_launcher: ^6.3.0
   wakelock_plus: ^1.4.0
+  lpinyin: ^2.0.3
 
 dev_dependencies:
   flutter_test:

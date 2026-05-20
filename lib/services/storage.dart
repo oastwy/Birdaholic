@@ -10,6 +10,9 @@ class StorageService {
   static const _xenoCantoApiKey = 'xeno_canto_api_key';
   static const _eBirdApiKey = 'ebird_api_key';
   static const _adminUploadTokenKey = 'admin_upload_token';
+  static const _userRoleKey = 'upload_user_role'; // admin / beta / ''
+  static const _userNameKey = 'upload_user_name';
+  static const _contributorKey = 'upload_contributor';
   static const _feedbackJournalKey = 'feedback_journal';
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
@@ -71,15 +74,42 @@ class StorageService {
 
   String getAdminUploadToken() => _prefs.getString(_adminUploadTokenKey) ?? '';
 
-  bool get isAdminMode => getAdminUploadToken().isNotEmpty;
+  String getUserRole() => _prefs.getString(_userRoleKey) ?? '';
+  String getUserName() => _prefs.getString(_userNameKey) ?? '';
+  String getContributorName() => _prefs.getString(_contributorKey) ?? '';
+
+  bool get isAdminMode => getUserRole() == 'admin';
+  bool get isBetaMode => getUserRole() == 'beta';
+  bool get hasUploadAccess => getAdminUploadToken().isNotEmpty && getUserRole().isNotEmpty;
 
   Future<void> setAdminUploadToken(String value) async {
     final normalized = value.trim();
     if (normalized.isEmpty) {
       await _prefs.remove(_adminUploadTokenKey);
+      await _prefs.remove(_userRoleKey);
+      await _prefs.remove(_userNameKey);
       return;
     }
     await _prefs.setString(_adminUploadTokenKey, normalized);
+  }
+
+  Future<void> setUserIdentity({required String role, required String name}) async {
+    if (role.isEmpty) {
+      await _prefs.remove(_userRoleKey);
+      await _prefs.remove(_userNameKey);
+      return;
+    }
+    await _prefs.setString(_userRoleKey, role);
+    await _prefs.setString(_userNameKey, name);
+  }
+
+  Future<void> setContributorName(String value) async {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      await _prefs.remove(_contributorKey);
+      return;
+    }
+    await _prefs.setString(_contributorKey, normalized);
   }
 
   bool get isNewUserGuideDismissed =>

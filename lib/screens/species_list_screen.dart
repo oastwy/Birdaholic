@@ -7,7 +7,9 @@ import 'package:flutter/services.dart';
 import '../models/species.dart';
 import '../services/download_task_service.dart';
 import '../services/avilist_service.dart';
+import '../services/ecological_group.dart';
 import '../services/order_taxonomy.dart';
+import '../services/pinyin.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/server_media_service.dart';
@@ -48,6 +50,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   final String _source = 'active';
   String _filter = 'all';
   String _orderFilter = 'all';
+  String _groupFilter = 'all'; // 生态类群过滤：all / swimming / wading / ...
   String _search = '';
   bool _loading = true;
   final _searchController = TextEditingController();
@@ -293,6 +296,14 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       list = list.where((species) => species.order == _orderFilter).toList();
     }
 
+    if (_groupFilter != 'all') {
+      list = list.where((species) {
+        final g = EcologicalGroups.resolve(
+            order: species.order, family: species.family);
+        return g?.code == _groupFilter;
+      }).toList();
+    }
+
     if (_showFavOnly) {
       list = list
           .where((species) => widget.storage.isFavorite(species.cn))
@@ -301,6 +312,8 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
 
     if (_search.isNotEmpty) {
       final query = _search.toLowerCase();
+      final isPinyinQuery =
+          query.length >= 2 && RegExp(r'^[a-z]+$').hasMatch(query);
       list = list
           .where(
             (species) =>
@@ -308,7 +321,9 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                 species.en.toLowerCase().contains(query) ||
                 species.sci.toLowerCase().contains(query) ||
                 species.habitat.toLowerCase().contains(query) ||
-                species.enAlt.any((alt) => alt.toLowerCase().contains(query)),
+                species.enAlt.any((alt) => alt.toLowerCase().contains(query)) ||
+                (isPinyinQuery &&
+                    Pinyin.initials(species.cn).contains(query)),
           )
           .toList();
     }
@@ -343,27 +358,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   }
 
   String _orderLabel(String order) => BirdOrderTaxonomy.label(order);
-
-  void _jumpToOrder(List<Species> filtered, String order) {
-    if (_source == 'active') {
-      final index = filtered.indexWhere((species) => species.order == order);
-      if (index >= 0) {
-        _packPageController.jumpToPage(index);
-      }
-      return;
-    }
-
-    final key = _orderHeaderKeys[order];
-    final context = key?.currentContext;
-    if (context != null) {
-      setState(() => _chinaRailOrder = order);
-      Scrollable.ensureVisible(
-        context,
-        duration: Duration.zero,
-        alignment: 0.08,
-      );
-    }
-  }
 
   void _updateChinaRailOrder() {
     if (_source != 'china' || _orderHeaderKeys.isEmpty) return;
@@ -417,9 +411,9 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   // ─── Pack preview PageView ────────────────────────────────────────────────
 
   Widget _buildPackPreviewView(List<Species> filtered) {
-    final railOrders = _ordersFor(filtered);
     return Column(
       children: [
+        _buildGroupBar(),
         _buildPreviewHeader(filtered),
         if (_showSearchBar)
           Padding(
@@ -484,20 +478,78 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                                 _downloadOneFromServer(filtered[i]),
                           ),
                         ),
-              if (railOrders.length > 1)
-                _OrderIndexRail(
-                  orders: railOrders,
-                  currentOrder: filtered.isNotEmpty &&
-                          _packPageIndex >= 0 &&
-                          _packPageIndex < filtered.length
-                      ? filtered[_packPageIndex].order
-                      : null,
-                  onOrderSelected: (order) => _jumpToOrder(filtered, order),
-                ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGroupBar() {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: EcologicalGroups.all.length + 1,
+        itemBuilder: (ctx, i) {
+          if (i == 0) {
+            return _groupChip(
+              code: 'all',
+              label: '全部',
+              emoji: '🪶',
+              selected: _groupFilter == 'all',
+            );
+          }
+          final g = EcologicalGroups.all[i - 1];
+          return _groupChip(
+            code: g.code,
+            label: g.label,
+            emoji: g.emoji,
+            selected: _groupFilter == g.code,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _groupChip({
+    required String code,
+    required String label,
+    required String emoji,
+    required bool selected,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: ChoiceChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 14)),
+            const SizedBox(width: 4),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600)),
+          ],
+        ),
+        selected: selected,
+        onSelected: (_) {
+          setState(() {
+            _groupFilter = code;
+            _packPageIndex = 0;
+          });
+          if (_packPageController.hasClients) {
+            _packPageController.jumpToPage(0);
+          }
+          if (_chinaScrollController.hasClients) {
+            _chinaScrollController.jumpTo(0);
+          }
+        },
+        selectedColor: const Color(0xFF2d5016),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.black87,
+        ),
+      ),
     );
   }
 
@@ -579,7 +631,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   // ─── China list view (unchanged) ─────────────────────────────────────────
 
   Widget _buildChinaListView(List<Species> filtered) {
-    final railOrders = _ordersFor(filtered);
     final rows = <({String? order, Species? species, int index})>[];
     var previousOrder = '';
     for (var i = 0; i < filtered.length; i++) {
@@ -591,9 +642,13 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       rows.add((order: null, species: species, index: i));
     }
 
-    return Stack(
+    return Column(
       children: [
-        CustomScrollView(
+        _buildGroupBar(),
+        Expanded(
+          child: Stack(
+            children: [
+              CustomScrollView(
           controller: _chinaScrollController,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           slivers: [
@@ -779,13 +834,10 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
               ),
             const SliverToBoxAdapter(child: SizedBox(height: 96)),
           ],
-        ),
-        if (railOrders.length > 1)
-          _OrderIndexRail(
-            orders: railOrders,
-            currentOrder: _chinaRailOrder,
-            onOrderSelected: (order) => _jumpToOrder(filtered, order),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }
@@ -796,92 +848,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       label: Text(label, style: const TextStyle(fontSize: 13)),
       selected: active,
       onSelected: (_) => setState(() => _filter = value),
-    );
-  }
-}
-
-class _OrderIndexRail extends StatelessWidget {
-  final List<String> orders;
-  final String? currentOrder;
-  final ValueChanged<String> onOrderSelected;
-
-  const _OrderIndexRail({
-    required this.orders,
-    required this.currentOrder,
-    required this.onOrderSelected,
-  });
-
-  void _selectByOffset(BuildContext context, Offset globalPosition) {
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null || orders.isEmpty) return;
-    final local = box.globalToLocal(globalPosition);
-    final itemHeight = box.size.height / orders.length;
-    final index = (local.dy / itemHeight).floor().clamp(0, orders.length - 1);
-    onOrderSelected(orders[index]);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      right: 4,
-      top: 72,
-      bottom: 72,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onVerticalDragUpdate: (details) =>
-                _selectByOffset(context, details.globalPosition),
-            onTapDown: (details) =>
-                _selectByOffset(context, details.globalPosition),
-            child: Container(
-              width: 34,
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.86),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: orders.map((order) {
-                  final selected = order == currentOrder;
-                  return Tooltip(
-                    message: BirdOrderTaxonomy.label(order),
-                    child: Container(
-                      width: 24,
-                      height: 22,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? const Color(0xFF2d5016)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: Text(
-                        BirdOrderTaxonomy.shortLabel(order),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color:
-                              selected ? Colors.white : const Color(0xFF2d5016),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 }

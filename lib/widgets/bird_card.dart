@@ -436,20 +436,36 @@ class BirdCardState extends State<BirdCard>
         const SizedBox(height: 6),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(images.length, (i) {
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: _imagePageIndex == i ? 16 : 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: _imagePageIndex == i
-                    ? const Color(0xFF2d5016)
-                    : Colors.grey[300],
-                borderRadius: BorderRadius.circular(3),
+          children: [
+            if (_imagePageIndex == 0)
+              const Padding(
+                padding: EdgeInsets.only(right: 6),
+                child: Text('← 上个种',
+                    style: TextStyle(
+                        fontSize: 10, color: Color(0xFF7B9968))),
               ),
-            );
-          }),
+            ...List.generate(images.length, (i) {
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: _imagePageIndex == i ? 16 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: _imagePageIndex == i
+                      ? const Color(0xFF2d5016)
+                      : Colors.grey[300],
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              );
+            }),
+            if (_imagePageIndex == images.length - 1)
+              const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: Text('下个种 →',
+                    style: TextStyle(
+                        fontSize: 10, color: Color(0xFF7B9968))),
+              ),
+          ],
         ),
         if (images[_imagePageIndex].credit.isNotEmpty) ...[
           const SizedBox(height: 4),

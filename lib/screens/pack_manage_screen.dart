@@ -14,13 +14,21 @@ import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import 'online_import_screen.dart';
+import 'feedback_review_section.dart';
+import 'upload_section.dart';
+import 'upload_review_section.dart';
+import 'user_management_section.dart';
 
 enum _PackManageSection {
   root,
   localImport,
   onlineImport,
   serverDownload,
-  installed
+  installed,
+  upload,
+  uploadReview,
+  userManagement,
+  feedbackReview,
 }
 
 /// 数据包管理页面
@@ -945,13 +953,24 @@ class _PackManageScreenState extends State<PackManageScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return switch (_section) {
-      _PackManageSection.root => _buildRootSection(),
-      _PackManageSection.localImport => _buildLocalImportSection(),
-      _PackManageSection.onlineImport => _buildOnlineImportSection(),
-      _PackManageSection.serverDownload => _buildServerDownloadSection(),
-      _PackManageSection.installed => _buildInstalledSection(),
-    };
+    return PopScope(
+      canPop: _section == _PackManageSection.root,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        setState(() => _section = _PackManageSection.root);
+      },
+      child: switch (_section) {
+        _PackManageSection.root => _buildRootSection(),
+        _PackManageSection.localImport => _buildLocalImportSection(),
+        _PackManageSection.onlineImport => _buildOnlineImportSection(),
+        _PackManageSection.serverDownload => _buildServerDownloadSection(),
+        _PackManageSection.installed => _buildInstalledSection(),
+        _PackManageSection.upload => _buildUploadSection(),
+        _PackManageSection.uploadReview => _buildUploadReviewSection(),
+        _PackManageSection.userManagement => _buildUserManagementSection(),
+        _PackManageSection.feedbackReview => _buildFeedbackReviewSection(),
+      },
+    );
   }
 
   Widget _buildRootSection() {
@@ -989,6 +1008,16 @@ class _PackManageScreenState extends State<PackManageScreen> {
           title: '已有数据包',
           subtitle: '${_packs.length} 个数据包 · 启用、更新、备份和删除',
           onTap: () => setState(() => _section = _PackManageSection.installed),
+        ),
+        _PackModuleCard(
+          icon: Icons.cloud_upload_outlined,
+          title: widget.storage.isAdminMode ? '上传 & 审核' : '上传数据',
+          subtitle: widget.storage.isAdminMode
+              ? '管理员上传 / 审核内测用户提交'
+              : widget.storage.isBetaMode
+                  ? '内测用户上传（需要管理员审核）'
+                  : '需先在设置里配置上传 Token',
+          onTap: () => setState(() => _section = _PackManageSection.upload),
         ),
       ],
     );
@@ -1110,6 +1139,76 @@ class _PackManageScreenState extends State<PackManageScreen> {
           onTap: _loading ? null : _showCountrySpeciesDownloadSheet,
         ),
       ],
+    );
+  }
+
+  Widget _buildUploadSection() {
+    return UploadSection(
+      storage: widget.storage,
+      onBackToRoot: () => setState(() => _section = _PackManageSection.root),
+      onOpenReview: () =>
+          setState(() => _section = _PackManageSection.uploadReview),
+      onOpenUserManagement: () =>
+          setState(() => _section = _PackManageSection.userManagement),
+      onOpenFeedbackReview: () =>
+          setState(() => _section = _PackManageSection.feedbackReview),
+    );
+  }
+
+  Widget _buildFeedbackReviewSection() {
+    if (!widget.storage.isAdminMode) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => setState(() => _section = _PackManageSection.upload),
+          ),
+          title: const Text('纠错审核'),
+        ),
+        body: const Center(child: Text('仅管理员可访问')),
+      );
+    }
+    return FeedbackReviewSection(
+      storage: widget.storage,
+      onBack: () => setState(() => _section = _PackManageSection.upload),
+    );
+  }
+
+  Widget _buildUserManagementSection() {
+    if (!widget.storage.isAdminMode) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => setState(() => _section = _PackManageSection.upload),
+          ),
+          title: const Text('用户管理'),
+        ),
+        body: const Center(child: Text('仅管理员可访问')),
+      );
+    }
+    return UserManagementSection(
+      storage: widget.storage,
+      onBack: () => setState(() => _section = _PackManageSection.upload),
+    );
+  }
+
+  Widget _buildUploadReviewSection() {
+    if (!widget.storage.isAdminMode) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => setState(() => _section = _PackManageSection.root),
+          ),
+          title: const Text('待审核'),
+        ),
+        body: const Center(child: Text('仅管理员可访问')),
+      );
+    }
+    return UploadReviewSection(
+      storage: widget.storage,
+      onBack: () => setState(() => _section = _PackManageSection.upload),
     );
   }
 

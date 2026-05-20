@@ -241,11 +241,13 @@ class ServerSpeciesMedia {
       identificationFeatures: json['identification_features'] as String? ?? '',
       images: (json['images'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
+          .where((m) => m['pending'] != true)
           .map(ServerImageMedia.fromJson)
           .where((item) => item.url.isNotEmpty)
           .toList(),
       audio: (json['audio'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
+          .where((m) => m['pending'] != true)
           .map(ServerAudioMedia.fromJson)
           .where((item) => item.url.isNotEmpty)
           .toList(),
@@ -260,6 +262,7 @@ class ServerImageMedia {
   final String contributorUrl;
   final String source;
   final String license;
+  final int difficulty;
 
   const ServerImageMedia({
     required this.file,
@@ -268,6 +271,7 @@ class ServerImageMedia {
     required this.contributorUrl,
     required this.source,
     required this.license,
+    this.difficulty = 0,
   });
 
   factory ServerImageMedia.fromJson(Map<String, dynamic> json) {
@@ -278,6 +282,7 @@ class ServerImageMedia {
       contributorUrl: json['contributor_url'] as String? ?? '',
       source: json['source'] as String? ?? '',
       license: json['license'] as String? ?? '',
+      difficulty: (json['difficulty'] as num?)?.toInt() ?? 0,
     );
   }
 }

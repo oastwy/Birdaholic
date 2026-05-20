@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -17,6 +16,7 @@ import '../services/storage.dart';
 import '../widgets/audio_player_widget.dart';
 import '../widgets/bird_card.dart';
 import 'bird_preview_screen.dart';
+import 'in_flashcard_upload_modal.dart';
 
 enum AnswerMode {
   learning,
@@ -847,10 +847,24 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       speciesCn: bird.cn,
       speciesSci: bird.sci,
     );
+    final token = widget.storage.getAdminUploadToken();
+    if (token.isNotEmpty) {
+      AdminUploadService()
+          .submitFeedback(
+            token: token,
+            message: controller.text,
+            page: '闪卡学习',
+            speciesCn: bird.cn,
+            speciesSci: bird.sci,
+          )
+          .ignore();
+    }
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已保存到纠错日记')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(token.isEmpty
+          ? '已保存到纠错日记（本地）'
+          : '已保存到纠错日记，同步推送给管理员'),
+    ));
   }
 
   Future<void> _editIdentificationNote() async {
@@ -932,102 +946,35 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   Future<void> _uploadBirdImage() async {
     final bird = _currentBird;
     if (bird == null) return;
-
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
+    final ok = await InFlashcardUploadModal.show(
+      context: context,
+      currentBird: bird,
+      storage: widget.storage,
+      packManager: widget.packManager,
+      kind: UploadKind.image,
     );
-    final path = result?.files.single.path;
-    if (path == null || path.isEmpty) return;
-
-    try {
-      final packDir =
-          await widget.packManager.findWritablePackDirForSpecies(bird.sci);
-      if (packDir == null) {
-        throw Exception('当前已安装数据包中找不到这个鸟种，无法写入本地媒体');
-      }
-      await widget.packManager.replaceSpeciesImageFromFile(
-        bird,
-        path,
-        packDirOverride: packDir,
-      );
-      if (widget.storage.isAdminMode) {
-        await AdminUploadService().uploadMedia(
-          species: bird,
-          filePath: path,
-          token: widget.storage.getAdminUploadToken(),
-        );
-      }
-      await _loadSpecies();
-      final updated = _allSpecies.firstWhere(
-        (species) => species.sci == bird.sci,
-        orElse: () => bird,
-      );
-      _jumpToSpecies(updated);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(
-        content: Text(
-            widget.storage.isAdminMode ? '鸟图已保存到当前数据包，并推送到服务器' : '鸟图已保存到当前数据包'),
-      ));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传鸟图失败: $e'), backgroundColor: Colors.red),
-      );
-    }
+    if (!ok || !mounted) return;
+    await _loadSpecies();
+    _jumpToSpecies(
+      _allSpecies.firstWhere((s) => s.sci == bird.sci, orElse: () => bird),
+    );
   }
 
   Future<void> _uploadBirdAudio() async {
     final bird = _currentBird;
     if (bird == null) return;
-
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg'],
-      allowMultiple: false,
+    final ok = await InFlashcardUploadModal.show(
+      context: context,
+      currentBird: bird,
+      storage: widget.storage,
+      packManager: widget.packManager,
+      kind: UploadKind.audio,
     );
-    final path = result?.files.single.path;
-    if (path == null || path.isEmpty) return;
-
-    try {
-      final packDir =
-          await widget.packManager.findWritablePackDirForSpecies(bird.sci);
-      if (packDir == null) {
-        throw Exception('当前已安装数据包中找不到这个鸟种，无法写入本地媒体');
-      }
-      await widget.packManager.addSpeciesAudioFromFile(
-        bird,
-        path,
-        packDirOverride: packDir,
-      );
-      if (widget.storage.isAdminMode) {
-        await AdminUploadService().uploadMedia(
-          species: bird,
-          filePath: path,
-          token: widget.storage.getAdminUploadToken(),
-        );
-      }
-      await _loadSpecies();
-      final updated = _allSpecies.firstWhere(
-        (species) => species.sci == bird.sci,
-        orElse: () => bird,
-      );
-      _jumpToSpecies(updated);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(
-        content: Text(
-            widget.storage.isAdminMode ? '音频已保存到当前数据包，并推送到服务器' : '音频已保存到当前数据包'),
-      ));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传音频失败: $e'), backgroundColor: Colors.red),
-      );
-    }
+    if (!ok || !mounted) return;
+    await _loadSpecies();
+    _jumpToSpecies(
+      _allSpecies.firstWhere((s) => s.sci == bird.sci, orElse: () => bird),
+    );
   }
 
   Future<void> _applyEBirdDeckFilter() async {
@@ -2274,6 +2221,16 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               imageFile,
               diff,
             );
+            if (widget.storage.isAdminMode) {
+              AdminUploadService()
+                  .setImageDifficulty(
+                    sci: bird.sci,
+                    file: imageFile,
+                    difficulty: diff,
+                    token: widget.storage.getAdminUploadToken(),
+                  )
+                  .ignore();
+            }
             if (!mounted) return;
             setState(() {
               final i = _allSpecies.indexWhere((s) => s.sci == bird.sci);
