@@ -1,7 +1,7 @@
 name: bird_survey_app
 description: 中国鸟类调查App - 基于eBird API和中国鸟类名录
 publish_to: 'none'
-version: 1.4.2+17
+version: 1.4.3+18
 
 environment:
   sdk: ^3.7.2

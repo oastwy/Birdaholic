@@ -195,7 +195,13 @@ class ExportService {
       final transectEvents =
           s.surveyMode == 'transect'
               ? s.observationEvents
-                  .where((e) => e.type == 'species_count' && e.delta > 0)
+                  .where(
+                    (e) =>
+                        (e.type == 'species_count' ||
+                            e.type == 'field_count' ||
+                            e.type == 'nested_field_count') &&
+                        e.delta > 0,
+                  )
                   .toList()
               : <SpeciesObservationEvent>[];
       if (transectEvents.isNotEmpty) {
