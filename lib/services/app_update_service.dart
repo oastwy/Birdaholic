@@ -60,7 +60,11 @@ class AppUpdateService {
         }).timeout(const Duration(seconds: 8));
         if (response.statusCode == 200) {
           final html = utf8.decode(response.bodyBytes);
-          version = _parseVersion(html) ?? version;
+          final parsedVersion = _parseVersion(html);
+          if (parsedVersion != null &&
+              _compareVersions(parsedVersion, version) >= 0) {
+            version = parsedVersion;
+          }
           date = _parseDate(html) ?? date;
           title = 'Birdaholic v$version';
         }
@@ -115,5 +119,17 @@ class AppUpdateService {
     } catch (_) {
       return value;
     }
+  }
+
+  static int _compareVersions(String a, String b) {
+    final left = a.split('.').map((v) => int.tryParse(v) ?? 0).toList();
+    final right = b.split('.').map((v) => int.tryParse(v) ?? 0).toList();
+    final length = left.length > right.length ? left.length : right.length;
+    for (var i = 0; i < length; i++) {
+      final lv = i < left.length ? left[i] : 0;
+      final rv = i < right.length ? right[i] : 0;
+      if (lv != rv) return lv.compareTo(rv);
+    }
+    return 0;
   }
 }
