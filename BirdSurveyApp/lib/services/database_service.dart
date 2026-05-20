@@ -15,7 +15,7 @@ class DatabaseService {
     final path = join(await getDatabasesPath(), 'bird_survey.db');
     return openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE surveys (
@@ -39,6 +39,7 @@ class DatabaseService {
             speciesFieldCounts TEXT DEFAULT '',
             nestedSpeciesFieldCounts TEXT DEFAULT '',
             surveyMode TEXT DEFAULT 'point',
+            activeTransectPointId TEXT DEFAULT '',
             transectTrack TEXT DEFAULT '',
             observationEvents TEXT DEFAULT ''
           )
@@ -98,6 +99,11 @@ class DatabaseService {
           );
           await db.execute(
             "ALTER TABLE surveys ADD COLUMN observationEvents TEXT DEFAULT ''",
+          );
+        }
+        if (oldVersion < 9) {
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN activeTransectPointId TEXT DEFAULT ''",
           );
         }
       },

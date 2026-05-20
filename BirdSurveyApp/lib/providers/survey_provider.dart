@@ -122,6 +122,16 @@ class SurveyProvider extends ChangeNotifier {
       _currentSession?.transectTrack ?? const [];
   List<SpeciesObservationEvent> get observationEvents =>
       _currentSession?.observationEvents ?? const [];
+  String get activeTransectPointId {
+    final session = _currentSession;
+    if (session == null || session.surveyMode != 'transect') return '';
+    if (session.activeTransectPointId.isNotEmpty) {
+      return session.activeTransectPointId;
+    }
+    return session.transectTrack.isNotEmpty
+        ? session.transectTrack.last.id
+        : '';
+  }
 
   List<CustomField> get speciesFieldDefs => _speciesFieldDefs;
   String get nestedParentFieldId => _nestedParentFieldId;
@@ -327,7 +337,12 @@ class SurveyProvider extends ChangeNotifier {
       longitude: lon,
       note: note,
     );
-    session.transectTrack.add(point);
+    _currentSession = session.copyWith(
+      activeTransectPointId: id,
+      transectTrack: [...session.transectTrack, point],
+    );
+    _resetCounts();
+    _recordedOrder.clear();
     await TransectEventLogService.append({
       'eventId': id,
       'sessionId': session.id,
@@ -623,6 +638,28 @@ class SurveyProvider extends ChangeNotifier {
   Map<String, int> getSpeciesFieldCounts(String ebirdCode, String fieldId) {
     final session = _currentSession;
     if (session == null) return {};
+    if (isTransect) {
+      final result = _currentTransectFieldCounts(
+        ebirdCode,
+        type: 'field_count',
+        fieldId: fieldId,
+      );
+      CustomField? field;
+      for (final def in _speciesFieldDefs) {
+        if (def.id == fieldId) {
+          field = def;
+          break;
+        }
+      }
+      if (field != null && field.options.contains('其他')) {
+        final nonOther = result.entries
+            .where((e) => e.key != '其他')
+            .fold(0, (sum, e) => sum + e.value);
+        final remainder = _currentTransectSpeciesTotal(ebirdCode) - nonOther;
+        result['其他'] = remainder > 0 ? remainder : 0;
+      }
+      return result;
+    }
     final result = Map<String, int>.from(
       session.speciesFieldCounts[ebirdCode]?[fieldId] ?? {},
     );
@@ -649,6 +686,9 @@ class SurveyProvider extends ChangeNotifier {
   ) {
     final session = _currentSession;
     if (session == null) return {};
+    if (isTransect) {
+      return _currentTransectNestedCounts(ebirdCode, fieldId);
+    }
     return {
       for (final parent
           in (session.nestedSpeciesFieldCounts[ebirdCode]?[fieldId] ?? {})
@@ -687,7 +727,7 @@ class SurveyProvider extends ChangeNotifier {
       final eventId = raw['eventId']?.toString() ?? raw['id']?.toString() ?? '';
       final type = raw['type']?.toString() ?? '';
       if (sessionId == null || eventId.isEmpty) continue;
-      final session = byId[sessionId];
+      var session = byId[sessionId];
       if (session == null || session.surveyMode != 'transect') continue;
 
       final seen =
@@ -707,6 +747,8 @@ class SurveyProvider extends ChangeNotifier {
             note: raw['note']?.toString() ?? '',
           ),
         );
+        session = session.copyWith(activeTransectPointId: eventId);
+        byId[sessionId] = session;
         changed = true;
       } else if (type == 'species_count' ||
           type == 'field_count' ||
@@ -714,11 +756,18 @@ class SurveyProvider extends ChangeNotifier {
         final code = raw['ebirdCode']?.toString() ?? '';
         if (code.isEmpty) continue;
         final delta = int.tryParse(raw['delta']?.toString() ?? '') ?? 0;
-        final current = session.speciesTotals()[code] ?? 0;
-        final next = current + delta;
-        if (next > 0) {
-          session.observations[code] = next;
-          final name = raw['speciesName']?.toString() ?? code;
+        final name = raw['speciesName']?.toString() ?? code;
+        if (type == 'species_count') {
+          final current = session.speciesTotals()[code] ?? 0;
+          final next = current + delta;
+          if (next > 0) {
+            session.observations[code] = next;
+            session.speciesNames[code] = name;
+          } else {
+            session.observations.remove(code);
+            session.speciesNames.remove(code);
+          }
+        } else {
           session.speciesNames[code] = name;
           if (type == 'field_count') {
             final fieldId = raw['fieldId']?.toString() ?? '';
@@ -752,9 +801,9 @@ class SurveyProvider extends ChangeNotifier {
               if (counts[child] == 0) counts.remove(child);
             }
           }
-          session.observationEvents.add(SpeciesObservationEvent.fromJson(raw));
-          changed = true;
         }
+        session.observationEvents.add(SpeciesObservationEvent.fromJson(raw));
+        changed = true;
       }
     }
 
@@ -806,6 +855,15 @@ class SurveyProvider extends ChangeNotifier {
       surveyMode: mode.name,
     );
     final id = await DatabaseService.insertSurvey(session);
+    final initialTrack =
+        mode == SurveyMode.transect
+            ? TransectTrackPoint(
+              id: _newEventId('track'),
+              time: session.startTime,
+              latitude: lat,
+              longitude: lon,
+            )
+            : null;
     _currentSession = SurveySession(
       id: id,
       startTime: session.startTime,
@@ -813,7 +871,18 @@ class SurveyProvider extends ChangeNotifier {
       longitude: lon,
       customValues: Map.from(customValues),
       surveyMode: mode.name,
+      activeTransectPointId: initialTrack?.id ?? '',
+      transectTrack: initialTrack == null ? const [] : [initialTrack],
     );
+    if (initialTrack != null) {
+      await DatabaseService.updateSurvey(_currentSession!);
+      await TransectEventLogService.append({
+        'eventId': initialTrack.id,
+        'sessionId': id,
+        'type': 'track_point',
+        ...initialTrack.toJson(),
+      });
+    }
     _status = SurveyStatus.active;
     notifyListeners();
 
@@ -919,8 +988,13 @@ class SurveyProvider extends ChangeNotifier {
 
   void incrementCount(BirdSpecies species) {
     _recordEditSnapshot('${species.zh} 数量 +1');
+    if (isTransect) {
+      _applyTransectSpeciesDelta(species, 1);
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     _setSpeciesTotal(species, _currentSpeciesTotal(species.ebird) + 1);
-    _recordTransectSpeciesEvent(species, delta: 1);
     _saveCurrentSession();
     notifyListeners();
   }
@@ -932,6 +1006,12 @@ class SurveyProvider extends ChangeNotifier {
   ) {
     if (_currentSession == null || value.isEmpty) return;
     _recordEditSnapshot('${species.zh} / $fieldId / $value +1');
+    if (isTransect) {
+      _applyTransectFieldDelta(species, 1, fieldId: fieldId, option: value);
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     if (value == '其他') {
       _setSpeciesTotal(species, _currentSpeciesTotal(species.ebird) + 1);
     } else {
@@ -939,13 +1019,6 @@ class SurveyProvider extends ChangeNotifier {
       counts[value] = (counts[value] ?? 0) + 1;
       _ensureSpeciesTotalCoversAllocated(species, fieldId);
     }
-    _recordTransectSpeciesEvent(
-      species,
-      delta: 1,
-      type: 'field_count',
-      fieldId: fieldId,
-      option: value,
-    );
     _saveCurrentSession();
     notifyListeners();
   }
@@ -960,6 +1033,25 @@ class SurveyProvider extends ChangeNotifier {
     final old = getSpeciesFieldCounts(species.ebird, fieldId)[value] ?? 0;
     _recordEditSnapshot('${species.zh} / $fieldId / $value：$old -> $count');
     final safeCount = count < 0 ? 0 : count;
+    if (isTransect) {
+      _applyTransectFieldDelta(
+        species,
+        safeCount - old,
+        fieldId: fieldId,
+        option: value,
+      );
+      if (safeCount == 0) {
+        _removeTransectCurrentFieldEvents(
+          species.ebird,
+          type: 'field_count',
+          fieldId: fieldId,
+          option: value,
+        );
+      }
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     if (value == '其他') {
       final allocated = _allocatedFieldCount(species.ebird, fieldId);
       _setSpeciesTotal(species, allocated + safeCount);
@@ -972,13 +1064,6 @@ class SurveyProvider extends ChangeNotifier {
       }
       _ensureSpeciesTotalCoversAllocated(species, fieldId);
     }
-    _recordTransectSpeciesEvent(
-      species,
-      delta: safeCount - old,
-      type: 'field_count',
-      fieldId: fieldId,
-      option: value,
-    );
     _saveCurrentSession();
     notifyListeners();
   }
@@ -991,17 +1076,22 @@ class SurveyProvider extends ChangeNotifier {
   ) {
     if (_currentSession == null || parent.isEmpty || child.isEmpty) return;
     _recordEditSnapshot('${species.zh} / $parent / $child +1');
+    if (isTransect) {
+      _applyTransectFieldDelta(
+        species,
+        1,
+        type: 'nested_field_count',
+        fieldId: fieldId,
+        parentOption: parent,
+        childOption: child,
+      );
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     final counts = _nestedFieldCountsFor(species.ebird, fieldId, parent);
     counts[child] = (counts[child] ?? 0) + 1;
     _ensureSpeciesTotalCoversNestedAllocated(species, fieldId);
-    _recordTransectSpeciesEvent(
-      species,
-      delta: 1,
-      type: 'nested_field_count',
-      fieldId: fieldId,
-      parentOption: parent,
-      childOption: child,
-    );
     _saveCurrentSession();
     notifyListeners();
   }
@@ -1020,6 +1110,28 @@ class SurveyProvider extends ChangeNotifier {
         0;
     _recordEditSnapshot('${species.zh} / $parent / $child：$old -> $count');
     final safeCount = count < 0 ? 0 : count;
+    if (isTransect) {
+      _applyTransectFieldDelta(
+        species,
+        safeCount - old,
+        type: 'nested_field_count',
+        fieldId: fieldId,
+        parentOption: parent,
+        childOption: child,
+      );
+      if (safeCount == 0) {
+        _removeTransectCurrentFieldEvents(
+          species.ebird,
+          type: 'nested_field_count',
+          fieldId: fieldId,
+          parentOption: parent,
+          childOption: child,
+        );
+      }
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     final counts = _nestedFieldCountsFor(species.ebird, fieldId, parent);
     if (safeCount > 0) {
       counts[child] = safeCount;
@@ -1027,26 +1139,31 @@ class SurveyProvider extends ChangeNotifier {
       counts.remove(child);
     }
     _ensureSpeciesTotalCoversNestedAllocated(species, fieldId);
-    _recordTransectSpeciesEvent(
-      species,
-      delta: safeCount - old,
-      type: 'nested_field_count',
-      fieldId: fieldId,
-      parentOption: parent,
-      childOption: child,
-    );
     _saveCurrentSession();
     notifyListeners();
   }
 
   void setCount(BirdSpecies species, int value) {
-    final old = _currentSpeciesTotal(species.ebird);
+    final old =
+        isTransect
+            ? _currentTransectSpeciesTotal(species.ebird)
+            : _currentSpeciesTotal(species.ebird);
     _recordEditSnapshot('${species.zh} 数量：$old -> $value');
+    if (isTransect) {
+      final safeValue = value < 0 ? 0 : value;
+      if (safeValue == 0) {
+        _clearTransectCurrentSpecies(species);
+      } else {
+        _applyTransectSpeciesDelta(species, safeValue - old);
+      }
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     if (value <= 0) {
       _removeSpeciesEntries(species.ebird);
     } else {
       _setSpeciesTotal(species, value);
-      _recordTransectSpeciesEvent(species, delta: value - old);
     }
     _saveCurrentSession();
     notifyListeners();
@@ -1054,12 +1171,22 @@ class SurveyProvider extends ChangeNotifier {
 
   void decrementCount(BirdSpecies species) {
     _recordEditSnapshot('${species.zh} 数量 -1');
+    if (isTransect) {
+      final next = _currentTransectSpeciesTotal(species.ebird) - 1;
+      if (next <= 0) {
+        _clearTransectCurrentSpecies(species);
+      } else {
+        _applyTransectSpeciesDelta(species, -1);
+      }
+      _saveCurrentSession();
+      notifyListeners();
+      return;
+    }
     final next = _currentSpeciesTotal(species.ebird) - 1;
     if (next <= 0) {
       _removeSpeciesEntries(species.ebird);
     } else {
       _setSpeciesTotal(species, next);
-      _recordTransectSpeciesEvent(species, delta: -1);
     }
     _saveCurrentSession();
     notifyListeners();
@@ -1263,6 +1390,7 @@ class SurveyProvider extends ChangeNotifier {
   }
 
   int getCount(BirdSpecies species) {
+    if (isTransect) return _currentTransectSpeciesTotal(species.ebird);
     final sessionTotal = _currentSpeciesTotal(species.ebird);
     if (sessionTotal > 0) return sessionTotal;
     return _allSpecies
@@ -1318,6 +1446,210 @@ class SurveyProvider extends ChangeNotifier {
     _recordedOrder.remove(ebirdCode);
   }
 
+  TransectTrackPoint? _activeTransectPoint() {
+    final session = _currentSession;
+    if (session == null || session.surveyMode != 'transect') return null;
+    final id = activeTransectPointId;
+    for (final point in session.transectTrack.reversed) {
+      if (point.id == id) return point;
+    }
+    return session.transectTrack.isNotEmpty ? session.transectTrack.last : null;
+  }
+
+  int _currentTransectSpeciesTotal(String ebirdCode) {
+    final session = _currentSession;
+    final pointId = activeTransectPointId;
+    if (session == null || pointId.isEmpty) return 0;
+    return session.observationEvents
+        .where(
+          (e) =>
+              e.type == 'species_count' &&
+              e.trackPointId == pointId &&
+              e.ebirdCode == ebirdCode,
+        )
+        .fold(0, (sum, e) => sum + e.delta);
+  }
+
+  Map<String, int> _currentTransectFieldCounts(
+    String ebirdCode, {
+    required String type,
+    required String fieldId,
+  }) {
+    final session = _currentSession;
+    final pointId = activeTransectPointId;
+    if (session == null || pointId.isEmpty) return {};
+    final result = <String, int>{};
+    for (final e in session.observationEvents.where(
+      (e) =>
+          e.type == type &&
+          e.trackPointId == pointId &&
+          e.ebirdCode == ebirdCode &&
+          e.fieldId == fieldId,
+    )) {
+      final key = e.option;
+      if (key.isEmpty) continue;
+      final next = (result[key] ?? 0) + e.delta;
+      if (next > 0) {
+        result[key] = next;
+      } else {
+        result.remove(key);
+      }
+    }
+    return result;
+  }
+
+  Map<String, Map<String, int>> _currentTransectNestedCounts(
+    String ebirdCode,
+    String fieldId,
+  ) {
+    final session = _currentSession;
+    final pointId = activeTransectPointId;
+    if (session == null || pointId.isEmpty) return {};
+    final result = <String, Map<String, int>>{};
+    for (final e in session.observationEvents.where(
+      (e) =>
+          e.type == 'nested_field_count' &&
+          e.trackPointId == pointId &&
+          e.ebirdCode == ebirdCode &&
+          e.fieldId == fieldId,
+    )) {
+      if (e.parentOption.isEmpty || e.childOption.isEmpty) continue;
+      result.putIfAbsent(e.parentOption, () => {});
+      final children = result[e.parentOption]!;
+      final next = (children[e.childOption] ?? 0) + e.delta;
+      if (next > 0) {
+        children[e.childOption] = next;
+      } else {
+        children.remove(e.childOption);
+      }
+    }
+    result.removeWhere((_, children) => children.isEmpty);
+    return result;
+  }
+
+  void _applyTransectSpeciesDelta(BirdSpecies species, int delta) {
+    if (delta == 0) return;
+    final session = _currentSession;
+    final point = _activeTransectPoint();
+    if (session == null || point == null) return;
+    final aggregate = _currentSpeciesTotal(species.ebird);
+    final nextAggregate = aggregate + delta;
+    if (nextAggregate > 0) {
+      session.observations[species.ebird] = nextAggregate;
+      session.speciesNames[species.ebird] = species.zh;
+      _activeObservationKeys[species.ebird] = species.ebird;
+    } else {
+      _removeSpeciesEntries(species.ebird);
+      return;
+    }
+    _recordTransectSpeciesEvent(species, delta: delta, type: 'species_count');
+    _setSpeciesListCount(species, _currentTransectSpeciesTotal(species.ebird));
+  }
+
+  void _applyTransectFieldDelta(
+    BirdSpecies species,
+    int delta, {
+    String type = 'field_count',
+    required String fieldId,
+    String option = '',
+    String parentOption = '',
+    String childOption = '',
+  }) {
+    if (delta == 0) return;
+    if (type == 'nested_field_count') {
+      final counts = _nestedFieldCountsFor(
+        species.ebird,
+        fieldId,
+        parentOption,
+      );
+      final next = (counts[childOption] ?? 0) + delta;
+      if (next > 0) {
+        counts[childOption] = next;
+      } else {
+        counts.remove(childOption);
+      }
+    } else {
+      final counts = _fieldOptionCountsFor(species.ebird, fieldId);
+      final next = (counts[option] ?? 0) + delta;
+      if (next > 0) {
+        counts[option] = next;
+      } else {
+        counts.remove(option);
+      }
+    }
+    _applyTransectSpeciesDelta(species, delta);
+    _recordTransectSpeciesEvent(
+      species,
+      delta: delta,
+      type: type,
+      fieldId: fieldId,
+      option: option,
+      parentOption: parentOption,
+      childOption: childOption,
+    );
+  }
+
+  void _removeTransectCurrentFieldEvents(
+    String ebirdCode, {
+    required String type,
+    required String fieldId,
+    String option = '',
+    String parentOption = '',
+    String childOption = '',
+  }) {
+    final session = _currentSession;
+    final pointId = activeTransectPointId;
+    if (session == null || pointId.isEmpty) return;
+    session.observationEvents.removeWhere(
+      (e) =>
+          e.trackPointId == pointId &&
+          e.ebirdCode == ebirdCode &&
+          e.type == type &&
+          e.fieldId == fieldId &&
+          (option.isEmpty || e.option == option) &&
+          (parentOption.isEmpty || e.parentOption == parentOption) &&
+          (childOption.isEmpty || e.childOption == childOption),
+    );
+  }
+
+  void _clearTransectCurrentSpecies(BirdSpecies species) {
+    final session = _currentSession;
+    final pointId = activeTransectPointId;
+    if (session == null || pointId.isEmpty) return;
+    final old = _currentTransectSpeciesTotal(species.ebird);
+    if (old <= 0) {
+      _setSpeciesListCount(species, 0);
+      _recordedOrder.remove(species.ebird);
+      return;
+    }
+    session.observationEvents.removeWhere(
+      (e) => e.trackPointId == pointId && e.ebirdCode == species.ebird,
+    );
+    final aggregate = _currentSpeciesTotal(species.ebird) - old;
+    if (aggregate > 0) {
+      session.observations[species.ebird] = aggregate;
+      session.speciesNames[species.ebird] = species.zh;
+    } else {
+      session.observations.remove(species.ebird);
+      session.speciesNames.remove(species.ebird);
+      session.speciesNotes.remove(species.ebird);
+      session.speciesFields.remove(species.ebird);
+      session.speciesFieldCounts.remove(species.ebird);
+      session.nestedSpeciesFieldCounts.remove(species.ebird);
+      _activeObservationKeys.remove(species.ebird);
+    }
+    _setSpeciesListCount(species, 0);
+    _recordedOrder.remove(species.ebird);
+    _appendTransectLog({
+      'type': 'species_count',
+      'ebirdCode': species.ebird,
+      'speciesName': species.zh,
+      'delta': -old,
+      'countAfter': 0,
+      'trackPointId': pointId,
+    });
+  }
+
   String _newEventId(String prefix) =>
       '${prefix}_${DateTime.now().microsecondsSinceEpoch}';
 
@@ -1332,16 +1664,22 @@ class SurveyProvider extends ChangeNotifier {
   }) {
     final session = _currentSession;
     if (session == null || !isTransect || delta == 0) return;
+    final point = _activeTransectPoint();
+    if (point == null) return;
     final event = SpeciesObservationEvent(
       eventId: _newEventId(type),
-      time: DateTime.now(),
-      latitude: _position?.latitude ?? session.latitude,
-      longitude: _position?.longitude ?? session.longitude,
+      time: point.time,
+      latitude: point.latitude,
+      longitude: point.longitude,
       ebirdCode: species.ebird,
       speciesName: species.zh,
       delta: delta,
-      countAfter: _currentSpeciesTotal(species.ebird),
+      countAfter:
+          type == 'species_count'
+              ? _currentTransectSpeciesTotal(species.ebird) + delta
+              : _currentTransectSpeciesTotal(species.ebird),
       type: type,
+      trackPointId: point.id,
       fieldId: fieldId,
       option: option,
       parentOption: parentOption,
@@ -1538,12 +1876,37 @@ class SurveyProvider extends ChangeNotifier {
   }
 
   void _restoreSpeciesListCounts(SurveySession session) {
-    final totals = session.speciesTotals();
+    final totals =
+        session.surveyMode == 'transect'
+            ? _transectPointTotals(session)
+            : session.speciesTotals();
     for (final s in _allSpecies) {
       s.count = totals[s.ebird] ?? 0;
     }
     for (final s in _nearbySpecies) {
       s.count = totals[s.ebird] ?? 0;
     }
+  }
+
+  Map<String, int> _transectPointTotals(SurveySession session) {
+    final pointId =
+        session.activeTransectPointId.isNotEmpty
+            ? session.activeTransectPointId
+            : (session.transectTrack.isNotEmpty
+                ? session.transectTrack.last.id
+                : '');
+    if (pointId.isEmpty) return {};
+    final totals = <String, int>{};
+    for (final event in session.observationEvents.where(
+      (e) => e.type == 'species_count' && e.trackPointId == pointId,
+    )) {
+      final next = (totals[event.ebirdCode] ?? 0) + event.delta;
+      if (next > 0) {
+        totals[event.ebirdCode] = next;
+      } else {
+        totals.remove(event.ebirdCode);
+      }
+    }
+    return totals;
   }
 }

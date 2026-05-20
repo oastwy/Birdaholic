@@ -44,6 +44,7 @@ class SpeciesObservationEvent {
   final int delta;
   final int countAfter;
   final String type;
+  final String trackPointId;
   final String fieldId;
   final String option;
   final String parentOption;
@@ -59,6 +60,7 @@ class SpeciesObservationEvent {
     required this.delta,
     required this.countAfter,
     this.type = 'species_count',
+    this.trackPointId = '',
     this.fieldId = '',
     this.option = '',
     this.parentOption = '',
@@ -75,6 +77,7 @@ class SpeciesObservationEvent {
     'delta': delta,
     'countAfter': countAfter,
     'type': type,
+    'trackPointId': trackPointId,
     'fieldId': fieldId,
     'option': option,
     'parentOption': parentOption,
@@ -93,6 +96,7 @@ class SpeciesObservationEvent {
         delta: int.tryParse(json['delta']?.toString() ?? '') ?? 0,
         countAfter: int.tryParse(json['countAfter']?.toString() ?? '') ?? 0,
         type: json['type']?.toString() ?? 'species_count',
+        trackPointId: json['trackPointId']?.toString() ?? '',
         fieldId: json['fieldId']?.toString() ?? '',
         option: json['option']?.toString() ?? '',
         parentOption: json['parentOption']?.toString() ?? '',
@@ -127,6 +131,7 @@ class SurveySession {
   final Map<String, Map<String, Map<String, Map<String, int>>>>
   nestedSpeciesFieldCounts;
   final String surveyMode; // point / transect
+  final String activeTransectPointId;
   final List<TransectTrackPoint> transectTrack;
   final List<SpeciesObservationEvent> observationEvents;
 
@@ -152,6 +157,7 @@ class SurveySession {
     Map<String, Map<String, Map<String, Map<String, int>>>>?
     nestedSpeciesFieldCounts,
     this.surveyMode = 'point',
+    this.activeTransectPointId = '',
     List<TransectTrackPoint>? transectTrack,
     List<SpeciesObservationEvent>? observationEvents,
   }) : observations = observations ?? {},
@@ -193,6 +199,7 @@ class SurveySession {
     String? Function()? weather,
     String? notes,
     String? surveyMode,
+    String? activeTransectPointId,
     List<TransectTrackPoint>? transectTrack,
     List<SpeciesObservationEvent>? observationEvents,
   }) => SurveySession(
@@ -209,6 +216,7 @@ class SurveySession {
     weather: weather != null ? weather() : this.weather,
     notes: notes ?? this.notes,
     surveyMode: surveyMode ?? this.surveyMode,
+    activeTransectPointId: activeTransectPointId ?? this.activeTransectPointId,
     transectTrack:
         transectTrack ??
         this.transectTrack
@@ -236,6 +244,7 @@ class SurveySession {
                 delta: e.delta,
                 countAfter: e.countAfter,
                 type: e.type,
+                trackPointId: e.trackPointId,
                 fieldId: e.fieldId,
                 option: e.option,
                 parentOption: e.parentOption,
@@ -305,6 +314,7 @@ class SurveySession {
       'speciesFieldCounts': jsonEncode(speciesFieldCounts),
       'nestedSpeciesFieldCounts': jsonEncode(nestedSpeciesFieldCounts),
       'surveyMode': surveyMode,
+      'activeTransectPointId': activeTransectPointId,
       'transectTrack': jsonEncode(
         transectTrack.map((p) => p.toJson()).toList(),
       ),
@@ -397,6 +407,7 @@ class SurveySession {
         map['nestedSpeciesFieldCounts'] as String? ?? '',
       ),
       surveyMode: map['surveyMode'] as String? ?? 'point',
+      activeTransectPointId: map['activeTransectPointId'] as String? ?? '',
       transectTrack: _decodeTrackPoints(map['transectTrack'] as String? ?? ''),
       observationEvents: _decodeObservationEvents(
         map['observationEvents'] as String? ?? '',
