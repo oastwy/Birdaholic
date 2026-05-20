@@ -59,13 +59,22 @@
     .file-drop-text { margin-top: 6px; font-size: 14px; }
     .file-drop-hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .file-list { margin-top: 12px; display: grid; gap: 8px; }
-    .file-row { display: flex; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-input); }
+    .file-row { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-input); }
+    .file-row-main { display: flex; gap: 10px; align-items: center; }
     .file-thumb { width: 44px; height: 44px; border-radius: 6px; background: #ddd; flex-shrink: 0; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--muted); }
     .file-info { flex: 1; min-width: 0; font-size: 13px; }
     .file-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .file-meta { color: var(--muted); font-size: 11px; margin-top: 1px; }
     .file-remove { background: transparent; color: var(--muted); padding: 4px 8px; font-size: 18px; }
     .file-remove:hover { color: var(--bad); }
+    .file-features { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 12px; background: #fff; resize: vertical; min-height: 32px; box-sizing: border-box; }
+    .file-features:focus { outline: 2px solid var(--brand-light); outline-offset: -1px; border-color: var(--brand-light); }
+    .star-row { display: inline-flex; gap: 2px; align-items: center; }
+    .star { font-size: 24px; cursor: pointer; color: #d6cfb8; line-height: 1; user-select: none; transition: color .1s, transform .1s; }
+    .star:hover { transform: scale(1.15); }
+    .star.on { color: var(--accent); }
+    .star-clear { font-size: 12px; color: var(--muted); cursor: pointer; margin-left: 8px; text-decoration: underline; }
+    .star-clear:hover { color: var(--bad); }
     .species-results { display: grid; gap: 5px; margin-top: 6px; max-height: 180px; overflow-y: auto; }
     .species-option { text-align: left; background: #eef4e9; color: var(--brand); border: 1px solid #cbdcbe; padding: 8px 10px; font-size: 13px; cursor: pointer; }
     .species-chosen { background: #eef4e9; border: 1px solid #cbdcbe; padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -139,6 +148,25 @@
     </div>
 
     <div style="margin-top: 14px;">
+      <label for="contributor">署名</label>
+      <input id="contributor" type="text" placeholder="出现在物种页"卡片致谢"位置">
+      <div class="hint">默认使用你的账户名，可改成笔名、ID 或带空格的全名。</div>
+    </div>
+
+    <div style="margin-top: 14px;">
+      <label>难度评级（可选）</label>
+      <div class="star-row" id="starRow" role="radiogroup" aria-label="difficulty">
+        <span class="star" data-v="1">★</span>
+        <span class="star" data-v="2">★</span>
+        <span class="star" data-v="3">★</span>
+        <span class="star" data-v="4">★</span>
+        <span class="star" data-v="5">★</span>
+        <span class="star-clear" id="starClear" hidden>清除</span>
+      </div>
+      <div class="hint" id="starHint">越多星越难辨识。管理员上传的星级会直接覆盖物种难度；内测用户上传的星级作为<strong>建议</strong>，审核时呈现给管理员。</div>
+    </div>
+
+    <div style="margin-top: 14px;">
       <label>选择文件</label>
       <label for="files" class="file-drop" id="fileDrop">
         <div class="file-drop-icon">📁</div>
@@ -147,6 +175,7 @@
         <input id="files" type="file" multiple accept="image/*,audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.heic">
       </label>
       <div id="fileList" class="file-list"></div>
+      <div class="hint" id="featuresHint" style="margin-top: 8px;">每张照片/录音下方可写"<strong>识别特征</strong>"：用 1–2 句话说明这张照片里能看出什么特征（例：繁殖羽喉部呈红色、雌鸟眉纹白色、夜间鸣叫）。这些笔记会随媒体一同审核。</div>
     </div>
 
     <div class="toolbar">
@@ -199,7 +228,12 @@ const resultsTbody = $('resultsTbody');
 let currentUser = null;
 let selectedSci = '';
 let selectedLabel = '';
-let pendingFiles = [];  // {file, guess: {sci, label} | null}
+let selectedDifficulty = 0;  // 0 = unset, 1..5
+let pendingFiles = [];  // {file, guess: {sci, label} | null, features: string}
+
+const contributorEl = $('contributor');
+const starRow = $('starRow');
+const starClear = $('starClear');
 
 // ---------- Auth ----------
 function getToken() {
@@ -253,6 +287,8 @@ function showLoggedIn(user) {
   if (isAdmin) {
     reviewNotice.innerHTML = '<strong>管理员身份：</strong>上传将直接发布，不进入审核队列。需要审核工具请使用 <a href="/uploader" style="color: var(--brand);">/uploader</a>。';
   }
+  // Pre-fill contributor with the user's name (editable)
+  if (!contributorEl.value) contributorEl.value = user.name || '';
 }
 
 async function refreshStats() {
@@ -323,6 +359,28 @@ speciesClear.onclick = (e) => {
   renderFileList();
 };
 
+// ---------- Difficulty stars ----------
+function paintStars() {
+  starRow.querySelectorAll('.star').forEach((el) => {
+    const v = parseInt(el.dataset.v, 10);
+    el.classList.toggle('on', v <= selectedDifficulty);
+  });
+  starClear.hidden = selectedDifficulty === 0;
+}
+starRow.querySelectorAll('.star').forEach((el) => {
+  el.onclick = () => {
+    const v = parseInt(el.dataset.v, 10);
+    // Click the same star again to clear back to 0
+    selectedDifficulty = (selectedDifficulty === v) ? 0 : v;
+    paintStars();
+  };
+});
+starClear.onclick = (e) => {
+  e.preventDefault();
+  selectedDifficulty = 0;
+  paintStars();
+};
+
 // ---------- File handling ----------
 function kindOf(file) {
   if (file.type.startsWith('image/')) return 'image';
@@ -355,12 +413,20 @@ async function recognize(filename) {
   return null;
 }
 
+function escapeHTML(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function renderFileList() {
   fileListEl.innerHTML = '';
   uploadBtn.disabled = pendingFiles.length === 0;
   pendingFiles.forEach((entry, idx) => {
     const row = document.createElement('div');
     row.className = 'file-row';
+
+    const main = document.createElement('div');
+    main.className = 'file-row-main';
+
     const thumb = document.createElement('div');
     thumb.className = 'file-thumb';
     const url = makeThumb(entry.file);
@@ -369,15 +435,17 @@ function renderFileList() {
     } else {
       thumb.textContent = kindOf(entry.file) === 'audio' ? '🎵' : '📄';
     }
+
     const info = document.createElement('div');
     info.className = 'file-info';
     const speciesLine = selectedSci
-      ? `<span style="color: var(--brand);">→ ${selectedLabel}（手动指定）</span>`
-      : (entry.guess ? `→ ${entry.guess.label}` : '<span style="color: var(--bad);">未识别物种</span>');
+      ? `<span style="color: var(--brand);">→ ${escapeHTML(selectedLabel)}（手动指定）</span>`
+      : (entry.guess ? `→ ${escapeHTML(entry.guess.label)}` : '<span style="color: var(--bad);">未识别物种</span>');
     info.innerHTML = `
-      <div class="file-name">${entry.file.name}</div>
+      <div class="file-name">${escapeHTML(entry.file.name)}</div>
       <div class="file-meta">${(entry.file.size / 1024).toFixed(0)} KB · ${kindOf(entry.file) === 'image' ? '图片' : kindOf(entry.file) === 'audio' ? '音频' : '其他'} · ${speciesLine}</div>
     `;
+
     const rm = document.createElement('button');
     rm.className = 'file-remove';
     rm.textContent = '×';
@@ -385,9 +453,23 @@ function renderFileList() {
       pendingFiles.splice(idx, 1);
       renderFileList();
     };
-    row.appendChild(thumb);
-    row.appendChild(info);
-    row.appendChild(rm);
+
+    main.appendChild(thumb);
+    main.appendChild(info);
+    main.appendChild(rm);
+    row.appendChild(main);
+
+    // Per-file 识别特征 textarea
+    const ta = document.createElement('textarea');
+    ta.className = 'file-features';
+    ta.rows = 1;
+    ta.placeholder = '识别特征（可选）：例如"喉部红色斑块、白色眉纹、繁殖羽"';
+    ta.value = entry.features || '';
+    ta.addEventListener('input', (e) => {
+      entry.features = e.target.value;
+    });
+    row.appendChild(ta);
+
     fileListEl.appendChild(row);
   });
 }
@@ -396,7 +478,7 @@ async function addFiles(fileList) {
   const files = [...fileList];
   for (const f of files) {
     const guess = selectedSci ? null : await recognize(f.name);
-    pendingFiles.push({ file: f, guess });
+    pendingFiles.push({ file: f, guess, features: '' });
   }
   renderFileList();
 }
@@ -447,8 +529,16 @@ uploadBtn.onclick = async () => {
   const form = new FormData();
   form.append('token', token);
   if (selectedSci) form.append('sci', selectedSci);
-  if (currentUser && currentUser.name) form.append('contributor', currentUser.name);
-  for (const entry of pendingFiles) form.append('files', entry.file);
+  // Contributor: explicit input takes priority over user.name
+  const contribName = (contributorEl.value || (currentUser && currentUser.name) || '').trim();
+  if (contribName) form.append('contributor', contribName);
+  // Difficulty 1-5; omit if 0 (unspecified)
+  if (selectedDifficulty) form.append('difficulty', String(selectedDifficulty));
+  // Files + parallel features list (server zips by index)
+  for (const entry of pendingFiles) {
+    form.append('files', entry.file);
+    form.append('features', (entry.features || '').trim());
+  }
 
   try {
     const xhr = new XMLHttpRequest();

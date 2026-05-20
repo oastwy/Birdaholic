@@ -485,6 +485,7 @@ async def upload(
     sci: str = Form(""),
     contributor: str = Form("用户上传"),
     difficulty: int = Form(0),
+    features: list[str] = Form(default_factory=list),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     user = authenticate(authorization, token)
@@ -503,7 +504,7 @@ async def upload(
     saved: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
 
-    for upload_file in files:
+    for idx, upload_file in enumerate(files):
         kind = media_kind(upload_file.filename, upload_file.content_type or "")
         if kind is None:
             failed.append({"file": upload_file.filename, "reason": "unsupported file type"})
@@ -513,6 +514,9 @@ async def upload(
         if not item or not item.get("sci"):
             failed.append({"file": upload_file.filename, "reason": "species not recognized"})
             continue
+
+        # Per-file identification features (notes); same index as files[]
+        feat = features[idx].strip() if idx < len(features) else ""
 
         target_sci = item["sci"]
         key = species_key(target_sci)
@@ -539,6 +543,12 @@ async def upload(
                 "uploader_name": user.get("name", ""),
                 "uploaded_at": now_ts,
             }
+            if difficulty:
+                # Admin: authoritative entry-level difficulty.
+                # Beta: suggested difficulty, surfaced during review.
+                entry["difficulty" if is_admin else "suggested_difficulty"] = difficulty
+            if feat:
+                entry["features"] = feat
             if not is_admin:
                 entry["pending"] = True
             manifest.setdefault("images", []).append(entry)
@@ -556,6 +566,10 @@ async def upload(
                 "uploader_name": user.get("name", ""),
                 "uploaded_at": now_ts,
             }
+            if difficulty:
+                entry["difficulty" if is_admin else "suggested_difficulty"] = difficulty
+            if feat:
+                entry["features"] = feat
             if not is_admin:
                 entry["pending"] = True
             manifest.setdefault("audio", []).append(entry)
