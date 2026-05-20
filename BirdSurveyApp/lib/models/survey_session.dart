@@ -6,6 +6,7 @@ class TransectTrackPoint {
   final double latitude;
   final double longitude;
   final String note;
+  final DateTime? endedAt;
 
   const TransectTrackPoint({
     required this.id,
@@ -13,6 +14,7 @@ class TransectTrackPoint {
     required this.latitude,
     required this.longitude,
     this.note = '',
+    this.endedAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -21,6 +23,7 @@ class TransectTrackPoint {
     'latitude': latitude,
     'longitude': longitude,
     'note': note,
+    'endedAt': endedAt?.toIso8601String(),
   };
 
   factory TransectTrackPoint.fromJson(Map<String, dynamic> json) =>
@@ -31,6 +34,17 @@ class TransectTrackPoint {
         latitude: (json['latitude'] as num?)?.toDouble() ?? 0,
         longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
         note: json['note']?.toString() ?? '',
+        endedAt: DateTime.tryParse(json['endedAt']?.toString() ?? ''),
+      );
+
+  TransectTrackPoint copyWith({DateTime? Function()? endedAt}) =>
+      TransectTrackPoint(
+        id: id,
+        time: time,
+        latitude: latitude,
+        longitude: longitude,
+        note: note,
+        endedAt: endedAt != null ? endedAt() : this.endedAt,
       );
 }
 
@@ -227,6 +241,7 @@ class SurveySession {
                 latitude: p.latitude,
                 longitude: p.longitude,
                 note: p.note,
+                endedAt: p.endedAt,
               ),
             )
             .toList(),

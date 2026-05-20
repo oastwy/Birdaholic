@@ -125,12 +125,7 @@ class SurveyProvider extends ChangeNotifier {
   String get activeTransectPointId {
     final session = _currentSession;
     if (session == null || session.surveyMode != 'transect') return '';
-    if (session.activeTransectPointId.isNotEmpty) {
-      return session.activeTransectPointId;
-    }
-    return session.transectTrack.isNotEmpty
-        ? session.transectTrack.last.id
-        : '';
+    return session.activeTransectPointId;
   }
 
   List<CustomField> get speciesFieldDefs => _speciesFieldDefs;
@@ -348,6 +343,32 @@ class SurveyProvider extends ChangeNotifier {
       'sessionId': session.id,
       'type': 'track_point',
       ...point.toJson(),
+    });
+    _saveCurrentSession();
+    notifyListeners();
+  }
+
+  Future<void> endCurrentTransectPoint() async {
+    final session = _currentSession;
+    final pointId = activeTransectPointId;
+    if (session == null || !isTransect || pointId.isEmpty) return;
+    final index = session.transectTrack.indexWhere((p) => p.id == pointId);
+    if (index < 0) return;
+    final endedAt = DateTime.now();
+    final updatedTrack = [...session.transectTrack];
+    updatedTrack[index] = updatedTrack[index].copyWith(endedAt: () => endedAt);
+    _currentSession = session.copyWith(
+      activeTransectPointId: '',
+      transectTrack: updatedTrack,
+    );
+    _resetCounts();
+    _recordedOrder.clear();
+    await TransectEventLogService.append({
+      'eventId': _newEventId('track_end'),
+      'sessionId': session.id,
+      'type': 'track_point_end',
+      'trackPointId': pointId,
+      'endedAt': endedAt.toIso8601String(),
     });
     _saveCurrentSession();
     notifyListeners();
@@ -748,6 +769,22 @@ class SurveyProvider extends ChangeNotifier {
           ),
         );
         session = session.copyWith(activeTransectPointId: eventId);
+        byId[sessionId] = session;
+        changed = true;
+      } else if (type == 'track_point_end') {
+        final pointId = raw['trackPointId']?.toString() ?? '';
+        final endedAt = DateTime.tryParse(raw['endedAt']?.toString() ?? '');
+        if (pointId.isEmpty || endedAt == null) continue;
+        final updatedTrack = [...session.transectTrack];
+        final index = updatedTrack.indexWhere((p) => p.id == pointId);
+        if (index < 0) continue;
+        updatedTrack[index] = updatedTrack[index].copyWith(
+          endedAt: () => endedAt,
+        );
+        session = session.copyWith(
+          activeTransectPointId: '',
+          transectTrack: updatedTrack,
+        );
         byId[sessionId] = session;
         changed = true;
       } else if (type == 'species_count' ||

@@ -626,6 +626,7 @@ class _TransectMapPanelState extends State<_TransectMapPanel> {
     final prov = widget.prov;
     final center = _center;
     final track = prov.transectTrack;
+    final hasActivePoint = prov.activeTransectPointId.isNotEmpty;
     final observations =
         prov.observationEvents.where((e) => e.type == 'species_count').toList();
     final trackPoints =
@@ -670,9 +671,11 @@ class _TransectMapPanelState extends State<_TransectMapPanel> {
                       point: LatLng(p.latitude, p.longitude),
                       width: 26,
                       height: 26,
-                      child: const Icon(
-                        Icons.fiber_manual_record,
-                        color: Colors.teal,
+                      child: Icon(
+                        p.endedAt == null
+                            ? Icons.fiber_manual_record
+                            : Icons.check_circle,
+                        color: p.endedAt == null ? Colors.teal : Colors.grey,
                         size: 16,
                       ),
                     ),
@@ -711,6 +714,17 @@ class _TransectMapPanelState extends State<_TransectMapPanel> {
                   backgroundColor: Colors.green[700],
                   onPressed: () => prov.addTransectTrackPoint(),
                   child: const Icon(Icons.add_location_alt),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'transect_end_point',
+                  backgroundColor:
+                      hasActivePoint ? Colors.orange[700] : Colors.grey,
+                  onPressed:
+                      hasActivePoint
+                          ? () => prov.endCurrentTransectPoint()
+                          : null,
+                  child: const Icon(Icons.stop_circle),
                 ),
               ],
             ),
