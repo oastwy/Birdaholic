@@ -40,6 +40,9 @@ class BirdCard extends StatefulWidget {
   // 了解此鸟回调
   final VoidCallback? onLearnMore;
 
+  // 全屏模式（图片更大）
+  final bool isFocused;
+
   // 管理员难度评分
   final bool isAdmin;
   final ValueChanged<int>? onDifficultyChanged;
@@ -66,6 +69,7 @@ class BirdCard extends StatefulWidget {
     this.extraImageSourceFiles = const [],
     this.extraImageCredits = const [],
     this.onLearnMore,
+    this.isFocused = false,
     this.isAdmin = false,
     this.onDifficultyChanged,
     this.onImageDifficultyChanged,
@@ -258,9 +262,9 @@ class BirdCardState extends State<BirdCard>
         children: [
           if (isImagePrompt) ...[
             if (images.isNotEmpty)
-              _imageCarousel(images: images, height: 190)
+              _imageCarousel(images: images, height: widget.isFocused ? 320 : 190)
             else
-              _imagePlaceholder(190),
+              _imagePlaceholder(widget.isFocused ? 320 : 190),
           ] else ...[
             AudioPlayerWidget(
               key: widget.audioPlayerKey,
@@ -302,9 +306,9 @@ class BirdCardState extends State<BirdCard>
         children: [
           if (isImagePrompt) ...[
             if (images.isNotEmpty)
-              _imageCarousel(images: images, height: 170)
+              _imageCarousel(images: images, height: widget.isFocused ? 300 : 170)
             else
-              _imagePlaceholder(170),
+              _imagePlaceholder(widget.isFocused ? 300 : 170),
             const SizedBox(height: 10),
           ] else ...[
             AudioPlayerWidget(
@@ -671,25 +675,25 @@ class BirdCardState extends State<BirdCard>
   void _showImagePreview(_ImageEntry entry) {
     Widget img;
     if (entry.isNetwork) {
-      img = Image.network(entry.path, fit: BoxFit.cover,
-          width: double.infinity, height: double.infinity);
+      img = Image.network(entry.path, fit: BoxFit.contain);
     } else {
-      img = Image.file(File(entry.path), fit: BoxFit.cover,
-          width: double.infinity, height: double.infinity);
+      img = Image.file(File(entry.path), fit: BoxFit.contain);
     }
     showDialog<void>(
       context: context,
+      barrierColor: Colors.black87,
       builder: (context) => Dialog(
-        insetPadding: EdgeInsets.zero,
-        clipBehavior: Clip.antiAlias,
+        insetPadding: const EdgeInsets.all(12),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         child: Stack(
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => Navigator.pop(context),
               child: InteractiveViewer(
-                minScale: 1.0,
-                maxScale: 8,
+                minScale: 0.5,
+                maxScale: 5,
                 child: SizedBox(
                   width: double.infinity,
                   height: double.infinity,

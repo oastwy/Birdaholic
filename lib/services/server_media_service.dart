@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 
 class ServerMediaService {
   static const defaultBaseUrl = 'https://birding.today';
+  static const _maxRetries = 4;
+  static const _requestTimeout = Duration(seconds: 25);
 
   final String baseUrl;
   final http.Client _client;
@@ -14,12 +16,31 @@ class ServerMediaService {
     http.Client? client,
   }) : _client = client ?? http.Client();
 
+  Future<T> _withRetry<T>(Future<T> Function() action, {String label = ''}) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < _maxRetries; attempt++) {
+      try {
+        return await action();
+      } catch (e) {
+        lastError = e;
+        if (attempt == _maxRetries - 1) break;
+        // Exponential backoff: 1s, 2s, 4s, ...
+        final delayMs = 1000 * (1 << attempt);
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+    }
+    throw Exception('$label 请求多次失败: $lastError');
+  }
+
   Future<ServerSpeciesMedia?> fetchSpeciesMedia(String scientificName) async {
     final key = scientificName.trim().replaceAll(RegExp(r'\s+'), '_');
     if (key.isEmpty) return null;
 
     final uri = Uri.parse('$baseUrl/species/$key/manifest.json');
-    final response = await _client.get(uri);
+    final response = await _withRetry(
+      () => _client.get(uri).timeout(_requestTimeout),
+      label: 'manifest($scientificName)',
+    );
     if (response.statusCode == 404) return null;
     if (response.statusCode != 200) {
       throw Exception('服务器媒体请求失败: ${response.statusCode}');
@@ -44,26 +65,44 @@ class ServerMediaService {
       return _DownloadedFile(file: file, filename: filename);
     }
 
-    final partFile = File('${file.path}.part');
-    var existingBytes = await partFile.exists() ? await partFile.length() : 0;
-    final request = http.Request('GET', uri);
-    if (existingBytes > 0) {
-      request.headers['Range'] = 'bytes=$existingBytes-';
-    }
-    final response = await _client.send(request);
-    if (response.statusCode == 200 && existingBytes > 0) {
-      existingBytes = 0;
-      await partFile.delete().catchError((_) => partFile);
-    }
-    if (response.statusCode != 200 && response.statusCode != 206) return null;
+    Object? lastError;
+    for (var attempt = 0; attempt < _maxRetries; attempt++) {
+      try {
+        final partFile = File('${file.path}.part');
+        var existingBytes =
+            await partFile.exists() ? await partFile.length() : 0;
+        final request = http.Request('GET', uri);
+        if (existingBytes > 0) {
+          request.headers['Range'] = 'bytes=$existingBytes-';
+        }
+        final response =
+            await _client.send(request).timeout(_requestTimeout);
+        if (response.statusCode == 200 && existingBytes > 0) {
+          existingBytes = 0;
+          await partFile.delete().catchError((_) => partFile);
+        }
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          return null;
+        }
 
-    await file.parent.create(recursive: true);
-    final sink = partFile.openWrite(
-      mode: response.statusCode == 206 ? FileMode.append : FileMode.write,
-    );
-    await response.stream.pipe(sink);
-    await partFile.rename(file.path);
-    return _DownloadedFile(file: file, filename: filename);
+        await file.parent.create(recursive: true);
+        final sink = partFile.openWrite(
+          mode: response.statusCode == 206 ? FileMode.append : FileMode.write,
+        );
+        await response.stream.pipe(sink);
+        await partFile.rename(file.path);
+        return _DownloadedFile(file: file, filename: filename);
+      } catch (e) {
+        lastError = e;
+        if (attempt == _maxRetries - 1) break;
+        final delayMs = 1000 * (1 << attempt);
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+    }
+    // After all retries, give up but don't throw — caller treats null as skip.
+    // ignore: avoid_print
+    print('下载失败 $filename: $lastError');
+    return null;
   }
 
   Future<DownloadedServerFile?> downloadMediaFile({

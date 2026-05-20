@@ -581,7 +581,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     _selectedChoiceSci = choice.sci;
     _recordAnswer(bird, isCorrect: choice.sci == bird.sci);
-    _showAnswer();
+    setState(() => _revealed = true);
     if (!_isFinished) {
       Future.delayed(const Duration(milliseconds: 1600), _nextCard);
     }
@@ -2137,14 +2137,19 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   ),
                 ),
               ),
-              if (!_revealed && !_showAnswerOnEntry && !_answered)
-                Padding(
+              Visibility(
+                visible: !_revealed && !_showAnswerOnEntry && !_answered,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
                     '先看答案，再判断是否认识',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ),
+              ),
             ],
           );
         },
@@ -2208,6 +2213,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           extraImagePaths: extraImagePaths,
           extraImageSourceFiles: extraImageSourceFiles,
           extraImageCredits: extraImageCredits,
+          isFocused: _focusMode,
           isAdmin: widget.storage.isAdminMode,
           onDifficultyChanged: (diff) async {
             final packDir = await widget.packManager

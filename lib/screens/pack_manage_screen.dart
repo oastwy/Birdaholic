@@ -37,6 +37,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
   bool _loading = false;
   String? _activePackDir;
   String _mediaUpdateStatus = '';
+  String _mediaUpdateSci = '';
 
   @override
   void initState() {
@@ -183,12 +184,14 @@ class _PackManageScreenState extends State<PackManageScreen> {
       setState(() {
         _loading = true;
         _mediaUpdateStatus = '正在连接服务器…';
+        _mediaUpdateSci = '';
       });
       final result = await widget.packManager.updateActivePackFromServer(
         onProgress: (current, total, speciesName) {
           if (!mounted) return;
           setState(() {
-            _mediaUpdateStatus = '检查 $current/$total：$speciesName';
+            _mediaUpdateStatus = '检查 $current/$total：';
+            _mediaUpdateSci = speciesName;
           });
         },
       );
@@ -198,6 +201,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
       setState(() {
         _mediaUpdateStatus =
             '完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个，更新 ${result.updatedSpecies} 种';
+        _mediaUpdateSci = '';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -210,7 +214,10 @@ class _PackManageScreenState extends State<PackManageScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _mediaUpdateStatus = '更新失败：$e');
+      setState(() {
+        _mediaUpdateStatus = '更新失败：$e';
+        _mediaUpdateSci = '';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ 更新失败: $e'), backgroundColor: Colors.red),
       );
@@ -1042,9 +1049,9 @@ class _PackManageScreenState extends State<PackManageScreen> {
           child: SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _loading ? null : _showServerDownloadSheet,
+              onPressed: _loading ? null : _downloadFullChinaCatalog,
               icon: const Icon(Icons.cloud_download_outlined),
-              label: const Text('从服务器下载完整数据包'),
+              label: const Text('从服务器下载中国名录（逐物种）'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue[700],
                 foregroundColor: Colors.white,
@@ -1063,7 +1070,18 @@ class _PackManageScreenState extends State<PackManageScreen> {
             child: OutlinedButton.icon(
               onPressed: _loading ? null : _showCountrySpeciesDownloadSheet,
               icon: const Icon(Icons.public),
-              label: const Text('按国家名录逐物种下载'),
+              label: const Text('按其他国家/地区名录下载'),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _loading ? null : _showServerDownloadSheet,
+              icon: const Icon(Icons.archive_outlined),
+              label: const Text('下载整包 ZIP（需网络稳定）'),
             ),
           ),
         ),
@@ -1085,11 +1103,21 @@ class _PackManageScreenState extends State<PackManageScreen> {
             child: OutlinedButton.icon(
               onPressed: _loading ? null : _updateInstalledMedia,
               icon: const Icon(Icons.sync),
-              label: Text(
-                _mediaUpdateStatus.isEmpty
-                    ? '更新已下载媒体（只补新增图片/音频）'
-                    : _mediaUpdateStatus,
-              ),
+              label: _mediaUpdateStatus.isEmpty
+                  ? const Text('更新已下载媒体（只补新增图片/音频）')
+                  : Text.rich(
+                      TextSpan(children: [
+                        TextSpan(text: _mediaUpdateStatus),
+                        if (_mediaUpdateSci.isNotEmpty)
+                          TextSpan(
+                            text: _mediaUpdateSci,
+                            style: const TextStyle(
+                                fontStyle: FontStyle.italic),
+                          ),
+                      ]),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
             ),
           ),
         ),
