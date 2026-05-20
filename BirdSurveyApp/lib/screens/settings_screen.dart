@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/custom_field.dart';
 import '../providers/survey_provider.dart';
 import '../services/tide_service.dart';
@@ -19,7 +20,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _stormCtrl;
   late TextEditingController _worldCtrl;
   late TextEditingController _tiandituCtrl;
+  late TextEditingController _qweatherCtrl;
   late TideSource _selectedSource;
+  String _exportTemplate = 'full';
+  String _nestedParentFieldId = '';
+  String _nestedChildFieldId = '';
 
   @override
   void initState() {
@@ -33,7 +38,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _stormCtrl = TextEditingController(text: prov.stormglassKey);
     _worldCtrl = TextEditingController(text: prov.worldtidesKey);
     _tiandituCtrl = TextEditingController(text: prov.tiandituKey);
+    _qweatherCtrl = TextEditingController(text: prov.qweatherKey);
     _selectedSource = prov.tideSource;
+    _nestedParentFieldId = prov.nestedParentFieldId;
+    _nestedChildFieldId = prov.nestedChildFieldId;
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      setState(() {
+        _exportTemplate = prefs.getString('export_template') ?? 'full';
+      });
+    });
   }
 
   @override
@@ -44,18 +58,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _stormCtrl.dispose();
     _worldCtrl.dispose();
     _tiandituCtrl.dispose();
+    _qweatherCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    await context.read<SurveyProvider>().saveSettings(
+    final prov = context.read<SurveyProvider>();
+    await prov.saveSettings(
       ebird: _ebirdCtrl.text.trim(),
       chaoxi365: _chaoxi365Ctrl.text.trim(),
       chaoxi365Endpoint: _chaoxi365EndpointCtrl.text.trim(),
       stormglass: _stormCtrl.text.trim(),
       worldtides: _worldCtrl.text.trim(),
       tianditu: _tiandituCtrl.text.trim(),
+      qweather: _qweatherCtrl.text.trim(),
       tideSource: _selectedSource,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('export_template', _exportTemplate);
+    await prov.saveNestedFieldRelation(
+      parentFieldId: _nestedParentFieldId,
+      childFieldId: _nestedChildFieldId,
     );
     if (mounted) {
       ScaffoldMessenger.of(
@@ -196,6 +219,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const Divider(height: 32),
 
+          // ── 和风天气 ──────────────────────────────────────────────────────
+          _SectionHeader('和风天气 API（自动记录天气）'),
+          const Text(
+            '调查开始时自动获取当地天气（天气状况、气温、风向风速、湿度），\n'
+            '自动填入记录并在导出时写入"天气"列。',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          _ApiKeyField(
+            controller: _qweatherCtrl,
+            label: '和风天气 API Key',
+            hint: '注册：dev.qweather.com（免费版 500次/天）',
+          ),
+          const _ApiGuideCard(
+            title: '和风天气 Key 获取教程',
+            lines: [
+              '1. 打开 dev.qweather.com 注册账号。',
+              '2. 进入控制台 → 项目管理 → 新建项目。',
+              '3. 应用限制选"不限制"，复制 API KEY。',
+              '4. 免费版天气实况 500次/天，够野外调查使用。',
+            ],
+          ),
+
+          const Divider(height: 32),
+
           // ── eBird API ─────────────────────────────────────────────────────
           _SectionHeader('eBird API（附近鸟种功能）'),
           _ApiKeyField(
@@ -241,6 +289,120 @@ class _SettingsScreenState extends State<SettingsScreen> {
             getFields: (prov) => prov.speciesFieldDefs,
             saveFields: (prov, f) => prov.saveSpeciesFieldDefs(f),
             presets: _speciesFieldPresets,
+          ),
+          const SizedBox(height: 12),
+          Consumer<SurveyProvider>(
+            builder: (context, prov, _) {
+              final selectFields =
+                  prov.speciesFieldDefs
+                      .where(
+                        (f) =>
+                            f.type == FieldType.select && f.options.isNotEmpty,
+                      )
+                      .toList();
+              if (selectFields.length < 2) {
+                return const Text(
+                  '添加至少两个“选项”字段后，可设置字段自动嵌套。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                );
+              }
+              String? safeParent =
+                  selectFields.any((f) => f.id == _nestedParentFieldId)
+                      ? _nestedParentFieldId
+                      : null;
+              String? safeChild =
+                  selectFields.any((f) => f.id == _nestedChildFieldId)
+                      ? _nestedChildFieldId
+                      : null;
+              return Card(
+                color: Colors.green[50],
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '字段自动嵌套',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '例：一级选“位置”，二级选“行为”，记录时会自动生成 岸边-觅食、水中-休息。',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: safeParent,
+                        decoration: const InputDecoration(
+                          labelText: '一级字段',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: '', child: Text('不启用')),
+                          ...selectFields.map(
+                            (f) => DropdownMenuItem(
+                              value: f.id,
+                              child: Text(f.name),
+                            ),
+                          ),
+                        ],
+                        onChanged:
+                            (v) => setState(() {
+                              _nestedParentFieldId = v ?? '';
+                              if (_nestedChildFieldId == _nestedParentFieldId) {
+                                _nestedChildFieldId = '';
+                              }
+                            }),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: safeChild,
+                        decoration: const InputDecoration(
+                          labelText: '二级字段',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: '', child: Text('不启用')),
+                          ...selectFields
+                              .where((f) => f.id != _nestedParentFieldId)
+                              .map(
+                                (f) => DropdownMenuItem(
+                                  value: f.id,
+                                  child: Text(f.name),
+                                ),
+                              ),
+                        ],
+                        onChanged:
+                            (v) =>
+                                setState(() => _nestedChildFieldId = v ?? ''),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+
+          const Divider(height: 32),
+
+          _SectionHeader('导出模板'),
+          RadioListTile<String>(
+            title: const Text('完整科研版'),
+            subtitle: const Text('包含目、科、保护等级、红色名录、IUCN、CITES 等列'),
+            value: 'full',
+            groupValue: _exportTemplate,
+            activeColor: Colors.green[700],
+            onChanged: (v) => setState(() => _exportTemplate = v!),
+          ),
+          RadioListTile<String>(
+            title: const Text('简洁交付版'),
+            subtitle: const Text('只保留基础信息、天气潮汐、记录人、物种、数量和自定义字段'),
+            value: 'simple',
+            groupValue: _exportTemplate,
+            activeColor: Colors.green[700],
+            onChanged: (v) => setState(() => _exportTemplate = v!),
           ),
 
           const Divider(height: 32),
@@ -451,10 +613,21 @@ class _CustomFieldsEditorState extends State<_CustomFieldsEditor> {
   void _addField() async {
     final result = await showDialog<CustomField>(
       context: context,
-      builder: (_) => const _AddFieldDialog(),
+      builder: (_) => const _FieldEditDialog(),
     );
     if (result != null && mounted) {
       setState(() => _fields.add(result));
+      await _save();
+    }
+  }
+
+  void _editField(int idx) async {
+    final result = await showDialog<CustomField>(
+      context: context,
+      builder: (_) => _FieldEditDialog(existing: _fields[idx]),
+    );
+    if (result != null && mounted) {
+      setState(() => _fields[idx] = result);
       await _save();
     }
   }
@@ -508,15 +681,24 @@ class _CustomFieldsEditorState extends State<_CustomFieldsEditor> {
                 key: ValueKey(f.id),
                 leading: Icon(_fieldIcon(f.type), color: Colors.green[700]),
                 title: Text(f.name),
+                onTap: () => _editField(i),
                 subtitle: Text(
                   _fieldTypeLabel(f.type) +
-                      (f.options.isNotEmpty
+                      (f.type == FieldType.nestedSelect &&
+                              f.nestedOptions.isNotEmpty
+                          ? ': ${f.nestedOptions.entries.map((e) => '${e.key}>${e.value.join('/')}').join('；')}'
+                          : f.options.isNotEmpty
                           ? ': ${f.options.join(' / ')}'
                           : ''),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 20),
+                      color: Colors.green[700],
+                      onPressed: () => _editField(i),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, size: 20),
                       color: Colors.red[400],
@@ -557,6 +739,8 @@ class _CustomFieldsEditorState extends State<_CustomFieldsEditor> {
         return Icons.numbers;
       case FieldType.select:
         return Icons.list;
+      case FieldType.nestedSelect:
+        return Icons.account_tree;
     }
   }
 
@@ -568,6 +752,8 @@ class _CustomFieldsEditorState extends State<_CustomFieldsEditor> {
         return '数字';
       case FieldType.select:
         return '选项';
+      case FieldType.nestedSelect:
+        return '两级选项';
     }
   }
 }
@@ -588,31 +774,50 @@ class _PresetChip extends StatelessWidget {
   }
 }
 
-// ── Add Field Dialog ─────────────────────────────────────────────────────────
+// ── Field Edit Dialog ────────────────────────────────────────────────────────
 
-class _AddFieldDialog extends StatefulWidget {
-  const _AddFieldDialog();
+class _FieldEditDialog extends StatefulWidget {
+  final CustomField? existing;
+  const _FieldEditDialog({this.existing});
 
   @override
-  State<_AddFieldDialog> createState() => _AddFieldDialogState();
+  State<_FieldEditDialog> createState() => _FieldEditDialogState();
 }
 
-class _AddFieldDialogState extends State<_AddFieldDialog> {
+class _FieldEditDialogState extends State<_FieldEditDialog> {
   final _nameCtrl = TextEditingController();
   final _optCtrl = TextEditingController();
+  final _nestedCtrl = TextEditingController();
   FieldType _type = FieldType.text;
+
+  bool get _isEditing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    if (existing != null) {
+      _nameCtrl.text = existing.name;
+      _type = existing.type;
+      _optCtrl.text = existing.options.join(',');
+      _nestedCtrl.text = existing.nestedOptions.entries
+          .map((e) => '${e.key}:${e.value.join(',')}')
+          .join('; ');
+    }
+  }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _optCtrl.dispose();
+    _nestedCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('添加自定义字段'),
+      title: Text(_isEditing ? '编辑自定义字段' : '添加自定义字段'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -635,6 +840,10 @@ class _AddFieldDialogState extends State<_AddFieldDialog> {
               DropdownMenuItem(value: FieldType.text, child: Text('文本')),
               DropdownMenuItem(value: FieldType.number, child: Text('数字')),
               DropdownMenuItem(value: FieldType.select, child: Text('选项（下拉）')),
+              DropdownMenuItem(
+                value: FieldType.nestedSelect,
+                child: Text('两级选项'),
+              ),
             ],
             onChanged: (v) => setState(() => _type = v!),
           ),
@@ -645,6 +854,19 @@ class _AddFieldDialogState extends State<_AddFieldDialog> {
               decoration: const InputDecoration(
                 labelText: '选项（用逗号分隔）',
                 hintText: '例：晴,多云,雨',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+          if (_type == FieldType.nestedSelect) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _nestedCtrl,
+              minLines: 3,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                labelText: '两级选项',
+                hintText: '例：岸边:觅食,休息; 水中:觅食,休息',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -667,20 +889,46 @@ class _AddFieldDialogState extends State<_AddFieldDialog> {
                         .where((s) => s.isNotEmpty)
                         .toList()
                     : <String>[];
+            final nested =
+                _type == FieldType.nestedSelect
+                    ? _parseNestedOptions(_nestedCtrl.text)
+                    : <String, List<String>>{};
             Navigator.pop(
               context,
               CustomField(
-                id: DateTime.now().millisecondsSinceEpoch.toString(),
+                id:
+                    widget.existing?.id ??
+                    DateTime.now().millisecondsSinceEpoch.toString(),
                 name: _nameCtrl.text.trim(),
                 type: _type,
                 options: opts,
+                nestedOptions: nested,
               ),
             );
           },
-          child: const Text('添加'),
+          child: Text(_isEditing ? '保存' : '添加'),
         ),
       ],
     );
+  }
+
+  Map<String, List<String>> _parseNestedOptions(String raw) {
+    final result = <String, List<String>>{};
+    for (final group in raw.split(RegExp(r'[;；\n]'))) {
+      final parts = group.split(RegExp(r'[:：]'));
+      if (parts.length < 2) continue;
+      final parent = parts.first.trim();
+      final children =
+          parts
+              .sublist(1)
+              .join(':')
+              .split(RegExp(r'[,，/]'))
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList();
+      if (parent.isNotEmpty && children.isNotEmpty) result[parent] = children;
+    }
+    return result;
   }
 }
 

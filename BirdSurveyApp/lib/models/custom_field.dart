@@ -1,12 +1,13 @@
 import 'dart:convert';
 
-enum FieldType { text, number, select }
+enum FieldType { text, number, select, nestedSelect }
 
 class CustomField {
   final String id;
   final String name;
   final FieldType type;
   final List<String> options; // only for select type
+  final Map<String, List<String>> nestedOptions; // only for nestedSelect type
   final String defaultValue;
 
   CustomField({
@@ -14,30 +15,35 @@ class CustomField {
     required this.name,
     required this.type,
     this.options = const [],
+    this.nestedOptions = const {},
     this.defaultValue = '',
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'type': type.name,
-        'options': options,
-        'defaultValue': defaultValue,
-      };
+    'id': id,
+    'name': name,
+    'type': type.name,
+    'options': options,
+    'nestedOptions': nestedOptions,
+    'defaultValue': defaultValue,
+  };
 
   factory CustomField.fromJson(Map<String, dynamic> j) => CustomField(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        type: FieldType.values.firstWhere(
-          (t) => t.name == j['type'],
-          orElse: () => FieldType.text,
-        ),
-        options: (j['options'] as List<dynamic>?)
-                ?.map((e) => e as String)
-                .toList() ??
-            [],
-        defaultValue: j['defaultValue'] as String? ?? '',
-      );
+    id: j['id'] as String,
+    name: j['name'] as String,
+    type: FieldType.values.firstWhere(
+      (t) => t.name == j['type'],
+      orElse: () => FieldType.text,
+    ),
+    options:
+        (j['options'] as List<dynamic>?)?.map((e) => e as String).toList() ??
+        [],
+    nestedOptions: ((j['nestedOptions'] as Map<String, dynamic>?) ?? {}).map(
+      (k, v) =>
+          MapEntry(k, (v as List<dynamic>).map((e) => e.toString()).toList()),
+    ),
+    defaultValue: j['defaultValue'] as String? ?? '',
+  );
 
   static List<CustomField> decodeList(String json) {
     if (json.isEmpty) return [];

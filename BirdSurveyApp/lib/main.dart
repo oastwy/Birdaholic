@@ -6,10 +6,14 @@ import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/survey_points_screen.dart';
+import 'screens/survey_projects_screen.dart';
 import 'screens/survey_screen.dart';
 import 'screens/survey_start_screen.dart';
+import 'services/species_meta_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SpeciesMetaService.init();
   runApp(
     ChangeNotifierProvider(
       create: (_) => SurveyProvider()..init(),
@@ -46,6 +50,7 @@ class BirdSurveyApp extends StatelessWidget {
         '/survey': (_) => const SurveyScreen(),
         '/survey_start': (_) => const SurveyStartScreen(),
         '/survey_points': (_) => const SurveyPointsScreen(),
+        '/survey_projects': (_) => const SurveyProjectsScreen(),
         '/setup': (_) => const SetupScreen(),
       },
     );

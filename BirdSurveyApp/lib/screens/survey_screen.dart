@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../models/bird_species.dart';
 import '../models/custom_field.dart';
@@ -171,6 +173,46 @@ class _SurveyScreenState extends State<SurveyScreen>
     }
   }
 
+  Future<void> _showNestedFieldOptionCountDialog(
+    SurveyProvider prov,
+    BirdSpecies species,
+    CustomField field,
+    String parent,
+    String child,
+  ) async {
+    final current =
+        prov.getNestedSpeciesFieldCounts(
+          species.ebird,
+          field.id,
+        )[parent]?[child] ??
+        0;
+    final result = await _showCountCalculatorDialog(
+      title: '${field.name}：$parent / $child · ${species.zh}',
+      current: current,
+    );
+    if (result != null && result >= 0) {
+      prov.setNestedSpeciesFieldOptionCount(
+        species,
+        field.id,
+        parent,
+        child,
+        result,
+      );
+      if (!mounted) return;
+      _showUndoSnackBar(
+        message: '$parent.$child 已改为 $result',
+        onUndo:
+            () => prov.setNestedSpeciesFieldOptionCount(
+              species,
+              field.id,
+              parent,
+              child,
+              current,
+            ),
+      );
+    }
+  }
+
   Future<int?> _showCountCalculatorDialog({
     required String title,
     required int current,
@@ -235,6 +277,14 @@ class _SurveyScreenState extends State<SurveyScreen>
   }
 
   Future<bool> _onWillPop(SurveyProvider prov) async {
+    if (prov.isEditingHistory) {
+      if (prov.hasUnsavedHistoryEdits) {
+        final discard = await _confirmDiscardHistoryEdits();
+        if (discard != true) return false;
+      }
+      await prov.cancelEditedSurvey();
+      return true;
+    }
     final res = await _showEndNotesDialog(prov);
     if (res == null) return false;
     await prov.endSurvey(notes: res.notes);
@@ -258,6 +308,59 @@ class _SurveyScreenState extends State<SurveyScreen>
       );
     });
     return true;
+  }
+
+  Future<bool?> _confirmDiscardHistoryEdits() => showDialog<bool>(
+    context: context,
+    builder:
+        (_) => AlertDialog(
+          title: const Text('放弃本次修改？'),
+          content: const Text('本次编辑还没有保存，放弃后会恢复到原来的历史记录。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('继续编辑'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('放弃修改', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+  );
+
+  Future<void> _showEditLogSheet(SurveyProvider prov) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) {
+        final logs = prov.editLog;
+        return SafeArea(
+          child:
+              logs.isEmpty
+                  ? const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: Text('本次编辑还没有修改记录')),
+                  )
+                  : ListView.builder(
+                    itemCount: logs.length,
+                    itemBuilder: (context, i) {
+                      return ListTile(
+                        leading: CircleAvatar(child: Text('${i + 1}')),
+                        title: Text(logs[i]),
+                        trailing: TextButton(
+                          onPressed: () {
+                            prov.undoToEditIndex(i);
+                            Navigator.pop(context);
+                          },
+                          child: const Text('撤回到此处'),
+                        ),
+                      );
+                    },
+                  ),
+        );
+      },
+    );
   }
 
   @override
@@ -297,35 +400,87 @@ class _SurveyScreenState extends State<SurveyScreen>
             ],
           ),
           actions: [
-            TextButton.icon(
-              icon: const Icon(Icons.stop_circle, color: Colors.white),
-              label: const Text('结束', style: TextStyle(color: Colors.white)),
-              onPressed: () async {
-                final res = await _showEndNotesDialog(prov);
-                if (res != null && context.mounted) {
-                  await prov.endSurvey(notes: res.notes);
-                  if (!context.mounted) return;
-                  if (res.startNew) {
-                    Navigator.of(context).pushReplacementNamed('/survey_start');
-                  } else {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('调查已保存'),
-                        duration: const Duration(seconds: 4),
-                        action: SnackBarAction(
-                          label: '开始新调查',
-                          onPressed:
-                              () => Navigator.of(
-                                context,
-                              ).pushNamed('/survey_start'),
-                        ),
-                      ),
-                    );
+            if (prov.isEditingHistory) ...[
+              IconButton(
+                icon: const Icon(Icons.undo, color: Colors.white),
+                tooltip: '撤回上一步',
+                onPressed:
+                    prov.editLog.isEmpty
+                        ? null
+                        : () {
+                          final ok = prov.undoLastEdit();
+                          if (ok && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('已撤回上一步修改')),
+                            );
+                          }
+                        },
+              ),
+              IconButton(
+                icon: const Icon(Icons.history, color: Colors.white),
+                tooltip: '修改记录',
+                onPressed: () => _showEditLogSheet(prov),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final discard =
+                      prov.hasUnsavedHistoryEdits
+                          ? await _confirmDiscardHistoryEdits()
+                          : true;
+                  if (discard == true && context.mounted) {
+                    await prov.cancelEditedSurvey();
+                    if (context.mounted) Navigator.pop(context);
                   }
-                }
-              },
-            ),
+                },
+                child: const Text('取消', style: TextStyle(color: Colors.white)),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await prov.saveEditedSurvey();
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('历史记录修改已保存')));
+                  }
+                },
+                child: const Text(
+                  '保存修改',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ] else
+              TextButton.icon(
+                icon: const Icon(Icons.stop_circle, color: Colors.white),
+                label: const Text('结束', style: TextStyle(color: Colors.white)),
+                onPressed: () async {
+                  final res = await _showEndNotesDialog(prov);
+                  if (res != null && context.mounted) {
+                    await prov.endSurvey(notes: res.notes);
+                    if (!context.mounted) return;
+                    if (res.startNew) {
+                      Navigator.of(
+                        context,
+                      ).pushReplacementNamed('/survey_start');
+                    } else {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('调查已保存'),
+                          duration: const Duration(seconds: 4),
+                          action: SnackBarAction(
+                            label: '开始新调查',
+                            onPressed:
+                                () => Navigator.of(
+                                  context,
+                                ).pushNamed('/survey_start'),
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
           ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(90),
@@ -357,50 +512,227 @@ class _SurveyScreenState extends State<SurveyScreen>
             ),
           ),
         ),
-        body: TabBarView(
-          controller: _tabController,
+        body: Column(
           children: [
-            _NearbyTab(
-              prov: prov,
-              searchController: _searchController,
-              speechAvailable: _svc.available,
-              listening: _listening,
-              onMicTap: () => _toggleListening(prov),
-              onNote: (code, name) => _showNoteDialog(prov, code, name),
-              onCountEdit: (s) => _showCountEditDialog(prov, s),
-              onFieldOptionCountEdit:
-                  (s, field, option) =>
-                      _showFieldOptionCountDialog(prov, s, field, option),
-            ),
-            _AllSpeciesTab(
-              prov: prov,
-              searchController: _searchController,
-              speechAvailable: _svc.available,
-              listening: _listening,
-              onMicTap: () => _toggleListening(prov),
-              onNote: (code, name) => _showNoteDialog(prov, code, name),
-              onCountEdit: (s) => _showCountEditDialog(prov, s),
-              onFieldOptionCountEdit:
-                  (s, field, option) =>
-                      _showFieldOptionCountDialog(prov, s, field, option),
-            ),
-            _RecordedTab(
-              prov: prov,
-              onNote: (code, name) => _showNoteDialog(prov, code, name),
-              onCountEdit: (s) => _showCountEditDialog(prov, s),
-              onFieldOptionCountEdit:
-                  (s, field, option) =>
-                      _showFieldOptionCountDialog(prov, s, field, option),
-            ),
-            _HistoryTab(
-              prov: prov,
-              onCountEdit: (s) => _showCountEditDialog(prov, s),
-              onFieldOptionCountEdit:
-                  (s, field, option) =>
-                      _showFieldOptionCountDialog(prov, s, field, option),
+            if (prov.isTransect) _TransectMapPanel(prov: prov),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _NearbyTab(
+                    prov: prov,
+                    searchController: _searchController,
+                    speechAvailable: _svc.available,
+                    listening: _listening,
+                    onMicTap: () => _toggleListening(prov),
+                    onNote: (code, name) => _showNoteDialog(prov, code, name),
+                    onCountEdit: (s) => _showCountEditDialog(prov, s),
+                    onFieldOptionCountEdit:
+                        (s, field, option) =>
+                            _showFieldOptionCountDialog(prov, s, field, option),
+                    onNestedFieldOptionCountEdit:
+                        (s, field, parent, child) =>
+                            _showNestedFieldOptionCountDialog(
+                              prov,
+                              s,
+                              field,
+                              parent,
+                              child,
+                            ),
+                  ),
+                  _AllSpeciesTab(
+                    prov: prov,
+                    searchController: _searchController,
+                    speechAvailable: _svc.available,
+                    listening: _listening,
+                    onMicTap: () => _toggleListening(prov),
+                    onNote: (code, name) => _showNoteDialog(prov, code, name),
+                    onCountEdit: (s) => _showCountEditDialog(prov, s),
+                    onFieldOptionCountEdit:
+                        (s, field, option) =>
+                            _showFieldOptionCountDialog(prov, s, field, option),
+                    onNestedFieldOptionCountEdit:
+                        (s, field, parent, child) =>
+                            _showNestedFieldOptionCountDialog(
+                              prov,
+                              s,
+                              field,
+                              parent,
+                              child,
+                            ),
+                  ),
+                  _RecordedTab(
+                    prov: prov,
+                    onNote: (code, name) => _showNoteDialog(prov, code, name),
+                    onCountEdit: (s) => _showCountEditDialog(prov, s),
+                    onFieldOptionCountEdit:
+                        (s, field, option) =>
+                            _showFieldOptionCountDialog(prov, s, field, option),
+                    onNestedFieldOptionCountEdit:
+                        (s, field, parent, child) =>
+                            _showNestedFieldOptionCountDialog(
+                              prov,
+                              s,
+                              field,
+                              parent,
+                              child,
+                            ),
+                  ),
+                  _HistoryTab(
+                    prov: prov,
+                    onCountEdit: (s) => _showCountEditDialog(prov, s),
+                    onFieldOptionCountEdit:
+                        (s, field, option) =>
+                            _showFieldOptionCountDialog(prov, s, field, option),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TransectMapPanel extends StatefulWidget {
+  final SurveyProvider prov;
+
+  const _TransectMapPanel({required this.prov});
+
+  @override
+  State<_TransectMapPanel> createState() => _TransectMapPanelState();
+}
+
+class _TransectMapPanelState extends State<_TransectMapPanel> {
+  final _mapController = MapController();
+
+  LatLng get _center {
+    final pos = widget.prov.position;
+    final session = widget.prov.currentSession;
+    return LatLng(
+      pos?.latitude ?? session?.latitude ?? 0,
+      pos?.longitude ?? session?.longitude ?? 0,
+    );
+  }
+
+  void _moveToCurrent() {
+    _mapController.move(_center, 16);
+    widget.prov.retryGps();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prov = widget.prov;
+    final center = _center;
+    final track = prov.transectTrack;
+    final observations =
+        prov.observationEvents.where((e) => e.type == 'species_count').toList();
+    final trackPoints =
+        track.map((p) => LatLng(p.latitude, p.longitude)).toList();
+
+    return SizedBox(
+      height: 190,
+      child: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(initialCenter: center, initialZoom: 15),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.birdsurvey.app',
+              ),
+              if (trackPoints.length > 1)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: trackPoints,
+                      color: Colors.teal,
+                      strokeWidth: 4,
+                    ),
+                  ],
+                ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: center,
+                    width: 34,
+                    height: 34,
+                    child: const Icon(
+                      Icons.my_location,
+                      color: Colors.blue,
+                      size: 26,
+                    ),
+                  ),
+                  ...track.map(
+                    (p) => Marker(
+                      point: LatLng(p.latitude, p.longitude),
+                      width: 26,
+                      height: 26,
+                      child: const Icon(
+                        Icons.fiber_manual_record,
+                        color: Colors.teal,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                  ...observations
+                      .take(80)
+                      .map(
+                        (e) => Marker(
+                          point: LatLng(e.latitude, e.longitude),
+                          width: 28,
+                          height: 28,
+                          child: const Icon(
+                            Icons.location_on,
+                            color: Colors.orange,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            right: 10,
+            top: 10,
+            child: Column(
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'transect_locate',
+                  onPressed: _moveToCurrent,
+                  child: const Icon(Icons.my_location),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'transect_track',
+                  backgroundColor: Colors.green[700],
+                  onPressed: () => prov.addTransectTrackPoint(),
+                  child: const Icon(Icons.add_location_alt),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 10,
+            bottom: 8,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                child: Text(
+                  '样线  轨迹${track.length}点  记录${observations.length}次',
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -486,6 +818,13 @@ class _NearbyTab extends StatefulWidget {
   final void Function(BirdSpecies)? onCountEdit;
   final void Function(BirdSpecies species, CustomField field, String option)?
   onFieldOptionCountEdit;
+  final void Function(
+    BirdSpecies species,
+    CustomField field,
+    String parent,
+    String child,
+  )?
+  onNestedFieldOptionCountEdit;
   const _NearbyTab({
     required this.prov,
     required this.searchController,
@@ -495,6 +834,7 @@ class _NearbyTab extends StatefulWidget {
     this.onNote,
     this.onCountEdit,
     this.onFieldOptionCountEdit,
+    this.onNestedFieldOptionCountEdit,
   });
   @override
   State<_NearbyTab> createState() => _NearbyTabState();
@@ -565,6 +905,7 @@ class _NearbyTabState extends State<_NearbyTab> {
         prov,
         s,
         onCountEdit: widget.onFieldOptionCountEdit,
+        onNestedCountEdit: widget.onNestedFieldOptionCountEdit,
       ),
       onIncrement: () => prov.incrementCount(s),
       onDecrement: () => prov.decrementCount(s),
@@ -765,6 +1106,13 @@ class _AllSpeciesTab extends StatelessWidget {
   final void Function(BirdSpecies)? onCountEdit;
   final void Function(BirdSpecies species, CustomField field, String option)?
   onFieldOptionCountEdit;
+  final void Function(
+    BirdSpecies species,
+    CustomField field,
+    String parent,
+    String child,
+  )?
+  onNestedFieldOptionCountEdit;
 
   const _AllSpeciesTab({
     required this.prov,
@@ -775,6 +1123,7 @@ class _AllSpeciesTab extends StatelessWidget {
     this.onNote,
     this.onCountEdit,
     this.onFieldOptionCountEdit,
+    this.onNestedFieldOptionCountEdit,
   });
 
   @override
@@ -871,6 +1220,7 @@ class _AllSpeciesTab extends StatelessWidget {
                   prov,
                   s,
                   onCountEdit: onFieldOptionCountEdit,
+                  onNestedCountEdit: onNestedFieldOptionCountEdit,
                 ),
                 onIncrement: () => prov.incrementCount(s),
                 onDecrement: () => prov.decrementCount(s),
@@ -893,11 +1243,19 @@ class _RecordedTab extends StatefulWidget {
   final void Function(BirdSpecies)? onCountEdit;
   final void Function(BirdSpecies species, CustomField field, String option)?
   onFieldOptionCountEdit;
+  final void Function(
+    BirdSpecies species,
+    CustomField field,
+    String parent,
+    String child,
+  )?
+  onNestedFieldOptionCountEdit;
   const _RecordedTab({
     required this.prov,
     this.onNote,
     this.onCountEdit,
     this.onFieldOptionCountEdit,
+    this.onNestedFieldOptionCountEdit,
   });
 
   @override
@@ -948,6 +1306,7 @@ class _RecordedTabState extends State<_RecordedTab> {
                   prov,
                   s,
                   onCountEdit: widget.onFieldOptionCountEdit,
+                  onNestedCountEdit: widget.onNestedFieldOptionCountEdit,
                 ),
                 onIncrement: () => prov.incrementCount(s),
                 onDecrement: () => prov.decrementCount(s),
@@ -1641,22 +2000,103 @@ List<QuickField> _tileQuickFields(
   BirdSpecies s, {
   void Function(BirdSpecies species, CustomField field, String option)?
   onCountEdit,
+  void Function(
+    BirdSpecies species,
+    CustomField field,
+    String parent,
+    String child,
+  )?
+  onNestedCountEdit,
 }) {
-  return prov.speciesFieldDefs
-      .where((f) => f.type == FieldType.select && f.options.isNotEmpty)
-      .map(
-        (f) => QuickField(
-          id: f.id,
-          name: f.name,
-          options: f.options,
-          currentValue: prov.getSpeciesFieldValue(s.ebird, f.id),
-          optionCounts: prov.getSpeciesFieldCounts(s.ebird, f.id),
-          onChanged: (v) => prov.setSpeciesFieldValue(s.ebird, f.id, v),
-          onIncrement: (v) => prov.incrementSpeciesFieldOption(s, f.id, v),
-          onCountEdit: onCountEdit == null ? null : (v) => onCountEdit(s, f, v),
+  final result = <QuickField>[];
+  if (prov.hasNestedFieldRelation) {
+    final parent = prov.speciesFieldById(prov.nestedParentFieldId);
+    final child = prov.speciesFieldById(prov.nestedChildFieldId);
+    if (parent != null &&
+        child != null &&
+        parent.options.isNotEmpty &&
+        child.options.isNotEmpty) {
+      final relationField = CustomField(
+        id: prov.nestedRelationFieldId,
+        name: '${parent.name}-${child.name}',
+        type: FieldType.nestedSelect,
+        nestedOptions: {
+          for (final option in parent.options) option: child.options,
+        },
+      );
+      result.add(
+        QuickField(
+          id: relationField.id,
+          name: relationField.name,
+          options: const [],
+          nestedOptions: relationField.nestedOptions,
+          currentValue: '',
+          optionCounts: const {},
+          nestedCounts: prov.getNestedSpeciesFieldCounts(
+            s.ebird,
+            relationField.id,
+          ),
+          onChanged: (_) {},
+          onIncrement: (_) {},
+          onNestedIncrement:
+              (parentOption, childOption) =>
+                  prov.incrementNestedSpeciesFieldOption(
+                    s,
+                    relationField.id,
+                    parentOption,
+                    childOption,
+                  ),
+          onNestedCountEdit:
+              onNestedCountEdit == null
+                  ? null
+                  : (parentOption, childOption) => onNestedCountEdit(
+                    s,
+                    relationField,
+                    parentOption,
+                    childOption,
+                  ),
         ),
-      )
-      .toList();
+      );
+    }
+  }
+  result.addAll(
+    prov.speciesFieldDefs
+        .where((f) {
+          if (f.id == prov.nestedParentFieldId ||
+              f.id == prov.nestedChildFieldId) {
+            return false;
+          }
+          return (f.type == FieldType.select && f.options.isNotEmpty) ||
+              (f.type == FieldType.nestedSelect && f.nestedOptions.isNotEmpty);
+        })
+        .map(
+          (f) => QuickField(
+            id: f.id,
+            name: f.name,
+            options: f.options,
+            nestedOptions: f.nestedOptions,
+            currentValue: prov.getSpeciesFieldValue(s.ebird, f.id),
+            optionCounts: prov.getSpeciesFieldCounts(s.ebird, f.id),
+            nestedCounts: prov.getNestedSpeciesFieldCounts(s.ebird, f.id),
+            onChanged: (v) => prov.setSpeciesFieldValue(s.ebird, f.id, v),
+            onIncrement: (v) => prov.incrementSpeciesFieldOption(s, f.id, v),
+            onCountEdit:
+                onCountEdit == null ? null : (v) => onCountEdit(s, f, v),
+            onNestedIncrement:
+                (parent, child) => prov.incrementNestedSpeciesFieldOption(
+                  s,
+                  f.id,
+                  parent,
+                  child,
+                ),
+            onNestedCountEdit:
+                onNestedCountEdit == null
+                    ? null
+                    : (parent, child) => onNestedCountEdit(s, f, parent, child),
+          ),
+        ),
+  );
+  return result;
 }
 
 /// Wraps end-survey dialog result: notes text + whether to start new survey.

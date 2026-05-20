@@ -1,18 +1,38 @@
+import 'dart:io';
+import 'dart:math';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/survey_point.dart';
 
 class SurveyPointService {
-  static const _key = 'survey_points';
+  static const _prefsKey = 'survey_points'; // legacy key, for one-time migration
+
+  static Future<File> _file() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/survey_points.json');
+  }
 
   static Future<List<SurveyPoint>> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key) ?? '';
-    return SurveyPoint.decodeList(raw);
+    try {
+      final file = await _file();
+      if (await file.exists()) {
+        final raw = await file.readAsString();
+        return raw.isEmpty ? [] : SurveyPoint.decodeList(raw);
+      }
+      // One-time migration from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey) ?? '';
+      final points = raw.isEmpty ? <SurveyPoint>[] : SurveyPoint.decodeList(raw);
+      await save(points); // write to file so next load skips prefs
+      return points;
+    } catch (_) {
+      return [];
+    }
   }
 
   static Future<void> save(List<SurveyPoint> points) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, SurveyPoint.encodeList(points));
+    final file = await _file();
+    await file.writeAsString(SurveyPoint.encodeList(points));
   }
 
   static Future<void> add(SurveyPoint point) async {
@@ -25,6 +45,29 @@ class SurveyPointService {
     final points = await load();
     points.removeWhere((p) => p.id == id);
     await save(points);
+  }
+
+  static Future<void> deleteMany(Set<String> ids) async {
+    final points = await load();
+    points.removeWhere((p) => ids.contains(p.id));
+    await save(points);
+  }
+
+  static Future<void> deleteAll() async {
+    await save([]);
+  }
+
+  static Future<void> setVisibility(Set<String> ids, bool visible) async {
+    final points = await load();
+    final updated = points
+        .map((p) => ids.contains(p.id) ? p.copyWith(isVisible: visible) : p)
+        .toList();
+    await save(updated);
+  }
+
+  static Future<void> setAllVisibility(bool visible) async {
+    final points = await load();
+    await save(points.map((p) => p.copyWith(isVisible: visible)).toList());
   }
 
   static Future<int> importFromCsv(String csvText) async {
@@ -53,7 +96,11 @@ class SurveyPointService {
     final coordRe = RegExp(
         r'<coordinates[^>]*>\s*([-\d.]+)\s*,\s*([-\d.]+)', dotAll: true);
 
+    final rng = Random.secure();
+    String uid() => List.generate(
+        16, (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
     int seq = 0;
+
     for (final pm in placemarkRe.allMatches(kmlText)) {
       final block = pm.group(1)!;
       final nameMatch = nameRe.firstMatch(block);
@@ -65,22 +112,19 @@ class SurveyPointService {
       if (lat == null || lon == null) continue;
 
       final rawName = nameMatch?.group(1) ?? '';
-      final name = _cleanKmlText(rawName).isNotEmpty
-          ? _cleanKmlText(rawName)
-          : '位点${++seq}';
+      final cleaned = _cleanKmlText(rawName);
+      final name = cleaned.isNotEmpty ? cleaned : '位点${seq++}';
 
       points.add(SurveyPoint(
-        id: '${DateTime.now().millisecondsSinceEpoch}_$seq',
+        id: uid(),
         name: name,
         latitude: lat,
         longitude: lon,
       ));
-      seq++;
     }
     return points;
   }
 
-  // Strip CDATA wrappers and trim whitespace
   static String _cleanKmlText(String raw) {
     final cdata = RegExp(r'<!\[CDATA\[(.*?)\]\]>', dotAll: true);
     final m = cdata.firstMatch(raw);

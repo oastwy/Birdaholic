@@ -18,6 +18,11 @@ class HomeScreen extends StatelessWidget {
         title: const Text('中国鸟类调查'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.folder_special),
+            tooltip: '调查项目',
+            onPressed: () => Navigator.pushNamed(context, '/survey_projects'),
+          ),
+          IconButton(
             icon: const Icon(Icons.place),
             tooltip: '调查位点',
             onPressed: () => Navigator.pushNamed(context, '/survey_points'),
@@ -216,21 +221,29 @@ class _RecentSurveys extends StatelessWidget {
             ),
           ],
         ),
-        ...recent.map((s) => ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.green[100],
-                child: Text('${s.speciesCount}',
-                    style: TextStyle(
-                        color: Colors.green[800],
-                        fontWeight: FontWeight.bold)),
-              ),
-              title: Text(df.format(s.startTime)),
-              subtitle: Text('${s.speciesCount}种 · ${s.totalCount}只'
-                  '${s.tideHeight != null ? ' · 潮${s.tideHeight!.toStringAsFixed(1)}m' : ''}'),
-              trailing: const Icon(Icons.chevron_right),
-              contentPadding: EdgeInsets.zero,
-              onTap: () => Navigator.pushNamed(context, '/history'),
-            )),
+        ...recent.map((s) {
+          final pointName = s.customValues['位点名称'] ??
+              s.customValues['地点名称'] ?? '';
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.green[100],
+              child: Text('${s.speciesCount}',
+                  style: TextStyle(
+                      color: Colors.green[800],
+                      fontWeight: FontWeight.bold)),
+            ),
+            title: Text(
+              pointName.isNotEmpty ? pointName : df.format(s.startTime),
+            ),
+            subtitle: Text(
+              '${df.format(s.startTime)} · ${s.speciesCount}种 · ${s.totalCount}只'
+              '${s.tideHeight != null ? ' · 潮${s.tideHeight!.toStringAsFixed(1)}m' : ''}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            contentPadding: EdgeInsets.zero,
+            onTap: () => Navigator.pushNamed(context, '/history'),
+          );
+        }),
       ],
     );
   }

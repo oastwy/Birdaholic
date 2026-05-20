@@ -49,12 +49,14 @@ class TideResult {
   final double height;
   final String unit;
   final String? label; // qualitative description
+  final String direction; // '涨' / '落' / ''
   final DateTime time;
 
   TideResult({
     required this.height,
     required this.unit,
     this.label,
+    this.direction = '',
     required this.time,
   });
 }
@@ -275,21 +277,24 @@ class TideService {
   }
 
   // ── WorldTides ───────────────────────────────────────────────────────────────
-  Future<TideResult?> _worldtides(double lat, double lng) async {
+  Future<TideResult?> _worldtides(double lat, double lon) async {
     if (worldtidesKey.isEmpty) return null;
     final now = DateTime.now().toUtc();
     final start = now.subtract(const Duration(hours: 2));
+    // fetch heights + extremes to determine tide direction
     final uri = Uri.parse(
       'https://www.worldtides.info/api/v3'
-      '?heights&lat=$lat&lng=$lng'
+      '?heights&extremes&lat=$lat&lon=$lon'
       '&start=${start.millisecondsSinceEpoch ~/ 1000}'
-      '&length=7200'
+      '&length=14400'
       '&key=$worldtidesKey',
     );
     try {
       final resp = await http.get(uri).timeout(const Duration(seconds: 15));
       if (resp.statusCode != 200) return null;
       final data = json.decode(resp.body) as Map<String, dynamic>;
+
+      // Find height closest to now
       final heights = data['heights'] as List<dynamic>? ?? [];
       TideResult? closest;
       Duration? minDiff;
@@ -305,7 +310,27 @@ class TideService {
           closest = TideResult(height: ht, unit: 'm', time: t);
         }
       }
-      return closest;
+      if (closest == null) return null;
+
+      // Determine tide direction from next extreme
+      final extremes = data['extremes'] as List<dynamic>? ?? [];
+      String direction = '';
+      for (final e in extremes) {
+        final map = e as Map<String, dynamic>;
+        final ts = (map['dt'] as num?)?.toInt();
+        if (ts == null) continue;
+        final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: true);
+        if (t.isAfter(now)) {
+          direction = (map['type'] as String? ?? '') == 'High' ? '涨' : '落';
+          break;
+        }
+      }
+      return TideResult(
+        height: closest.height,
+        unit: closest.unit,
+        direction: direction,
+        time: closest.time,
+      );
     } catch (_) {
       return null;
     }

@@ -8,18 +8,26 @@ class QuickField {
   final List<String> options;
   final String currentValue;
   final Map<String, int> optionCounts;
+  final Map<String, List<String>> nestedOptions;
+  final Map<String, Map<String, int>> nestedCounts;
   final void Function(String) onChanged;
   final void Function(String) onIncrement;
   final void Function(String)? onCountEdit;
+  final void Function(String parent, String child)? onNestedIncrement;
+  final void Function(String parent, String child)? onNestedCountEdit;
   const QuickField({
     required this.id,
     required this.name,
     required this.options,
     required this.currentValue,
     this.optionCounts = const {},
+    this.nestedOptions = const {},
+    this.nestedCounts = const {},
     required this.onChanged,
     required this.onIncrement,
     this.onCountEdit,
+    this.onNestedIncrement,
+    this.onNestedCountEdit,
   });
 }
 
@@ -264,6 +272,117 @@ class SpeciesTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children:
                         quickFields.map((f) {
+                          if (f.nestedOptions.isNotEmpty) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 5),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${f.name}：',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  ...f.nestedOptions.entries.map((parent) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 3),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 52,
+                                            child: Text(
+                                              parent.key,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[700],
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Wrap(
+                                              spacing: 4,
+                                              runSpacing: 2,
+                                              children:
+                                                  parent.value.map((child) {
+                                                    final optionCount =
+                                                        f.nestedCounts[parent
+                                                            .key]?[child] ??
+                                                        0;
+                                                    return GestureDetector(
+                                                      onTap:
+                                                          () => f
+                                                              .onNestedIncrement
+                                                              ?.call(
+                                                                parent.key,
+                                                                child,
+                                                              ),
+                                                      onLongPress:
+                                                          () => f
+                                                              .onNestedCountEdit
+                                                              ?.call(
+                                                                parent.key,
+                                                                child,
+                                                              ),
+                                                      child: Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 3,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color:
+                                                              optionCount > 0
+                                                                  ? Colors.teal
+                                                                  : Colors
+                                                                      .grey[100],
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
+                                                          border: Border.all(
+                                                            color:
+                                                                optionCount > 0
+                                                                    ? Colors
+                                                                        .teal
+                                                                    : Colors
+                                                                        .grey
+                                                                        .shade300,
+                                                            width: 0.8,
+                                                          ),
+                                                        ),
+                                                        child: Text(
+                                                          optionCount > 0
+                                                              ? '$child $optionCount'
+                                                              : child,
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            color:
+                                                                optionCount > 0
+                                                                    ? Colors
+                                                                        .white
+                                                                    : Colors
+                                                                        .grey[700],
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            );
+                          }
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 4),
                             child: Row(

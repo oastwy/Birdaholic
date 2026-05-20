@@ -33,6 +33,7 @@ class _SetupScreenState extends State<SetupScreen> {
       stormglass: prov.stormglassKey,
       worldtides: prov.worldtidesKey,
       tianditu: _tiandituCtrl.text.trim(),
+      qweather: prov.qweatherKey,
       tideSource: prov.tideSource,
     );
     await prov.markSetupDone();
