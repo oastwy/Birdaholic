@@ -31,6 +31,16 @@ WORLD_BIRDS_PATH = Path(
     os.environ.get("BIRDAHOLIC_WORLD_BIRDS", str(SERVER_DIR / "world_birds.json"))
 )
 UPLOAD_TOKEN = os.environ.get("BIRDAHOLIC_UPLOAD_TOKEN", "")
+USERS_FILE = Path("/data/server/users.json")
+
+
+def load_users() -> dict:
+    if USERS_FILE.exists():
+        try:
+            return json.loads(USERS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
 PUBLIC_BASE_URL = os.environ.get(
     "BIRDAHOLIC_PUBLIC_BASE_URL", "http://124.223.101.188:8080"
 ).rstrip("/")
@@ -115,12 +125,33 @@ def match_species(query: str) -> dict[str, Any] | None:
     return best[1] if best[0] >= 0.88 else None
 
 
-def check_token(authorization: str | None, token: str | None) -> None:
+def authenticate(authorization: str | None, token: str | None) -> dict:
+    """Resolve token to a user record {id, role, name, token}.
+    Order: users.json -> legacy UPLOAD_TOKEN env -> 401.
+    """
     bearer = ""
     if authorization and authorization.lower().startswith("bearer "):
         bearer = authorization[7:].strip()
-    if UPLOAD_TOKEN and token != UPLOAD_TOKEN and bearer != UPLOAD_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid upload token")
+    provided = (bearer or (token or "")).strip()
+    if not provided:
+        if not UPLOAD_TOKEN and not load_users():
+            return {"id": "anon", "role": "admin", "name": "anon", "token": ""}
+        raise HTTPException(status_code=401, detail="Missing upload token")
+    users = load_users()
+    if provided in users:
+        u = dict(users[provided])
+        u.setdefault("id", "user")
+        u.setdefault("role", "beta")
+        u.setdefault("name", u["id"])
+        u["token"] = provided
+        return u
+    if UPLOAD_TOKEN and provided == UPLOAD_TOKEN:
+        return {"id": "legacy_admin", "role": "admin", "name": "管理员", "token": provided}
+    raise HTTPException(status_code=401, detail="Invalid upload token")
+
+
+def check_token(authorization: str | None, token: str | None) -> None:
+    authenticate(authorization, token)
 
 
 def media_kind(filename: str, content_type: str = "") -> str | None:
@@ -180,8 +211,8 @@ def build_index_rows() -> list[dict[str, Any]]:
                 "family": manifest.get("family", "") or world_item.get("family", ""),
                 "species_dir": manifest_path.parent.name,
                 "manifest_url": f"{PUBLIC_BASE_URL}/species/{manifest_path.parent.name}/manifest.json",
-                "image_count": len(manifest.get("images", [])),
-                "audio_count": len(manifest.get("audio", [])),
+                "image_count": sum(1 for x in manifest.get("images", []) if not x.get("pending")),
+                "audio_count": sum(1 for x in manifest.get("audio", []) if not x.get("pending")),
                 "source_packs": manifest.get("source_packs", []),
             }
         )
@@ -202,6 +233,15 @@ def uploader() -> FileResponse:
     html = SERVER_DIR / "uploader.html"
     if not html.exists():
         raise HTTPException(status_code=404, detail="uploader.html not found")
+    return FileResponse(html)
+
+
+@app.get("/tester")
+def tester() -> FileResponse:
+    """Beta-tester focused upload page (simplified; works for admins too)."""
+    html = SERVER_DIR / "tester.html"
+    if not html.exists():
+        raise HTTPException(status_code=404, detail="tester.html not found")
     return FileResponse(html)
 
 
@@ -447,8 +487,10 @@ async def upload(
     difficulty: int = Form(0),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    check_token(authorization, token)
+    user = authenticate(authorization, token)
     SPECIES_DIR.mkdir(parents=True, exist_ok=True)
+    is_admin = user["role"] == "admin"
+    now_ts = int(time.time())
 
     # Clamp difficulty to [1, 5]; 0 means "not specified"
     if difficulty:
@@ -483,30 +525,40 @@ async def upload(
 
         manifest = load_manifest(target_sci, item)
         # Persist difficulty at the species level (overwrites if newer value provided)
-        if difficulty:
+        if difficulty and is_admin:
             manifest["difficulty"] = difficulty
         if kind == "images":
-            manifest.setdefault("images", []).append(
-                {
-                    "file": f"images/{filename}",
-                    "url": public_url(target_sci, "images", filename),
-                    "contributor": contributor.strip() or "用户上传",
-                    "contributor_url": "",
-                    "source": "birdaholic-upload",
-                }
-            )
+            entry = {
+                "file": f"images/{filename}",
+                "url": public_url(target_sci, "images", filename),
+                "contributor": contributor.strip() or user.get("name", "用户上传"),
+                "contributor_url": "",
+                "source": "birdaholic-upload",
+                "uploader_id": user["id"],
+                "uploader_role": user["role"],
+                "uploader_name": user.get("name", ""),
+                "uploaded_at": now_ts,
+            }
+            if not is_admin:
+                entry["pending"] = True
+            manifest.setdefault("images", []).append(entry)
         else:
             file_type = "song" if "song" in upload_file.filename.lower() else "call"
-            manifest.setdefault("audio", []).append(
-                {
-                    "file": f"audio/{filename}",
-                    "url": public_url(target_sci, "audio", filename),
-                    "type": file_type,
-                    "contributor": contributor.strip() or "用户上传",
-                    "contributor_url": "",
-                    "source": "birdaholic-upload",
-                }
-            )
+            entry = {
+                "file": f"audio/{filename}",
+                "url": public_url(target_sci, "audio", filename),
+                "type": file_type,
+                "contributor": contributor.strip() or user.get("name", "用户上传"),
+                "contributor_url": "",
+                "source": "birdaholic-upload",
+                "uploader_id": user["id"],
+                "uploader_role": user["role"],
+                "uploader_name": user.get("name", ""),
+                "uploaded_at": now_ts,
+            }
+            if not is_admin:
+                entry["pending"] = True
+            manifest.setdefault("audio", []).append(entry)
         (SPECIES_DIR / key / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -544,3 +596,319 @@ async def save_features(
     )
     update_index()
     return {"saved": True, "sci": sci}
+
+
+@app.post("/api/set_difficulty")
+async def set_difficulty(
+    payload: dict[str, Any] = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    check_token(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    difficulty = int(payload.get("difficulty", 0))
+    if not sci:
+        raise HTTPException(status_code=400, detail="Missing sci")
+    if not (1 <= difficulty <= 5):
+        raise HTTPException(status_code=400, detail="difficulty must be 1-5")
+
+    item = match_species(sci) or {"sci": sci}
+    key = species_key(sci)
+    (SPECIES_DIR / key).mkdir(parents=True, exist_ok=True)
+    manifest = load_manifest(sci, item)
+    manifest["difficulty"] = difficulty
+    (SPECIES_DIR / key / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    update_index()
+    return {"saved": True, "sci": sci, "difficulty": difficulty}
+
+
+@app.get("/api/whoami")
+def whoami(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    user = authenticate(authorization, token)
+    return {"id": user["id"], "role": user["role"], "name": user.get("name", "")}
+
+
+@app.get("/api/upload_stats")
+def upload_stats(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    user = authenticate(authorization, token)
+    my_id = user["id"]
+    my_images = my_audio = my_pending = pending_total = 0
+    for mp in SPECIES_DIR.glob("*/manifest.json"):
+        try:
+            m = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for kind, ctr in (("images", "img"), ("audio", "aud")):
+            for entry in m.get(kind, []):
+                is_mine = entry.get("uploader_id") == my_id
+                is_pending = bool(entry.get("pending"))
+                if is_mine:
+                    if is_pending:
+                        my_pending += 1
+                    else:
+                        if kind == "images":
+                            my_images += 1
+                        else:
+                            my_audio += 1
+                if is_pending:
+                    pending_total += 1
+    result = {
+        "my_images": my_images,
+        "my_audio": my_audio,
+        "my_pending": my_pending,
+        "role": user["role"],
+    }
+    if user["role"] == "admin":
+        result["pending_total"] = pending_total
+    return result
+
+
+def _require_admin(authorization, token):
+    user = authenticate(authorization, token)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+
+@app.get("/api/admin/pending")
+def admin_pending(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_admin(authorization, token)
+    items: list[dict] = []
+    for mp in sorted(SPECIES_DIR.glob("*/manifest.json")):
+        try:
+            m = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        sci = m.get("sci", "")
+        cn = m.get("cn", "")
+        en = m.get("en", "")
+        for kind in ("images", "audio"):
+            for entry in m.get(kind, []):
+                if entry.get("pending"):
+                    items.append({
+                        "sci": sci, "cn": cn, "en": en, "kind": kind,
+                        "file": entry.get("file", ""),
+                        "url": entry.get("url", ""),
+                        "contributor": entry.get("contributor", ""),
+                        "uploader_id": entry.get("uploader_id", ""),
+                        "uploader_name": entry.get("uploader_name", ""),
+                        "uploaded_at": entry.get("uploaded_at", 0),
+                    })
+    items.sort(key=lambda x: x.get("uploaded_at", 0), reverse=True)
+    return items
+
+
+@app.post("/api/admin/approve")
+async def admin_approve(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    file = str(payload.get("file", "")).strip()
+    if not sci or not file:
+        raise HTTPException(status_code=400, detail="Missing sci/file")
+    key = species_key(sci)
+    mp = SPECIES_DIR / key / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+    m = json.loads(mp.read_text(encoding="utf-8"))
+    approved_at = int(time.time())
+    found_kind = None
+    for kind in ("images", "audio"):
+        lst = m.get(kind, [])
+        idx = next((i for i, e in enumerate(lst) if e.get("file") == file and e.get("pending")), -1)
+        if idx >= 0:
+            entry = lst.pop(idx)
+            entry.pop("pending", None)
+            entry["approved_at"] = approved_at
+            # 置顶到数组第 0 位，但不动顶层 image/image_credit 主图字段
+            lst.insert(0, entry)
+            m[kind] = lst
+            found_kind = kind
+            break
+    if not found_kind:
+        raise HTTPException(status_code=404, detail="Pending entry not found")
+    mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    update_index()
+    return {"approved": True, "sci": sci, "file": file, "kind": found_kind}
+
+
+@app.post("/api/admin/reject")
+async def admin_reject(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    file = str(payload.get("file", "")).strip()
+    if not sci or not file:
+        raise HTTPException(status_code=400, detail="Missing sci/file")
+    key = species_key(sci)
+    mp = SPECIES_DIR / key / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+    m = json.loads(mp.read_text(encoding="utf-8"))
+    found = False
+    for kind in ("images", "audio"):
+        lst = m.get(kind, [])
+        keep = []
+        for e in lst:
+            if e.get("file") == file and e.get("pending"):
+                fp = SPECIES_DIR / key / e["file"]
+                try:
+                    if fp.exists():
+                        fp.unlink()
+                except Exception:
+                    pass
+                found = True
+                continue
+            keep.append(e)
+        m[kind] = keep
+    if not found:
+        raise HTTPException(status_code=404, detail="Pending entry not found")
+    mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    update_index()
+    return {"rejected": True, "sci": sci, "file": file}
+
+
+def _save_users(users: dict) -> None:
+    USERS_FILE.write_text(
+        json.dumps(users, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        USERS_FILE.chmod(0o600)
+    except Exception:
+        pass
+
+
+def _gen_token(prefix: str = "beta") -> str:
+    import secrets
+    return f"{prefix}_{secrets.token_urlsafe(16)}"
+
+
+@app.get("/api/admin/users")
+def admin_list_users(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_admin(authorization, token)
+    users = load_users()
+    me_token = ""
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    me_token = (bearer or token or "").strip()
+    out: list[dict] = []
+    for tok, info in users.items():
+        out.append({
+            "token": tok,
+            "id": info.get("id", ""),
+            "role": info.get("role", "beta"),
+            "name": info.get("name", ""),
+            "is_self": tok == me_token,
+        })
+    out.sort(key=lambda x: (x["role"] != "admin", x["id"]))
+    return out
+
+
+@app.post("/api/admin/users")
+async def admin_add_user(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    name = str(payload.get("name", "")).strip()
+    user_id = str(payload.get("id", "")).strip()
+    role = str(payload.get("role", "beta")).strip().lower()
+    custom_token = str(payload.get("token", "")).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    if role not in ("admin", "beta"):
+        raise HTTPException(status_code=400, detail="role must be admin or beta")
+    if not user_id:
+        # generate id from name (sanitized) + suffix
+        base = re.sub(r"[^A-Za-z0-9_-]+", "_", name) or "user"
+        user_id = f"{base}_{int(time.time()) % 100000}"
+    users = load_users()
+    # uniqueness on id
+    for existing_tok, existing_info in users.items():
+        if existing_info.get("id") == user_id:
+            raise HTTPException(status_code=409, detail="user id already exists")
+    new_token = custom_token or _gen_token("admin" if role == "admin" else "beta")
+    if new_token in users:
+        raise HTTPException(status_code=409, detail="token already in use")
+    users[new_token] = {"id": user_id, "role": role, "name": name}
+    _save_users(users)
+    return {"token": new_token, "id": user_id, "role": role, "name": name}
+
+
+@app.delete("/api/admin/users")
+async def admin_delete_user(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    me = _require_admin(authorization, token)
+    target_token = str(payload.get("token", "")).strip()
+    if not target_token:
+        raise HTTPException(status_code=400, detail="token required")
+    if target_token == me.get("token"):
+        raise HTTPException(status_code=400, detail="cannot delete your own token")
+    users = load_users()
+    if target_token not in users:
+        raise HTTPException(status_code=404, detail="user not found")
+    removed = users.pop(target_token)
+    _save_users(users)
+    return {"deleted": True, "id": removed.get("id", "")}
+
+
+@app.post("/api/set_image_difficulty")
+async def set_image_difficulty(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    file = str(payload.get("file", "")).strip()
+    difficulty = int(payload.get("difficulty", 0))
+    if not sci or not file:
+        raise HTTPException(status_code=400, detail="Missing sci/file")
+    if not (1 <= difficulty <= 5):
+        raise HTTPException(status_code=400, detail="difficulty must be 1-5")
+    key = species_key(sci)
+    mp = SPECIES_DIR / key / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+    m = json.loads(mp.read_text(encoding="utf-8"))
+    found = False
+    for kind in ("images", "audio"):
+        for entry in m.get(kind, []):
+            if entry.get("file") == file:
+                entry["difficulty"] = difficulty
+                found = True
+                break
+        if found:
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="File not found in manifest")
+    mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"saved": True, "sci": sci, "file": file, "difficulty": difficulty}
+

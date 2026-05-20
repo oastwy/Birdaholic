@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Birdaholic 内测上传</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --bg: #f5f3ed;
+      --card: #ffffff;
+      --line: #e2dccd;
+      --ink: #1f2a1d;
+      --muted: #6b7467;
+      --brand: #2d5016;
+      --brand-light: #4a7c2e;
+      --accent: #d4a017;
+      --ok: #2d5016;
+      --warn: #a4720b;
+      --bad: #a43b2f;
+      --bg-input: #fbfaf7;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); padding-bottom: env(safe-area-inset-bottom); }
+    main { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
+    header { padding: 6px 0 18px; }
+    h1 { font-size: 22px; margin: 0 0 6px; color: var(--brand); display: flex; align-items: center; gap: 8px; }
+    h1 .logo { font-size: 26px; }
+    .tagline { color: var(--muted); font-size: 14px; margin: 0; }
+    section { margin-top: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    section h2 { font-size: 14px; font-weight: 700; color: var(--brand); margin: 0 0 10px; letter-spacing: .5px; }
+    label { display: block; font-weight: 600; margin: 0 0 6px; font-size: 13px; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: var(--bg-input); }
+    input[type="text"]:focus, input[type="password"]:focus { outline: 2px solid var(--brand-light); outline-offset: -1px; border-color: var(--brand-light); }
+    button { font: inherit; border: 0; border-radius: 8px; padding: 11px 16px; background: var(--brand); color: #fff; cursor: pointer; font-weight: 600; transition: opacity .15s; }
+    button:hover:not(:disabled) { opacity: .9; }
+    button.secondary { background: #888070; }
+    button.ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .badge.beta { background: #e7efe1; color: var(--brand); }
+    .badge.admin { background: #fff3d6; color: var(--warn); }
+    .badge.ok { background: #e7efe1; color: var(--ok); }
+    .badge.pending { background: #fff3d6; color: var(--warn); }
+    .badge.bad { background: #f7e1de; color: var(--bad); }
+    .whoami { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #f0eee5; border-radius: 8px; }
+    .whoami-name { font-weight: 600; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px; }
+    .stat-cell { background: var(--bg-input); border: 1px solid var(--line); border-radius: 8px; padding: 10px; text-align: center; }
+    .stat-num { font-size: 22px; font-weight: 700; color: var(--brand); }
+    .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .file-drop { padding: 22px 16px; border: 2px dashed var(--line); border-radius: 10px; background: var(--bg-input); text-align: center; cursor: pointer; transition: background .15s, border-color .15s; }
+    .file-drop:hover, .file-drop.drag { background: #eef4e9; border-color: var(--brand-light); }
+    .file-drop input[type="file"] { display: none; }
+    .file-drop-icon { font-size: 30px; opacity: .7; }
+    .file-drop-text { margin-top: 6px; font-size: 14px; }
+    .file-drop-hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .file-list { margin-top: 12px; display: grid; gap: 8px; }
+    .file-row { display: flex; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-input); }
+    .file-thumb { width: 44px; height: 44px; border-radius: 6px; background: #ddd; flex-shrink: 0; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--muted); }
+    .file-info { flex: 1; min-width: 0; font-size: 13px; }
+    .file-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-meta { color: var(--muted); font-size: 11px; margin-top: 1px; }
+    .file-remove { background: transparent; color: var(--muted); padding: 4px 8px; font-size: 18px; }
+    .file-remove:hover { color: var(--bad); }
+    .species-results { display: grid; gap: 5px; margin-top: 6px; max-height: 180px; overflow-y: auto; }
+    .species-option { text-align: left; background: #eef4e9; color: var(--brand); border: 1px solid #cbdcbe; padding: 8px 10px; font-size: 13px; cursor: pointer; }
+    .species-chosen { background: #eef4e9; border: 1px solid #cbdcbe; padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .results-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    .results-table th, .results-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    .progress { position: relative; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+    .progress-bar { position: absolute; left: 0; top: 0; height: 100%; background: var(--brand); transition: width .25s; }
+    .notice { padding: 10px 12px; border-radius: 8px; background: #fff3d6; color: var(--warn); font-size: 13px; line-height: 1.5; }
+    .notice strong { font-weight: 700; }
+    .hidden { display: none !important; }
+    @media (max-width: 480px) {
+      h1 { font-size: 20px; }
+      section { padding: 14px; }
+      .stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .stat-num { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="logo">🦅</span> Birdaholic 内测上传</h1>
+    <p class="tagline">感谢参与内测！你上传的照片/录音将进入审核队列，通过后会出现在 App 的物种页。</p>
+  </header>
+
+  <!-- Auth section -->
+  <section id="authSection">
+    <h2>身份验证</h2>
+    <label for="token">上传密钥</label>
+    <input id="token" type="password" autocomplete="off" placeholder="粘贴你的内测密钥">
+    <div class="hint">密钥由管理员分发。本浏览器会记住你的密钥，下次直接进入。</div>
+    <div class="toolbar">
+      <button id="loginBtn">登录</button>
+      <button class="ghost" id="logoutBtn">清除密钥</button>
+    </div>
+  </section>
+
+  <!-- Identity + stats -->
+  <section id="identitySection" class="hidden">
+    <h2>当前身份</h2>
+    <div class="whoami">
+      <div>
+        <div class="whoami-name" id="whoamiName">—</div>
+        <div class="hint" id="whoamiId" style="margin-top: 2px;"></div>
+      </div>
+      <span class="badge beta" id="whoamiBadge">内测用户</span>
+    </div>
+    <div class="stats">
+      <div class="stat-cell"><div class="stat-num" id="statImg">—</div><div class="stat-label">已通过图片</div></div>
+      <div class="stat-cell"><div class="stat-num" id="statAud">—</div><div class="stat-label">已通过音频</div></div>
+      <div class="stat-cell"><div class="stat-num" id="statPending">—</div><div class="stat-label">待审核</div></div>
+    </div>
+  </section>
+
+  <!-- Upload section (locked until login) -->
+  <section id="uploadSection" class="hidden">
+    <h2>上传媒体</h2>
+    <div class="notice" id="reviewNotice">
+      <strong>提示：</strong>你是内测用户，上传后文件进入<strong>审核队列</strong>。管理员通过后才会被其他用户看到。
+    </div>
+
+    <div style="margin-top: 14px;">
+      <label for="speciesSearch">指定物种（可选）</label>
+      <input id="speciesSearch" type="text" placeholder="搜中文名 / 英文名 / 学名（≥ 2 字符）">
+      <div class="hint">留空则从文件名自动识别（推荐文件名格式：<code>Arborophila_torqueola_song.m4a</code>）。</div>
+      <div id="speciesResults" class="species-results"></div>
+      <div id="speciesChosen" class="species-chosen hidden">
+        <div><span id="speciesChosenLabel"></span></div>
+        <button class="ghost" id="speciesClear">取消指定</button>
+      </div>
+    </div>
+
+    <div style="margin-top: 14px;">
+      <label>选择文件</label>
+      <label for="files" class="file-drop" id="fileDrop">
+        <div class="file-drop-icon">📁</div>
+        <div class="file-drop-text">点击或拖拽文件到这里</div>
+        <div class="file-drop-hint">支持 JPG/PNG/HEIC 图片，MP3/M4A/WAV 等音频。可多选。</div>
+        <input id="files" type="file" multiple accept="image/*,audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.heic">
+      </label>
+      <div id="fileList" class="file-list"></div>
+    </div>
+
+    <div class="toolbar">
+      <button id="uploadBtn" disabled>上传所选文件</button>
+      <span id="status" style="font-size: 13px; color: var(--muted);"></span>
+    </div>
+    <div class="progress hidden" id="progressContainer" style="margin-top: 10px;">
+      <div class="progress-bar" id="progressBar" style="width: 0;"></div>
+    </div>
+
+    <table id="resultsTable" class="results-table hidden">
+      <thead><tr><th>文件</th><th>物种</th><th>结果</th></tr></thead>
+      <tbody id="resultsTbody"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const STORAGE_KEY = 'birdaholic.tester.token';
+
+const $ = (id) => document.getElementById(id);
+const tokenEl = $('token');
+const loginBtn = $('loginBtn');
+const logoutBtn = $('logoutBtn');
+const authSection = $('authSection');
+const identitySection = $('identitySection');
+const uploadSection = $('uploadSection');
+const whoamiName = $('whoamiName');
+const whoamiId = $('whoamiId');
+const whoamiBadge = $('whoamiBadge');
+const statImg = $('statImg');
+const statAud = $('statAud');
+const statPending = $('statPending');
+const reviewNotice = $('reviewNotice');
+const speciesSearch = $('speciesSearch');
+const speciesResults = $('speciesResults');
+const speciesChosen = $('speciesChosen');
+const speciesChosenLabel = $('speciesChosenLabel');
+const speciesClear = $('speciesClear');
+const filesEl = $('files');
+const fileDrop = $('fileDrop');
+const fileListEl = $('fileList');
+const uploadBtn = $('uploadBtn');
+const statusEl = $('status');
+const progressContainer = $('progressContainer');
+const progressBar = $('progressBar');
+const resultsTable = $('resultsTable');
+const resultsTbody = $('resultsTbody');
+
+let currentUser = null;
+let selectedSci = '';
+let selectedLabel = '';
+let pendingFiles = [];  // {file, guess: {sci, label} | null}
+
+// ---------- Auth ----------
+function getToken() {
+  return tokenEl.value.trim();
+}
+
+function setLoggedOutUI() {
+  currentUser = null;
+  authSection.classList.remove('hidden');
+  identitySection.classList.add('hidden');
+  uploadSection.classList.add('hidden');
+  pendingFiles = [];
+  renderFileList();
+}
+
+async function tryLogin(silentFail = false) {
+  const token = getToken();
+  if (!token) {
+    if (!silentFail) alert('请输入上传密钥');
+    return;
+  }
+  loginBtn.disabled = true;
+  loginBtn.textContent = '验证中...';
+  try {
+    const res = await fetch('/api/whoami?token=' + encodeURIComponent(token));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data.id || data.id === 'anon') throw new Error('密钥无效');
+    currentUser = data;
+    localStorage.setItem(STORAGE_KEY, token);
+    showLoggedIn(data);
+    await refreshStats();
+  } catch (e) {
+    if (!silentFail) alert('登录失败：' + e.message);
+    setLoggedOutUI();
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = '登录';
+  }
+}
+
+function showLoggedIn(user) {
+  authSection.classList.add('hidden');
+  identitySection.classList.remove('hidden');
+  uploadSection.classList.remove('hidden');
+  whoamiName.textContent = user.name || user.id;
+  whoamiId.textContent = 'ID：' + user.id;
+  const isAdmin = user.role === 'admin';
+  whoamiBadge.textContent = isAdmin ? '管理员' : '内测用户';
+  whoamiBadge.className = 'badge ' + (isAdmin ? 'admin' : 'beta');
+  if (isAdmin) {
+    reviewNotice.innerHTML = '<strong>管理员身份：</strong>上传将直接发布，不进入审核队列。需要审核工具请使用 <a href="/uploader" style="color: var(--brand);">/uploader</a>。';
+  }
+}
+
+async function refreshStats() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch('/api/upload_stats?token=' + encodeURIComponent(getToken()));
+    if (!res.ok) return;
+    const d = await res.json();
+    statImg.textContent = d.my_images ?? 0;
+    statAud.textContent = d.my_audio ?? 0;
+    statPending.textContent = d.my_pending ?? 0;
+  } catch (_) {}
+}
+
+loginBtn.onclick = () => tryLogin(false);
+
+logoutBtn.onclick = () => {
+  localStorage.removeItem(STORAGE_KEY);
+  tokenEl.value = '';
+  setLoggedOutUI();
+};
+
+tokenEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') tryLogin(false);
+});
+
+// ---------- Species search ----------
+let searchTimer = null;
+speciesSearch.addEventListener('input', () => {
+  selectedSci = '';
+  speciesChosen.classList.add('hidden');
+  speciesResults.innerHTML = '';
+  const q = speciesSearch.value.trim();
+  if (q.length < 2) return;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const rows = await res.json();
+      speciesResults.innerHTML = '';
+      for (const row of rows.slice(0, 10)) {
+        const btn = document.createElement('button');
+        btn.className = 'species-option';
+        const label = `${row.zh || row.en || row.sci} · ${row.sci}${row.en ? ' · ' + row.en : ''}`;
+        btn.textContent = label;
+        btn.onclick = (e) => {
+          e.preventDefault();
+          selectedSci = row.sci;
+          selectedLabel = `${row.zh || row.en || row.sci} · ${row.sci}`;
+          speciesChosenLabel.textContent = selectedLabel;
+          speciesChosen.classList.remove('hidden');
+          speciesResults.innerHTML = '';
+          speciesSearch.value = '';
+          // Re-render to reflect overridden species per file
+          renderFileList();
+        };
+        speciesResults.appendChild(btn);
+      }
+    } catch (_) {}
+  }, 200);
+});
+
+speciesClear.onclick = (e) => {
+  e.preventDefault();
+  selectedSci = '';
+  selectedLabel = '';
+  speciesChosen.classList.add('hidden');
+  renderFileList();
+};
+
+// ---------- File handling ----------
+function kindOf(file) {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('audio/')) return 'audio';
+  const name = file.name.toLowerCase();
+  if (/\.(jpg|jpeg|png|webp|heic)$/.test(name)) return 'image';
+  if (/\.(mp3|m4a|aac|wav|flac|ogg)$/.test(name)) return 'audio';
+  return 'other';
+}
+
+function makeThumb(file) {
+  const k = kindOf(file);
+  if (k === 'image') {
+    return URL.createObjectURL(file);
+  }
+  return null;
+}
+
+async function recognize(filename) {
+  try {
+    const res = await fetch('/api/recognize_filename?filename=' + encodeURIComponent(filename));
+    const data = await res.json();
+    if (data.matched && data.species) {
+      return {
+        sci: data.species.sci,
+        label: `${data.species.zh || data.species.en || data.species.sci} · ${data.species.sci}`
+      };
+    }
+  } catch (_) {}
+  return null;
+}
+
+function renderFileList() {
+  fileListEl.innerHTML = '';
+  uploadBtn.disabled = pendingFiles.length === 0;
+  pendingFiles.forEach((entry, idx) => {
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    const thumb = document.createElement('div');
+    thumb.className = 'file-thumb';
+    const url = makeThumb(entry.file);
+    if (url) {
+      thumb.style.backgroundImage = `url(${url})`;
+    } else {
+      thumb.textContent = kindOf(entry.file) === 'audio' ? '🎵' : '📄';
+    }
+    const info = document.createElement('div');
+    info.className = 'file-info';
+    const speciesLine = selectedSci
+      ? `<span style="color: var(--brand);">→ ${selectedLabel}（手动指定）</span>`
+      : (entry.guess ? `→ ${entry.guess.label}` : '<span style="color: var(--bad);">未识别物种</span>');
+    info.innerHTML = `
+      <div class="file-name">${entry.file.name}</div>
+      <div class="file-meta">${(entry.file.size / 1024).toFixed(0)} KB · ${kindOf(entry.file) === 'image' ? '图片' : kindOf(entry.file) === 'audio' ? '音频' : '其他'} · ${speciesLine}</div>
+    `;
+    const rm = document.createElement('button');
+    rm.className = 'file-remove';
+    rm.textContent = '×';
+    rm.onclick = () => {
+      pendingFiles.splice(idx, 1);
+      renderFileList();
+    };
+    row.appendChild(thumb);
+    row.appendChild(info);
+    row.appendChild(rm);
+    fileListEl.appendChild(row);
+  });
+}
+
+async function addFiles(fileList) {
+  const files = [...fileList];
+  for (const f of files) {
+    const guess = selectedSci ? null : await recognize(f.name);
+    pendingFiles.push({ file: f, guess });
+  }
+  renderFileList();
+}
+
+filesEl.addEventListener('change', () => {
+  addFiles(filesEl.files);
+  filesEl.value = '';
+});
+
+['dragenter', 'dragover'].forEach(evt => {
+  fileDrop.addEventListener(evt, (e) => {
+    e.preventDefault();
+    fileDrop.classList.add('drag');
+  });
+});
+['dragleave', 'drop'].forEach(evt => {
+  fileDrop.addEventListener(evt, (e) => {
+    e.preventDefault();
+    fileDrop.classList.remove('drag');
+  });
+});
+fileDrop.addEventListener('drop', (e) => {
+  if (e.dataTransfer && e.dataTransfer.files.length) {
+    addFiles(e.dataTransfer.files);
+  }
+});
+
+// ---------- Upload ----------
+function setProgress(pct) {
+  if (pct === null) {
+    progressContainer.classList.add('hidden');
+    return;
+  }
+  progressContainer.classList.remove('hidden');
+  progressBar.style.width = pct + '%';
+}
+
+uploadBtn.onclick = async () => {
+  if (pendingFiles.length === 0) return;
+  const token = getToken();
+  if (!token) return;
+  uploadBtn.disabled = true;
+  statusEl.textContent = '上传中...';
+  setProgress(2);
+  resultsTable.classList.add('hidden');
+  resultsTbody.innerHTML = '';
+
+  const form = new FormData();
+  form.append('token', token);
+  if (selectedSci) form.append('sci', selectedSci);
+  if (currentUser && currentUser.name) form.append('contributor', currentUser.name);
+  for (const entry of pendingFiles) form.append('files', entry.file);
+
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        renderResults(data);
+      } catch (e) {
+        statusEl.textContent = '上传完成，但解析返回失败：' + e.message;
+      }
+      uploadBtn.disabled = false;
+      setProgress(null);
+      statusEl.textContent = '';
+      pendingFiles = [];
+      renderFileList();
+      refreshStats();
+    };
+    xhr.onerror = () => {
+      statusEl.textContent = '网络错误';
+      uploadBtn.disabled = false;
+      setProgress(null);
+    };
+    xhr.send(form);
+  } catch (e) {
+    statusEl.textContent = '上传失败：' + e.message;
+    uploadBtn.disabled = false;
+    setProgress(null);
+  }
+};
+
+function renderResults(data) {
+  const saved = data.saved || [];
+  const failed = data.failed || [];
+  resultsTable.classList.remove('hidden');
+  const isBeta = currentUser && currentUser.role !== 'admin';
+  for (const item of saved) {
+    const tr = document.createElement('tr');
+    const badge = isBeta
+      ? '<span class="badge pending">待审核</span>'
+      : '<span class="badge ok">已发布</span>';
+    tr.innerHTML = `<td>${item.file || ''}</td><td>${item.sci || ''}</td><td>${badge}</td>`;
+    resultsTbody.appendChild(tr);
+  }
+  for (const item of failed) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${item.file || ''}</td><td>—</td><td><span class="badge bad">失败：${item.reason || ''}</span></td>`;
+    resultsTbody.appendChild(tr);
+  }
+}
+
+// ---------- Boot ----------
+(function init() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    tokenEl.value = saved;
+    tryLogin(true);
+  }
+})();
+</script>
+</body>
+</html>
