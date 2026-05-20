@@ -12,6 +12,11 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final packManager = PackManager();
   final storage = StorageService(prefs);
+  try {
+    await packManager.ensureBuiltinPackInstalled();
+  } catch (_) {
+    // 不阻断启动；设置页的数据包管理里会提供恢复内置包入口。
+  }
 
   runApp(BirdFlashcardApp(
     packManager: packManager,

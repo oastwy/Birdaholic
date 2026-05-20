@@ -73,6 +73,21 @@ class HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _openPackManager() {
+    setState(() {
+      _tab = 4;
+      _flashcardFocus = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SettingsScreen.openPackManager(
+        context,
+        packManager: widget.packManager,
+        storage: widget.storage,
+        onPackChanged: _handlePackChanged,
+      );
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -111,7 +126,7 @@ class HomeScreenState extends State<HomeScreen> {
                 : '下载完成')
         : task.kind == DownloadTaskKind.remotePack
             ? task.byteProgressLabel
-            : '${task.current}/${task.total}';
+            : task.speciesProgressLabel;
     final subtitle = task.isFinished
         ? '点开查看'
         : task.kind == DownloadTaskKind.remotePack
@@ -237,7 +252,7 @@ class HomeScreenState extends State<HomeScreen> {
                 else
                   Text(
                     '正在下载：${task.currentSpecies.isEmpty ? '准备中' : task.currentSpecies}\n'
-                    '进度：${task.current}/${task.total}',
+                    '进度：${task.speciesProgressLabel}',
                   ),
                 if (!task.isFinished) ...[
                   const SizedBox(height: 12),
@@ -249,10 +264,10 @@ class HomeScreenState extends State<HomeScreen> {
                     TextButton.icon(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        setState(() => _tab = 0);
+                        _openPackManager();
                       },
-                      icon: const Icon(Icons.dashboard_outlined),
-                      label: const Text('去总览'),
+                      icon: const Icon(Icons.folder_zip_outlined),
+                      label: const Text('去数据包'),
                     ),
                     const Spacer(),
                     if (!task.isFinished)

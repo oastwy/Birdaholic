@@ -87,6 +87,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   final _cardKey = GlobalKey<BirdCardState>();
   final _audioKey = GlobalKey<AudioPlayerWidgetState>();
+  String? _lastAutoPlayKey;
   Offset? _studyPointerStart;
   Offset? _studyPointerLatest;
   bool _swipeCheckVisible = false;
@@ -123,9 +124,19 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (oldWidget.refreshToken != widget.refreshToken) {
       _loadSpecies();
     }
+    if (oldWidget.isActive && !widget.isActive) {
+      _audioKey.currentState?.stop();
+      _lastAutoPlayKey = null;
+    }
     if (!oldWidget.isActive && widget.isActive && !_focusMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) => enterFocusMode());
     }
+  }
+
+  @override
+  void dispose() {
+    _audioKey.currentState?.stop();
+    super.dispose();
   }
 
   Future<void> _loadSpecies() async {
@@ -190,9 +201,17 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     return (audioSpecies: audioSpecies, imageSpecies: imageSpecies);
   }
 
-  void _scheduleAutoPlay() {
+  void _scheduleAutoPlay({List<String>? audioPaths}) {
+    final bird = _currentBird;
+    if (audioPaths != null && audioPaths.isEmpty) return;
+    final playKey = audioPaths == null || bird == null
+        ? null
+        : '${bird.sci}|$_idx|${_mode.name}|${_effectivePromptMode.name}|${audioPaths.join('|')}';
+    if (playKey != null && playKey == _lastAutoPlayKey) return;
+    if (playKey != null) _lastAutoPlayKey = playKey;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _currentBird == null || _isFinished) return;
+      if (!widget.isActive) return;
       if (_effectivePromptMode != PromptMode.audio) return;
       _audioKey.currentState?.autoPlay();
     });
@@ -200,6 +219,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   void _resetCardFace() {
     _audioKey.currentState?.stop();
+    _lastAutoPlayKey = null;
     if (_showAnswerOnEntry) {
       _cardKey.currentState?.showBack();
     } else {
@@ -505,8 +525,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     if (fromSwipe) {
       setState(() => _swipeCheckVisible = true);
-      Future.delayed(
-          const Duration(milliseconds: 600),
+      Future.delayed(const Duration(milliseconds: 600),
           () => mounted ? setState(() => _swipeCheckVisible = false) : null);
     }
     _recordAnswer(bird, isCorrect: true);
@@ -1706,6 +1725,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 final labels = bird.audios
                                     .map((a) => a.displayLabel)
                                     .toList();
+                                _scheduleAutoPlay(audioPaths: audioPaths);
 
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(
@@ -1989,7 +2009,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                           const Duration(milliseconds: 1600), _nextCard);
                     }
                   },
-                  style: TextButton.styleFrom(foregroundColor: Colors.grey[600]),
+                  style:
+                      TextButton.styleFrom(foregroundColor: Colors.grey[600]),
                   child: const Text('我不会，直接告诉我答案'),
                 ),
               ),

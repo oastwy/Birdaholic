@@ -20,6 +20,27 @@ class SettingsScreen extends StatefulWidget {
     this.onPackChanged,
   });
 
+  static Future<void> openPackManager(
+    BuildContext context, {
+    required PackManager packManager,
+    required StorageService storage,
+    VoidCallback? onPackChanged,
+  }) {
+    return Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('数据包管理')),
+          body: PackManageScreen(
+            packManager: packManager,
+            storage: storage,
+            onPackChanged: onPackChanged,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -330,21 +351,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('数据包管理'),
             subtitle: const Text('安装、下载、导入、更新和删除数据包'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => Scaffold(
-                    appBar: AppBar(title: const Text('数据包管理')),
-                    body: PackManageScreen(
-                      packManager: widget.packManager,
-                      storage: widget.storage,
-                      onPackChanged: widget.onPackChanged,
-                    ),
-                  ),
-                ),
-              );
-            },
+            onTap: () => SettingsScreen.openPackManager(
+              context,
+              packManager: widget.packManager,
+              storage: widget.storage,
+              onPackChanged: widget.onPackChanged,
+            ),
           ),
         ),
         const SizedBox(height: 10),

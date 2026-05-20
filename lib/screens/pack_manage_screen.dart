@@ -15,6 +15,14 @@ import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import 'online_import_screen.dart';
 
+enum _PackManageSection {
+  root,
+  localImport,
+  onlineImport,
+  serverDownload,
+  installed
+}
+
 /// 数据包管理页面
 class PackManageScreen extends StatefulWidget {
   final PackManager packManager;
@@ -38,11 +46,21 @@ class _PackManageScreenState extends State<PackManageScreen> {
   String? _activePackDir;
   String _mediaUpdateStatus = '';
   String _mediaUpdateSci = '';
+  _PackManageSection _section = _PackManageSection.root;
 
   @override
   void initState() {
     super.initState();
-    _loadPacks();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      await widget.packManager.ensureBuiltinPackInstalled();
+    } catch (_) {
+      // 数据包管理页仍然要能打开，后面会显示恢复内置包入口。
+    }
+    await _loadPacks();
   }
 
   Future<void> _loadPacks() async {
@@ -135,21 +153,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _showServerDownloadSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => _ServerDownloadSheet(
-        packManager: widget.packManager,
-        onInstalled: () {
-          _loadPacks();
-          widget.onPackChanged?.call();
-        },
-      ),
-    );
   }
 
   Future<void> _updateInstalledMedia() async {
@@ -831,8 +834,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
                     child: Column(
                       children: [
                         ListTile(
-                          leading: Text(stars,
-                              style: const TextStyle(fontSize: 16)),
+                          leading:
+                              Text(stars, style: const TextStyle(fontSize: 16)),
                           title: Text('难度 $d · ${items.length} 种'),
                           trailing: items.isEmpty
                               ? null
@@ -846,25 +849,20 @@ class _PackManageScreenState extends State<PackManageScreen> {
                         ),
                         if (expanded == d && items.isNotEmpty)
                           Padding(
-                            padding:
-                                const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                             child: Wrap(
                               spacing: 6,
                               runSpacing: 6,
                               children: items
                                   .map((r) => Chip(
                                         label: Text(
-                                          (r['cn'] as String?)
-                                                  ?.isNotEmpty ==
+                                          (r['cn'] as String?)?.isNotEmpty ==
                                                   true
                                               ? r['cn'] as String
-                                              : (r['sci'] as String? ??
-                                                  '?'),
-                                          style: const TextStyle(
-                                              fontSize: 12),
+                                              : (r['sci'] as String? ?? '?'),
+                                          style: const TextStyle(fontSize: 12),
                                         ),
-                                        visualDensity:
-                                            VisualDensity.compact,
+                                        visualDensity: VisualDensity.compact,
                                       ))
                                   .toList(),
                             ),
@@ -932,7 +930,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
                       .map(
                         (order) => Chip(
                           label: Text(
-                            '${BirdOrderTaxonomy.shortLabel(order)} '
                             '${BirdOrderTaxonomy.label(order)} ${counts[order]}',
                           ),
                         ),
@@ -948,154 +945,182 @@ class _PackManageScreenState extends State<PackManageScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return switch (_section) {
+      _PackManageSection.root => _buildRootSection(),
+      _PackManageSection.localImport => _buildLocalImportSection(),
+      _PackManageSection.onlineImport => _buildOnlineImportSection(),
+      _PackManageSection.serverDownload => _buildServerDownloadSection(),
+      _PackManageSection.installed => _buildInstalledSection(),
+    };
+  }
+
+  Widget _buildRootSection() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        Text(
+          '数据包管理',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '本地包、在线下载和已安装数据包分开管理，学习页只保留学习本身。',
+          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+        ),
+        const SizedBox(height: 16),
+        _PackModuleCard(
+          icon: Icons.file_upload_outlined,
+          title: '本地导入',
+          subtitle: '导入本机 ZIP 数据包或分包',
+          onTap: () =>
+              setState(() => _section = _PackManageSection.localImport),
+        ),
+        _PackModuleCard(
+          icon: Icons.cloud_download_outlined,
+          title: '在线导入',
+          subtitle: '按中国名录、地点或自定义批量下载',
+          onTap: () =>
+              setState(() => _section = _PackManageSection.onlineImport),
+        ),
+        _PackModuleCard(
+          icon: Icons.inventory_2_outlined,
+          title: '已有数据包',
+          subtitle: '${_packs.length} 个数据包 · 启用、更新、备份和删除',
+          onTap: () => setState(() => _section = _PackManageSection.installed),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconButton(
+            tooltip: '返回',
+            onPressed: () => setState(() => _section = _PackManageSection.root),
+            icon: const Icon(Icons.arrow_back),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 3),
+                  Text(subtitle,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocalImportSection() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        _buildSectionHeader('本地导入', '从本机选择 Birdaholic ZIP 数据包。'),
+        FilledButton.icon(
+          onPressed: _loading ? null : _importPack,
+          icon: _loading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.file_upload_outlined),
+          label: Text(_loading ? '导入中...' : '选择本地 ZIP'),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '如果是分包，请一次选择或导入完整分包后再合并。弱网下载建议用“在线导入 > 服务器下载 > 逐物种下载中国名录”。',
+          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOnlineImportSection() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        _buildSectionHeader('在线导入', '推荐逐物种下载，网络中断后可继续补缺失物种。'),
+        _PackModuleCard(
+          icon: Icons.cloud_queue,
+          title: '服务器下载',
+          subtitle: '逐物种下载中国名录（推荐）',
+          onTap: () =>
+              setState(() => _section = _PackManageSection.serverDownload),
+        ),
+        _PackModuleCard(
+          icon: Icons.place_outlined,
+          title: '按地点逐物种下载（eBird API）',
+          subtitle: '用地区、热点或经纬度筛选附近鸟种',
+          onTap: _loading ? null : _showLocationSpeciesDownloadSheet,
+        ),
+        _PackModuleCard(
+          icon: Icons.graphic_eq,
+          title: '自定义批量下载（Xeno API）',
+          subtitle: '旧版在线导入：按清单补充鸟鸣和图片',
+          onTap: _loading
+              ? null
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OnlineImportScreen(
+                        packManager: widget.packManager,
+                        storage: widget.storage,
+                      ),
+                    ),
+                  ).then((_) => _loadPacks());
+                },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServerDownloadSection() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        _buildSectionHeader('服务器下载', '整包下载已移除，避免弱网下反复失败。'),
+        _PackModuleCard(
+          icon: Icons.list_alt_outlined,
+          title: '逐物种下载中国名录（推荐）',
+          subtitle: '按物种从服务器补媒体，失败后下次可继续',
+          onTap: _loading ? null : _downloadFullChinaCatalog,
+        ),
+        _PackModuleCard(
+          icon: Icons.public,
+          title: '按国家/地区名录逐物种下载',
+          subtitle: '中国名录无需 eBird；其它地区需要 eBird API',
+          onTap: _loading ? null : _showCountrySpeciesDownloadSheet,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInstalledSection() {
+    final missingBuiltin = PackManager.builtinPacks.where((info) {
+      return !_packs.any((pack) => _isBuiltinPack(pack, info));
+    }).toList();
+
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '数据包管理：本地包、服务器整包、国家名录和地点名录都在这里处理；学习页只保留学习本身。',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _loading ? null : _importPack,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.file_upload_outlined),
-              label: Text(_loading ? '导入中...' : '本地导入 (.zip)'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2d5016),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _loading
-                  ? null
-                  : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => OnlineImportScreen(
-                            packManager: widget.packManager,
-                            storage: widget.storage,
-                          ),
-                        ),
-                      ).then((_) => _loadPacks());
-                    },
-              icon: const Icon(Icons.cloud_download_outlined),
-              label: const Text('在线导入（Xeno-Canto）'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue[700],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ),
-        ...PackManager.builtinPacks.map((info) => Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: _loading ? null : () => _installBuiltinPack(info),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.download_for_offline_outlined, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(info.label,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600)),
-                            Text(info.description,
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.grey[600])),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            )),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _loading ? null : _downloadFullChinaCatalog,
-              icon: const Icon(Icons.cloud_download_outlined),
-              label: const Text('从服务器下载中国名录（逐物种）'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue[700],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _loading ? null : _showCountrySpeciesDownloadSheet,
-              icon: const Icon(Icons.public),
-              label: const Text('按其他国家/地区名录下载'),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _loading ? null : _showServerDownloadSheet,
-              icon: const Icon(Icons.archive_outlined),
-              label: const Text('下载整包 ZIP（需网络稳定）'),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _loading ? null : _showLocationSpeciesDownloadSheet,
-              icon: const Icon(Icons.place_outlined),
-              label: const Text('按地点逐物种下载'),
-            ),
-          ),
-        ),
+        _buildSectionHeader('已有数据包', '启用、设为主包、更新媒体、备份和查看类群。'),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SizedBox(
@@ -1111,8 +1136,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
                         if (_mediaUpdateSci.isNotEmpty)
                           TextSpan(
                             text: _mediaUpdateSci,
-                            style: const TextStyle(
-                                fontStyle: FontStyle.italic),
+                            style: const TextStyle(fontStyle: FontStyle.italic),
                           ),
                       ]),
                       maxLines: 2,
@@ -1121,218 +1145,211 @@ class _PackManageScreenState extends State<PackManageScreen> {
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-          child: Row(
-            children: [
-              const Icon(Icons.inventory_2_outlined,
-                  size: 18, color: Color(0xFF2d5016)),
-              const SizedBox(width: 8),
-              const Text(
-                '已有数据包',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-              const Spacer(),
-              Text(
-                '${_packs.length} 个',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        ),
+        if (missingBuiltin.isNotEmpty)
+          ...missingBuiltin.map((info) => Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _installBuiltinPack(info),
+                  icon: const Icon(Icons.download_for_offline_outlined),
+                  label: Text('恢复内置包：${info.label}'),
+                ),
+              )),
         Expanded(
           child: _packs.isEmpty
               ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.inventory_2_outlined,
-                        size: 64,
-                        color: Colors.grey[300],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '暂无数据包',
-                        style: TextStyle(color: Colors.grey[500]),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '点击上方按钮导入或在线下载',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[400],
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    '暂无数据包',
+                    style: TextStyle(color: Colors.grey[500]),
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   itemCount: _packs.length,
-                  itemBuilder: (context, i) {
-                    final pack = _packs[i];
-                    final isActive = pack.packDir == _activePackDir;
-
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(
-                                  Icons.folder_zip,
-                                  color: Color(0xFF2d5016),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        pack.displayName,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _PackStatChip(
-                                            label: '${pack.speciesCount} 种',
-                                          ),
-                                          _PackStatChip(
-                                            label: '${pack.audioCount} 音频',
-                                          ),
-                                          _PackStatChip(
-                                            label: '${pack.imageCount} 图片',
-                                          ),
-                                          if (pack.region.trim().isNotEmpty)
-                                            _PackStatChip(label: pack.region),
-                                          _PackStatChip(
-                                            label: 'v${pack.version}',
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (isActive)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green[50],
-                                      borderRadius: BorderRadius.circular(9),
-                                    ),
-                                    child: Text(
-                                      '主包',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.green[700],
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                FutureBuilder<bool>(
-                                  future: widget.packManager
-                                      .isPackEnabled(pack.packDir),
-                                  builder: (context, snapshot) {
-                                    final enabled = snapshot.data ?? isActive;
-                                    return Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Switch(
-                                          value: enabled,
-                                          onChanged: (value) async {
-                                            await widget.packManager
-                                                .setPackEnabled(
-                                              pack.packDir,
-                                              value,
-                                            );
-                                            if (value) {
-                                              await widget.packManager
-                                                  .setActivePack(pack.packDir);
-                                            }
-                                            await _loadPacks();
-                                            widget.onPackChanged?.call();
-                                          },
-                                        ),
-                                        const Text('启用'),
-                                      ],
-                                    );
-                                  },
-                                ),
-                                const Spacer(),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.account_tree_outlined,
-                                    size: 20,
-                                  ),
-                                  tooltip: '类群概览',
-                                  onPressed: () => _showPackOrderOverview(pack),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.star_half_outlined,
-                                    size: 20,
-                                  ),
-                                  tooltip: '难度统计',
-                                  onPressed: () =>
-                                      _showDifficultyStats(pack),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.archive_outlined,
-                                    size: 20,
-                                  ),
-                                  tooltip: '导出备份',
-                                  onPressed:
-                                      _loading ? null : () => _exportPack(pack),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.check_circle_outline,
-                                    size: 20,
-                                  ),
-                                  tooltip: '设为当前主包',
-                                  onPressed: () => _activatePack(pack),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
-                                    color: Colors.red[400],
-                                  ),
-                                  tooltip: '删除',
-                                  onPressed: () => _deletePack(pack),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                  itemBuilder: (context, i) => _buildPackCard(_packs[i]),
                 ),
         ),
       ],
+    );
+  }
+
+  bool _isBuiltinPack(DataPack pack, [BuiltinPackInfo? info]) {
+    final candidates =
+        info == null ? PackManager.builtinPacks : <BuiltinPackInfo>[info];
+    return candidates
+        .any((builtin) => pack.packDir.endsWith('/${builtin.dirName}'));
+  }
+
+  Widget _buildPackCard(DataPack pack) {
+    final isActive = pack.packDir == _activePackDir;
+    final isBuiltin = _isBuiltinPack(pack);
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.folder_zip, color: Color(0xFF2d5016)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pack.displayName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _PackStatChip(label: '${pack.speciesCount} 种'),
+                          _PackStatChip(label: '${pack.audioCount} 音频'),
+                          _PackStatChip(label: '${pack.imageCount} 图片'),
+                          if (pack.region.trim().isNotEmpty)
+                            _PackStatChip(label: pack.region),
+                          _PackStatChip(label: 'v${pack.version}'),
+                          if (isBuiltin) const _PackStatChip(label: '内置'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (isActive)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Text(
+                      '主包',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FutureBuilder<bool>(
+                  future: widget.packManager.isPackEnabled(pack.packDir),
+                  builder: (context, snapshot) {
+                    final enabled = snapshot.data ?? isActive;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Switch(
+                          value: enabled,
+                          onChanged: (value) async {
+                            await widget.packManager
+                                .setPackEnabled(pack.packDir, value);
+                            if (value) {
+                              await widget.packManager
+                                  .setActivePack(pack.packDir);
+                            }
+                            await _loadPacks();
+                            widget.onPackChanged?.call();
+                          },
+                        ),
+                        const Text('启用'),
+                      ],
+                    );
+                  },
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.account_tree_outlined, size: 20),
+                  tooltip: '类群概览',
+                  onPressed: () => _showPackOrderOverview(pack),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.star_half_outlined, size: 20),
+                  tooltip: '难度统计',
+                  onPressed: () => _showDifficultyStats(pack),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.archive_outlined, size: 20),
+                  tooltip: '导出备份',
+                  onPressed: _loading ? null : () => _exportPack(pack),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.check_circle_outline, size: 20),
+                  tooltip: '设为当前主包',
+                  onPressed: () => _activatePack(pack),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete_outline,
+                      size: 20,
+                      color: isBuiltin ? Colors.grey : Colors.red[400]),
+                  tooltip: isBuiltin ? '内置包默认启用，不能删除' : '删除',
+                  onPressed: isBuiltin ? null : () => _deletePack(pack),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PackModuleCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  const _PackModuleCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(icon, color: const Color(0xFF2d5016), size: 28),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(subtitle,
+                        style:
+                            TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

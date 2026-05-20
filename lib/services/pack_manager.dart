@@ -35,6 +35,7 @@ class RemotePackInfo {
   final String label;
   final String description;
   final int sizeBytes;
+  final String? partsManifestUrl;
 
   const RemotePackInfo({
     required this.url,
@@ -42,6 +43,7 @@ class RemotePackInfo {
     required this.label,
     required this.description,
     required this.sizeBytes,
+    this.partsManifestUrl,
   });
 
   String get sizeLabel {
@@ -74,6 +76,8 @@ class PackManager {
     RemotePackInfo(
       url: 'https://birding.today/packs/china_birds_v1.0_opt.zip',
       dirName: 'china_birds_v1',
+      partsManifestUrl:
+          'https://birding.today/packs/china_birds_v1.0_opt_parts.json',
       label: '中国全鸟种 v1.0（1519种）',
       description: '1519种鸟 · 中国全鸟种',
       sizeBytes: 538968064,
@@ -168,8 +172,23 @@ class PackManager {
   }
 
   Future<void> ensureBuiltinPackInstalled() async {
-    // 不再自动安装内置包，保留接口兼容性。
-    return;
+    if (builtinPacks.isEmpty) return;
+    final info = builtinPacks.first;
+    final docDir = await getApplicationDocumentsDirectory();
+    final packDir = '${docDir.path}/packs/${info.dirName}';
+    final manifest = File('$packDir/manifest.json');
+    if (!await manifest.exists()) {
+      await installBuiltinPack(info);
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_builtinInstalledKey, true);
+    await _addEnabledPackDir(prefs, packDir);
+    final active = prefs.getString(_activePackKey);
+    if (active == null || active.isEmpty || !await Directory(active).exists()) {
+      await prefs.setString(_activePackKey, packDir);
+    }
   }
 
   /// 安装内置数据包（流式解压，低内存占用）
@@ -209,7 +228,10 @@ class PackManager {
 
   /// 兼容旧接口：安装试用包
   Future<DataPack> installBuiltinTrialPack() {
-    throw UnsupportedError('当前版本不再内置数据包，请通过 ZIP 导入数据包。');
+    if (builtinPacks.isEmpty) {
+      throw UnsupportedError('当前版本未配置内置数据包。');
+    }
+    return installBuiltinPack(builtinPacks.first);
   }
 
   // 下载相关常量
@@ -240,14 +262,24 @@ class PackManager {
     await WakelockPlus.enable();
     try {
       // ───── Step 1: stream-download with retry ─────
-      await _downloadWithRetry(
-        url: info.url,
-        target: tempZip,
-        expectedSize: info.sizeBytes,
-        onProgress: onProgress,
-        onStatus: onStatus,
-        shouldCancel: shouldCancel,
-      );
+      if (info.partsManifestUrl != null) {
+        await _downloadRemoteParts(
+          info: info,
+          target: tempZip,
+          onProgress: onProgress,
+          onStatus: onStatus,
+          shouldCancel: shouldCancel,
+        );
+      } else {
+        await _downloadWithRetry(
+          url: info.url,
+          target: tempZip,
+          expectedSize: info.sizeBytes,
+          onProgress: onProgress,
+          onStatus: onStatus,
+          shouldCancel: shouldCancel,
+        );
+      }
 
       // ───── Step 2: extract to staging ─────
       onStatus?.call('正在解压数据包…');
@@ -278,6 +310,100 @@ class PackManager {
     );
     await setActivePack(packDir);
     return pack;
+  }
+
+  Future<void> _downloadRemoteParts({
+    required RemotePackInfo info,
+    required File target,
+    void Function(int received, int total)? onProgress,
+    void Function(String message)? onStatus,
+    bool Function()? shouldCancel,
+  }) async {
+    final manifestUrl = info.partsManifestUrl;
+    if (manifestUrl == null) throw Exception('缺少分包清单地址');
+
+    onStatus?.call('正在读取分包清单…');
+    final client = http.Client();
+    try {
+      final response =
+          await client.get(Uri.parse(manifestUrl)).timeout(_connectTimeout);
+      if (response.statusCode != 200) {
+        throw Exception('分包清单请求失败: HTTP ${response.statusCode}');
+      }
+      final manifest =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final parts = (manifest['parts'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      if (parts.isEmpty) throw Exception('分包清单为空');
+
+      final baseUri = Uri.parse(manifestUrl);
+      final totalBytes = parts.fold<int>(
+        0,
+        (sum, part) => sum + ((part['bytes'] as num?)?.toInt() ?? 0),
+      );
+      var doneBytes = 0;
+      final tempDir = target.parent;
+      await tempDir.create(recursive: true);
+
+      for (var i = 0; i < parts.length; i++) {
+        if (shouldCancel?.call() == true) {
+          throw const DownloadCanceledException();
+        }
+        final part = parts[i];
+        final filename = (part['file'] as String? ?? '').trim();
+        final expectedSize = ((part['bytes'] as num?)?.toInt() ?? 0);
+        if (filename.isEmpty || expectedSize <= 0) {
+          throw Exception('分包清单格式错误');
+        }
+        final partUrl = baseUri.resolve(filename).toString();
+        final partFile = File('${tempDir.path}/$filename.part');
+        onStatus?.call('正在下载分包 ${i + 1}/${parts.length}…');
+        await _downloadWithRetry(
+          url: partUrl,
+          target: partFile,
+          expectedSize: expectedSize,
+          onProgress: (received, _) {
+            onProgress?.call(doneBytes + received, totalBytes);
+          },
+          onStatus: (_) {},
+          shouldCancel: shouldCancel,
+        );
+        doneBytes += expectedSize;
+        onProgress?.call(doneBytes, totalBytes);
+      }
+
+      onStatus?.call('正在合并分包…');
+      if (await target.exists()) await target.delete();
+      final sink = target.openWrite(mode: FileMode.write);
+      try {
+        for (final part in parts) {
+          if (shouldCancel?.call() == true) {
+            throw const DownloadCanceledException();
+          }
+          final filename = (part['file'] as String).trim();
+          final partFile = File('${tempDir.path}/$filename.part');
+          await sink.addStream(partFile.openRead());
+        }
+      } finally {
+        await sink.close();
+      }
+      if (info.sizeBytes > 0 && await target.length() < info.sizeBytes) {
+        throw Exception('分包合并后文件不完整');
+      }
+      for (final part in parts) {
+        final filename = (part['file'] as String? ?? '').trim();
+        if (filename.isNotEmpty) {
+          try {
+            await File('${tempDir.path}/$filename.part').delete();
+          } catch (_) {
+            // 临时分包清理失败不影响已经完成的安装。
+          }
+        }
+      }
+    } finally {
+      client.close();
+    }
   }
 
   /// 带重试和超时的流式下载

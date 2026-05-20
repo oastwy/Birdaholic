@@ -84,6 +84,13 @@ class DownloadTaskSnapshot {
     return '${_formatBytes(bytesReceived)} / ${_formatBytes(bytesTotal)}';
   }
 
+  String get speciesProgressLabel {
+    if (kind == DownloadTaskKind.remotePack) return byteProgressLabel;
+    if (total <= 0) return '准备中';
+    final done = current.clamp(0, total);
+    return '$done/$total 种';
+  }
+
   static String _formatBytes(int value) {
     if (value >= 1024 * 1024 * 1024) {
       return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
@@ -140,6 +147,9 @@ class DownloadTaskService extends ChangeNotifier {
   bool _cancelRequested = false;
 
   bool get isRunning => _snapshot.isRunning;
+
+  bool get hasActiveOrFinishedTask =>
+      _snapshot.isRunning || _snapshot.isFinished;
 
   void cancel() {
     if (!isRunning) return;

@@ -377,7 +377,6 @@ class PackDownloaderV2 {
         }
         speciesData.add(speciesJson);
         speciesBySci[sciKey] = speciesJson;
-        completed++;
         await _writeProgressFiles(
           packDir: packDir,
           speciesData: speciesData,
