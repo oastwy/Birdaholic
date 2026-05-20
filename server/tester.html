@@ -163,7 +163,13 @@
         <span class="star" data-v="5">★</span>
         <span class="star-clear" id="starClear" hidden>清除</span>
       </div>
-      <div class="hint" id="starHint">越多星越难辨识。管理员上传的星级会直接覆盖物种难度；内测用户上传的星级作为<strong>建议</strong>，审核时呈现给管理员。</div>
+      <div class="hint" id="starHint">越多星越难辨识。管理员上传的星级仅作为<strong>当前照片/录音的难度</strong>记录（不修改物种难度）；内测用户上传的星级作为<strong>建议</strong>，审核时呈现给管理员。</div>
+    </div>
+
+    <div style="margin-top: 14px;">
+      <label for="featuresBatch">识别特征（可选）</label>
+      <textarea id="featuresBatch" rows="2" placeholder="用 1–2 句话说明本批次照片/录音能看出的特征，例如：喉部红色斑块、白色眉纹、繁殖羽、夜间鸣叫" style="width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: var(--bg-input); resize: vertical; box-sizing: border-box;"></textarea>
+      <div class="hint">本次上传的所有文件共享这条说明。会和媒体一起进入审核，通过后展示在物种页。</div>
     </div>
 
     <div style="margin-top: 14px;">
@@ -175,7 +181,6 @@
         <input id="files" type="file" multiple accept="image/*,audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.heic">
       </label>
       <div id="fileList" class="file-list"></div>
-      <div class="hint" id="featuresHint" style="margin-top: 8px;">每张照片/录音下方可写"<strong>识别特征</strong>"：用 1–2 句话说明这张照片里能看出什么特征（例：繁殖羽喉部呈红色、雌鸟眉纹白色、夜间鸣叫）。这些笔记会随媒体一同审核。</div>
     </div>
 
     <div class="toolbar">
@@ -234,6 +239,7 @@ let pendingFiles = [];  // {file, guess: {sci, label} | null, features: string}
 const contributorEl = $('contributor');
 const starRow = $('starRow');
 const starClear = $('starClear');
+const featuresBatchEl = $('featuresBatch');
 
 // ---------- Auth ----------
 function getToken() {
@@ -459,17 +465,6 @@ function renderFileList() {
     main.appendChild(rm);
     row.appendChild(main);
 
-    // Per-file 识别特征 textarea
-    const ta = document.createElement('textarea');
-    ta.className = 'file-features';
-    ta.rows = 1;
-    ta.placeholder = '识别特征（可选）：例如"喉部红色斑块、白色眉纹、繁殖羽"';
-    ta.value = entry.features || '';
-    ta.addEventListener('input', (e) => {
-      entry.features = e.target.value;
-    });
-    row.appendChild(ta);
-
     fileListEl.appendChild(row);
   });
 }
@@ -478,7 +473,7 @@ async function addFiles(fileList) {
   const files = [...fileList];
   for (const f of files) {
     const guess = selectedSci ? null : await recognize(f.name);
-    pendingFiles.push({ file: f, guess, features: '' });
+    pendingFiles.push({ file: f, guess });
   }
   renderFileList();
 }
@@ -534,11 +529,10 @@ uploadBtn.onclick = async () => {
   if (contribName) form.append('contributor', contribName);
   // Difficulty 1-5; omit if 0 (unspecified)
   if (selectedDifficulty) form.append('difficulty', String(selectedDifficulty));
-  // Files + parallel features list (server zips by index)
-  for (const entry of pendingFiles) {
-    form.append('files', entry.file);
-    form.append('features', (entry.features || '').trim());
-  }
+  // Single batch-level identification features
+  const feat = (featuresBatchEl.value || '').trim();
+  if (feat) form.append('features', feat);
+  for (const entry of pendingFiles) form.append('files', entry.file);
 
   try {
     const xhr = new XMLHttpRequest();

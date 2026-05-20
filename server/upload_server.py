@@ -485,7 +485,7 @@ async def upload(
     sci: str = Form(""),
     contributor: str = Form("用户上传"),
     difficulty: int = Form(0),
-    features: list[str] = Form(default_factory=list),
+    features: str = Form(""),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     user = authenticate(authorization, token)
@@ -497,6 +497,9 @@ async def upload(
     if difficulty:
         difficulty = max(1, min(5, difficulty))
 
+    # Single batch-level identification features applied to every file
+    feat = features.strip()
+
     selected = None
     if sci.strip():
         selected = match_species(sci) or {"sci": sci.strip()}
@@ -504,7 +507,7 @@ async def upload(
     saved: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
 
-    for idx, upload_file in enumerate(files):
+    for upload_file in files:
         kind = media_kind(upload_file.filename, upload_file.content_type or "")
         if kind is None:
             failed.append({"file": upload_file.filename, "reason": "unsupported file type"})
@@ -514,9 +517,6 @@ async def upload(
         if not item or not item.get("sci"):
             failed.append({"file": upload_file.filename, "reason": "species not recognized"})
             continue
-
-        # Per-file identification features (notes); same index as files[]
-        feat = features[idx].strip() if idx < len(features) else ""
 
         target_sci = item["sci"]
         key = species_key(target_sci)
@@ -528,9 +528,9 @@ async def upload(
             shutil.copyfileobj(upload_file.file, handle)
 
         manifest = load_manifest(target_sci, item)
-        # Persist difficulty at the species level (overwrites if newer value provided)
-        if difficulty and is_admin:
-            manifest["difficulty"] = difficulty
+        # Note: per-photo difficulty is recorded on the entry below.
+        # We intentionally do NOT touch manifest["difficulty"] here —
+        # species-level difficulty is changed only via /api/set_difficulty.
         if kind == "images":
             entry = {
                 "file": f"images/{filename}",
