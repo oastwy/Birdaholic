@@ -150,6 +150,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             onExport:
                                 () =>
                                     ExportService.exportToExcel([displayed[i]]),
+                            onExportKml:
+                                () => ExportService.exportTransectKml([
+                                  displayed[i],
+                                ]),
                             onDelete:
                                 () =>
                                     _deleteSurvey(context, prov, displayed[i]),
@@ -428,6 +432,7 @@ class _SurveyCard extends StatelessWidget {
   final VoidCallback onVersions;
   final VoidCallback onResume;
   final VoidCallback onExport;
+  final VoidCallback onExportKml;
   final VoidCallback onDelete;
   final bool selectable;
   final bool selected;
@@ -441,6 +446,7 @@ class _SurveyCard extends StatelessWidget {
     required this.onVersions,
     required this.onResume,
     required this.onExport,
+    required this.onExportKml,
     required this.onDelete,
     this.selectable = false,
     this.selected = false,
@@ -499,6 +505,9 @@ class _SurveyCard extends StatelessWidget {
               case 'export':
                 onExport();
                 break;
+              case 'kml':
+                onExportKml();
+                break;
               case 'delete':
                 onDelete();
                 break;
@@ -510,6 +519,7 @@ class _SurveyCard extends StatelessWidget {
                 PopupMenuItem(value: 'move', child: Text('移动到文件夹')),
                 PopupMenuItem(value: 'versions', child: Text('历史版本')),
                 PopupMenuItem(value: 'export', child: Text('导出 Excel')),
+                PopupMenuItem(value: 'kml', child: Text('导出 KML')),
                 PopupMenuItem(value: 'delete', child: Text('删除')),
               ],
         ),

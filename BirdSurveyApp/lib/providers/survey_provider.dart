@@ -387,6 +387,16 @@ class SurveyProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void activateTransectPoint(String pointId) {
+    final session = _currentSession;
+    if (session == null || !isTransect || pointId.isEmpty) return;
+    if (!session.transectTrack.any((p) => p.id == pointId)) return;
+    _currentSession = session.copyWith(activeTransectPointId: pointId);
+    _restoreSpeciesListCounts(_currentSession!);
+    _recordedOrder.clear();
+    notifyListeners();
+  }
+
   void _createTransectPoint({String note = ''}) {
     final session = _currentSession;
     if (session == null || !isTransect) return;

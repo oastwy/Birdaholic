@@ -387,6 +387,98 @@ class ExportService {
     return null;
   }
 
+  static Future<void> exportTransectKml(List<SurveySession> sessions) async {
+    final kml =
+        StringBuffer()
+          ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
+          ..writeln('<kml xmlns="http://www.opengis.net/kml/2.2">')
+          ..writeln('<Document>')
+          ..writeln('<name>BirdSurvey 样线</name>');
+
+    for (int i = 0; i < sessions.length; i++) {
+      final s = sessions[i];
+      final title = _xml(
+        s.title.trim().isNotEmpty
+            ? s.title.trim()
+            : DateFormat('yyyy-MM-dd HH:mm').format(s.startTime),
+      );
+      kml
+        ..writeln('<Folder>')
+        ..writeln('<name>$title</name>');
+
+      if (s.transectTrack.length >= 2) {
+        kml
+          ..writeln('<Placemark>')
+          ..writeln('<name>$title 轨迹</name>')
+          ..writeln('<LineString><tessellate>1</tessellate><coordinates>');
+        for (final p in s.transectTrack) {
+          kml.writeln('${p.longitude},${p.latitude},0');
+        }
+        kml
+          ..writeln('</coordinates></LineString>')
+          ..writeln('</Placemark>');
+      }
+
+      for (int j = 0; j < s.transectTrack.length; j++) {
+        final p = s.transectTrack[j];
+        kml
+          ..writeln('<Placemark>')
+          ..writeln('<name>记录点 ${j + 1}</name>')
+          ..writeln('<description>${_xml(_df.format(p.time))}</description>')
+          ..writeln(
+            '<Point><coordinates>${p.longitude},${p.latitude},0</coordinates></Point>',
+          )
+          ..writeln('</Placemark>');
+      }
+
+      for (final e in s.observationEvents.where(
+        (e) =>
+            (e.type == 'species_count' ||
+                e.type == 'field_count' ||
+                e.type == 'nested_field_count') &&
+            e.delta > 0,
+      )) {
+        final name = _xml(
+          '${e.speciesName.isNotEmpty ? e.speciesName : e.ebirdCode} ×${e.delta}',
+        );
+        final desc = _xml('${_df.format(e.time)} ${e.type}');
+        kml
+          ..writeln('<Placemark>')
+          ..writeln('<name>$name</name>')
+          ..writeln('<description>$desc</description>')
+          ..writeln(
+            '<Point><coordinates>${e.longitude},${e.latitude},0</coordinates></Point>',
+          )
+          ..writeln('</Placemark>');
+      }
+      kml.writeln('</Folder>');
+    }
+
+    kml
+      ..writeln('</Document>')
+      ..writeln('</kml>');
+
+    final dir = await getApplicationDocumentsDirectory();
+    final sessionDate =
+        sessions.isNotEmpty
+            ? DateFormat('yyyyMMdd').format(sessions.first.startTime)
+            : DateFormat('yyyyMMdd').format(DateTime.now());
+    final file = File('${dir.path}/BirdSurvey_transect_$sessionDate.kml');
+    await file.writeAsString(kml.toString());
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      subject: file.uri.pathSegments.last,
+      text: '鸟类样线 KML',
+    );
+  }
+
+  static String _xml(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&apos;');
+
   static List<List<String>> _nestedRowsFor(
     SurveySession session,
     String code,

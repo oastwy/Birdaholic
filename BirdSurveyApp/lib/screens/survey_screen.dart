@@ -627,6 +627,8 @@ class _TransectMapPanelState extends State<_TransectMapPanel> {
     final center = _center;
     final track = prov.transectTrack;
     final hasActivePoint = prov.activeTransectPointId.isNotEmpty;
+    final activePointId = prov.activeTransectPointId;
+    final activeIndex = track.indexWhere((p) => p.id == activePointId);
     final observations =
         prov.observationEvents.where((e) => e.type == 'species_count').toList();
     final trackPoints =
@@ -669,14 +671,24 @@ class _TransectMapPanelState extends State<_TransectMapPanel> {
                   ...track.map(
                     (p) => Marker(
                       point: LatLng(p.latitude, p.longitude),
-                      width: 26,
-                      height: 26,
-                      child: Icon(
-                        p.endedAt == null
-                            ? Icons.fiber_manual_record
-                            : Icons.check_circle,
-                        color: p.endedAt == null ? Colors.teal : Colors.grey,
-                        size: 16,
+                      width: 34,
+                      height: 34,
+                      child: GestureDetector(
+                        onTap: () => prov.activateTransectPoint(p.id),
+                        child: Icon(
+                          p.id == activePointId
+                              ? Icons.radio_button_checked
+                              : p.endedAt == null
+                              ? Icons.fiber_manual_record
+                              : Icons.check_circle,
+                          color:
+                              p.id == activePointId
+                                  ? Colors.green[800]
+                                  : p.endedAt == null
+                                  ? Colors.teal
+                                  : Colors.grey,
+                          size: p.id == activePointId ? 24 : 18,
+                        ),
                       ),
                     ),
                   ),
@@ -740,7 +752,8 @@ class _TransectMapPanelState extends State<_TransectMapPanel> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 child: Text(
-                  '样线  轨迹${track.length}点  记录${observations.length}次',
+                  '样线  ${activeIndex >= 0 ? '第${activeIndex + 1}点' : '未选点'}  '
+                  '轨迹${track.length}点  记录${observations.length}次',
                   style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
