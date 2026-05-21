@@ -69,10 +69,13 @@ class _UploadSectionState extends State<UploadSection> {
   final _contributorCtrl = TextEditingController();
   final _regionCtrl = TextEditingController(text: 'CN');
   final _featuresCtrl = TextEditingController();
+  final _descriptionCtrl = TextEditingController();
   Timer? _searchDebounce;
 
   final List<File> _selectedFiles = [];
   int _difficulty = 1;
+
+  SpeciesMediaCount? _selectedSpeciesCount;
 
   bool _uploading = false;
   int _uploadProgress = 0;
@@ -98,6 +101,7 @@ class _UploadSectionState extends State<UploadSection> {
     _contributorCtrl.dispose();
     _regionCtrl.dispose();
     _featuresCtrl.dispose();
+    _descriptionCtrl.dispose();
     _searchDebounce?.cancel();
     super.dispose();
   }
@@ -173,8 +177,18 @@ class _UploadSectionState extends State<UploadSection> {
       _selectedBird = b;
       _speciesCtrl.text = '${b.zh.isEmpty ? b.en : b.zh} · ${b.sci}';
       _searchResults = [];
+      _selectedSpeciesCount = null;
     });
     FocusScope.of(context).unfocus();
+    _refreshSpeciesCount(b.sci);
+  }
+
+  Future<void> _refreshSpeciesCount(String sci) async {
+    try {
+      final c = await _service.fetchSpeciesMediaCount(sci: sci);
+      if (!mounted || _selectedBird?.sci != sci) return;
+      setState(() => _selectedSpeciesCount = c);
+    } catch (_) {}
   }
 
   // ── 地区筛选 ────────────────────────────────────────────────
@@ -276,6 +290,7 @@ class _UploadSectionState extends State<UploadSection> {
           filePath: file.path,
           token: token,
           difficulty: _difficulty,
+          description: _descriptionCtrl.text.trim(),
         );
         final saved = (resp['saved'] as List?) ?? [];
         final failed = (resp['failed'] as List?) ?? [];
@@ -427,6 +442,8 @@ class _UploadSectionState extends State<UploadSection> {
             const SizedBox(height: 16),
             _sectionHeader('物种 *'),
             _speciesSection(),
+            if (_selectedBird != null && _selectedSpeciesCount != null)
+              _speciesCountHint(),
             const SizedBox(height: 16),
             _sectionHeader('作者署名 *'),
             TextField(
@@ -441,6 +458,16 @@ class _UploadSectionState extends State<UploadSection> {
             const SizedBox(height: 16),
             _sectionHeader('难度评级'),
             _difficultyRow(),
+            const SizedBox(height: 16),
+            _sectionHeader('描述（可选） · 性别 / 年龄 / 羽况'),
+            TextField(
+              controller: _descriptionCtrl,
+              decoration: const InputDecoration(
+                hintText: '例：雄性成鸟夏羽 / 雌性幼鸟 / 飞行 / 巢鸟…',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
             const SizedBox(height: 16),
             _sectionHeader('识别特征（可选）'),
             TextField(
@@ -593,6 +620,45 @@ class _UploadSectionState extends State<UploadSection> {
             style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.85), fontSize: 11)),
       ],
+    );
+  }
+
+  Widget _speciesCountHint() {
+    final c = _selectedSpeciesCount!;
+    final total = c.images + c.audio;
+    final overImg = c.images >= 20;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: overImg ? Colors.orange[50] : Colors.green[50],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: overImg ? Colors.orange[300]! : Colors.green[300]!),
+        ),
+        child: Row(
+          children: [
+            Icon(overImg ? Icons.warning_amber : Icons.photo_library_outlined,
+                size: 16,
+                color: overImg ? Colors.orange[700] : Colors.green[700]),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                total == 0
+                    ? '该物种暂时没有照片/音频，欢迎上传'
+                    : overImg
+                        ? '该物种已有 ${c.images} 张图片 · 已比较充足，建议优先补传其他物种'
+                        : '该物种已有 ${c.images} 张图片 / ${c.audio} 个音频',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: overImg ? Colors.orange[900] : Colors.green[900],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

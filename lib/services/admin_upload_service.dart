@@ -92,8 +92,12 @@ class PendingMediaItem {
   final String url;
   final String contributor;
   final String uploaderId;
+  final String uploaderRole;
   final String uploaderName;
   final int uploadedAt;
+  final String description;
+  final String features;
+  final int suggestedDifficulty;
   const PendingMediaItem({
     required this.sci,
     required this.cn,
@@ -103,8 +107,56 @@ class PendingMediaItem {
     required this.url,
     required this.contributor,
     required this.uploaderId,
+    required this.uploaderRole,
     required this.uploaderName,
     required this.uploadedAt,
+    this.description = '',
+    this.features = '',
+    this.suggestedDifficulty = 0,
+  });
+}
+
+class HistoryItem {
+  final String sci;
+  final String cn;
+  final String en;
+  final String kind;
+  final String file;
+  final String url;
+  final String contributor;
+  final String uploaderId;
+  final String uploaderRole;
+  final String uploaderName;
+  final int uploadedAt;
+  final int approvedAt;
+  final String description;
+  const HistoryItem({
+    required this.sci,
+    required this.cn,
+    required this.en,
+    required this.kind,
+    required this.file,
+    required this.url,
+    required this.contributor,
+    required this.uploaderId,
+    required this.uploaderRole,
+    required this.uploaderName,
+    required this.uploadedAt,
+    required this.approvedAt,
+    required this.description,
+  });
+}
+
+class SpeciesMediaCount {
+  final int images;
+  final int audio;
+  final int pendingImages;
+  final int pendingAudio;
+  const SpeciesMediaCount({
+    required this.images,
+    required this.audio,
+    required this.pendingImages,
+    required this.pendingAudio,
   });
 }
 
@@ -140,12 +192,15 @@ class AdminUploadService {
   }
 
   /// 通用上传：返回服务器响应（含 saved/failed）。供新上传 UI 使用。
+  /// 如果服务器 200 但 saved 为空、failed 不空（典型如"species not recognized"），
+  /// 抛出含具体原因的异常，避免 UI 误以为上传成功。
   Future<Map<String, dynamic>> uploadFile({
     required String sci,
     required String contributor,
     required String filePath,
     required String token,
     int difficulty = 0,
+    String description = '',
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -155,6 +210,9 @@ class AdminUploadService {
     request.fields['token'] = token;
     request.fields['sci'] = sci;
     request.fields['contributor'] = contributor;
+    if (description.trim().isNotEmpty) {
+      request.fields['description'] = description.trim();
+    }
     if (difficulty > 0) request.fields['difficulty'] = '$difficulty';
     request.files.add(await http.MultipartFile.fromPath('files', filePath));
     final streamed = await request.send().timeout(const Duration(seconds: 120));
@@ -162,7 +220,72 @@ class AdminUploadService {
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
       throw Exception('HTTP ${streamed.statusCode}: $body');
     }
-    return jsonDecode(body) as Map<String, dynamic>;
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    final saved = (data['saved'] as List?) ?? const [];
+    final failed = (data['failed'] as List?) ?? const [];
+    if (saved.isEmpty && failed.isNotEmpty) {
+      final reason = (failed.first as Map)['reason'] ?? '未知原因';
+      throw Exception('服务器拒收：$reason');
+    }
+    return data;
+  }
+
+  Future<List<HistoryItem>> fetchHistory({
+    required String token,
+    String query = '',
+    String sci = '',
+    int limit = 200,
+  }) async {
+    final params = <String, String>{
+      'token': token,
+      'limit': '$limit',
+      if (query.isNotEmpty) 'q': query,
+      if (sci.isNotEmpty) 'sci': sci,
+    };
+    final uri = Uri.parse('$baseUrl/api/admin/history')
+        .replace(queryParameters: params);
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      throw Exception('获取审核历史失败: ${response.statusCode} ${response.body}');
+    }
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map((e) => HistoryItem(
+              sci: e['sci'] as String? ?? '',
+              cn: e['cn'] as String? ?? '',
+              en: e['en'] as String? ?? '',
+              kind: e['kind'] as String? ?? 'images',
+              file: e['file'] as String? ?? '',
+              url: e['url'] as String? ?? '',
+              contributor: e['contributor'] as String? ?? '',
+              uploaderId: e['uploader_id'] as String? ?? '',
+              uploaderRole: e['uploader_role'] as String? ?? '',
+              uploaderName: e['uploader_name'] as String? ?? '',
+              uploadedAt: (e['uploaded_at'] as num?)?.toInt() ?? 0,
+              approvedAt: (e['approved_at'] as num?)?.toInt() ?? 0,
+              description: e['description'] as String? ?? '',
+            ))
+        .toList();
+  }
+
+  Future<SpeciesMediaCount> fetchSpeciesMediaCount({required String sci}) async {
+    final uri = Uri.parse('$baseUrl/api/species_media_count')
+        .replace(queryParameters: {'sci': sci});
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      return const SpeciesMediaCount(
+          images: 0, audio: 0, pendingImages: 0, pendingAudio: 0);
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return SpeciesMediaCount(
+      images: (data['images'] as num?)?.toInt() ?? 0,
+      audio: (data['audio'] as num?)?.toInt() ?? 0,
+      pendingImages: (data['pending_images'] as num?)?.toInt() ?? 0,
+      pendingAudio: (data['pending_audio'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<WhoAmI?> whoami({required String token}) async {
@@ -211,8 +334,13 @@ class AdminUploadService {
               url: e['url'] as String? ?? '',
               contributor: e['contributor'] as String? ?? '',
               uploaderId: e['uploader_id'] as String? ?? '',
+              uploaderRole: e['uploader_role'] as String? ?? '',
               uploaderName: e['uploader_name'] as String? ?? '',
               uploadedAt: (e['uploaded_at'] as num?)?.toInt() ?? 0,
+              description: e['description'] as String? ?? '',
+              features: e['features'] as String? ?? '',
+              suggestedDifficulty:
+                  (e['suggested_difficulty'] as num?)?.toInt() ?? 0,
             ))
         .toList();
   }

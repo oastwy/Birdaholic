@@ -15,6 +15,7 @@ import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import 'online_import_screen.dart';
 import 'feedback_review_section.dart';
+import 'audit_history_section.dart';
 import 'upload_section.dart';
 import 'upload_review_section.dart';
 import 'user_management_section.dart';
@@ -27,6 +28,7 @@ enum _PackManageSection {
   installed,
   upload,
   uploadReview,
+  uploadHistory,
   userManagement,
   feedbackReview,
 }
@@ -967,6 +969,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _PackManageSection.installed => _buildInstalledSection(),
         _PackManageSection.upload => _buildUploadSection(),
         _PackManageSection.uploadReview => _buildUploadReviewSection(),
+        _PackManageSection.uploadHistory => _buildUploadHistorySection(),
         _PackManageSection.userManagement => _buildUserManagementSection(),
         _PackManageSection.feedbackReview => _buildFeedbackReviewSection(),
       },
@@ -1209,6 +1212,27 @@ class _PackManageScreenState extends State<PackManageScreen> {
     return UploadReviewSection(
       storage: widget.storage,
       onBack: () => setState(() => _section = _PackManageSection.upload),
+      onOpenHistory: () =>
+          setState(() => _section = _PackManageSection.uploadHistory),
+    );
+  }
+
+  Widget _buildUploadHistorySection() {
+    if (!widget.storage.isAdminMode) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => setState(() => _section = _PackManageSection.root),
+          ),
+          title: const Text('审核历史'),
+        ),
+        body: const Center(child: Text('仅管理员可访问')),
+      );
+    }
+    return AuditHistorySection(
+      storage: widget.storage,
+      onBack: () => setState(() => _section = _PackManageSection.uploadReview),
     );
   }
 

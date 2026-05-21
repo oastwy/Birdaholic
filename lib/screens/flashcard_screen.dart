@@ -848,22 +848,19 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       speciesSci: bird.sci,
     );
     final token = widget.storage.getAdminUploadToken();
-    if (token.isNotEmpty) {
-      AdminUploadService()
-          .submitFeedback(
-            token: token,
-            message: controller.text,
-            page: '闪卡学习',
-            speciesCn: bird.cn,
-            speciesSci: bird.sci,
-          )
-          .ignore();
-    }
+    // 不论有无 token 都尝试推送给管理员（无 token 走匿名）
+    AdminUploadService()
+        .submitFeedback(
+          token: token,
+          message: controller.text,
+          page: '闪卡学习',
+          speciesCn: bird.cn,
+          speciesSci: bird.sci,
+        )
+        .ignore();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(token.isEmpty
-          ? '已保存到纠错日记（本地）'
-          : '已保存到纠错日记，同步推送给管理员'),
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('已记录纠错并同步给管理员'),
     ));
   }
 

@@ -61,6 +61,7 @@ class _UploadModalContent extends StatefulWidget {
 class _UploadModalContentState extends State<_UploadModalContent> {
   final _contributorCtrl = TextEditingController();
   final _featuresCtrl = TextEditingController();
+  final _descriptionCtrl = TextEditingController();
   final List<File> _files = [];
   int _difficulty = 1;
   bool _ccChecked = false;
@@ -87,6 +88,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   void dispose() {
     _contributorCtrl.dispose();
     _featuresCtrl.dispose();
+    _descriptionCtrl.dispose();
     super.dispose();
   }
 
@@ -165,6 +167,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
             filePath: file.path,
             token: token,
             difficulty: _difficulty,
+            description: _descriptionCtrl.text.trim(),
           );
         } else {
           // 仅本地保存
@@ -269,6 +272,16 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                         isDense: true,
                       ),
                       onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 14),
+                    _label('描述（可选）· 性别 / 年龄 / 羽况'),
+                    TextField(
+                      controller: _descriptionCtrl,
+                      decoration: const InputDecoration(
+                        hintText: '例：雄性成鸟夏羽 / 雌性幼鸟 / 飞行 …',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     _label('难度（默认 1 星）'),

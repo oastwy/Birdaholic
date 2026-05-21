@@ -113,9 +113,22 @@ class ProgressDetailScreen extends StatelessWidget {
                 child: ListTile(
                   title: Text(item.cn,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                    '${item.sci}\n${knownLast ? "最近一次答对" : "最近一次答错"} · ${_formatTime(mastery.lastTime)}',
-                    style: TextStyle(color: Colors.grey[700], height: 1.35),
+                  subtitle: Text.rich(
+                    TextSpan(
+                      style:
+                          TextStyle(color: Colors.grey[700], height: 1.35),
+                      children: [
+                        TextSpan(
+                          text: item.sci,
+                          style:
+                              const TextStyle(fontStyle: FontStyle.italic),
+                        ),
+                        TextSpan(
+                          text:
+                              '\n${knownLast ? "最近一次答对" : "最近一次答错"} · ${_formatTime(mastery.lastTime)}',
+                        ),
+                      ],
+                    ),
                   ),
                   isThreeLine: true,
                   trailing: FilledButton(
