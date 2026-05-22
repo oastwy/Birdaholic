@@ -614,9 +614,9 @@ class _UploadSectionState extends State<UploadSection> {
           else
             Row(
               children: [
-                _statItem('图片', stats.myImages.toString()),
+                _statItem('已入库图片', stats.myImages.toString()),
                 const SizedBox(width: 18),
-                _statItem('音频', stats.myAudio.toString()),
+                _statItem('已入库音频', stats.myAudio.toString()),
                 const SizedBox(width: 18),
                 _statItem('待审核', stats.myPending.toString()),
               ],

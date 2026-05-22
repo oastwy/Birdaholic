@@ -93,10 +93,11 @@ class _AuditHistorySectionState extends State<AuditHistorySection> {
   }
 
   Future<void> _revoke(HistoryItem it) async {
+    final isAudio = it.kind == 'audio';
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('删除这张照片？'),
+        title: Text('删除这${isAudio ? "段音频" : "张照片"}？'),
         content: Text(
             '将从服务器删除「${it.cn.isEmpty ? it.sci : it.cn}」的「${it.file}」，不可恢复。'),
         actions: [
@@ -115,8 +116,9 @@ class _AuditHistorySectionState extends State<AuditHistorySection> {
     final key = _key(it);
     setState(() => _busy.add(key));
     try {
-      await _service.reject(
+      await _service.deleteServerMedia(
         sci: it.sci,
+        kind: it.kind == 'audio' ? 'audio' : 'images',
         file: it.file,
         token: widget.storage.getAdminUploadToken(),
       );
