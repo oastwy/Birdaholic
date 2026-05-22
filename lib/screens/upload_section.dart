@@ -42,6 +42,7 @@ class UploadSection extends StatefulWidget {
   final VoidCallback onOpenReview; // admin only
   final VoidCallback onOpenUserManagement; // admin only
   final VoidCallback onOpenFeedbackReview; // admin only
+  final VoidCallback onOpenServerMediaManager; // admin only
   final VoidCallback onBackToRoot;
 
   const UploadSection({
@@ -50,6 +51,7 @@ class UploadSection extends StatefulWidget {
     required this.onOpenReview,
     required this.onOpenUserManagement,
     required this.onOpenFeedbackReview,
+    required this.onOpenServerMediaManager,
     required this.onBackToRoot,
   });
 
@@ -73,11 +75,14 @@ class _UploadSectionState extends State<UploadSection> {
   Timer? _searchDebounce;
 
   final List<File> _selectedFiles = [];
+  String? _selectedMediaType;
+  String _audioType = 'call';
   int _difficulty = 1;
 
   SpeciesMediaCount? _selectedSpeciesCount;
 
   bool _uploading = false;
+  bool _pickingFiles = false;
   int _uploadProgress = 0;
   List<_UploadResult> _uploadResults = [];
 
@@ -235,24 +240,38 @@ class _UploadSectionState extends State<UploadSection> {
   // ── 文件选择 ────────────────────────────────────────────────
 
   Future<void> _pickFiles(FileType type, List<String>? exts) async {
+    if (_pickingFiles) return;
+    final mediaType = type == FileType.image ? 'image' : 'audio';
+    if (_selectedMediaType != null && _selectedMediaType != mediaType) {
+      _showSnack('请分开上传图片和音频，避免标签混乱');
+      return;
+    }
+    setState(() => _pickingFiles = true);
     try {
       final result = await FilePicker.pickFiles(
         type: type,
         allowedExtensions: exts,
+        allowMultiple: true,
       );
       if (result == null) return;
       setState(() {
+        _selectedMediaType = mediaType;
         for (final f in result.files) {
           if (f.path != null) _selectedFiles.add(File(f.path!));
         }
       });
     } catch (e) {
       _showSnack('选取文件失败：$e');
+    } finally {
+      if (mounted) setState(() => _pickingFiles = false);
     }
   }
 
   void _removeFile(int i) {
-    setState(() => _selectedFiles.removeAt(i));
+    setState(() {
+      _selectedFiles.removeAt(i);
+      if (_selectedFiles.isEmpty) _selectedMediaType = null;
+    });
   }
 
   // ── 上传 ─────────────────────────────────────────────────────
@@ -291,6 +310,9 @@ class _UploadSectionState extends State<UploadSection> {
           token: token,
           difficulty: _difficulty,
           description: _descriptionCtrl.text.trim(),
+          mediaType: _selectedMediaType ?? '',
+          audioType: _selectedMediaType == 'audio' ? _audioType : '',
+          license: 'CC BY-NC 4.0',
         );
         final saved = (resp['saved'] as List?) ?? [];
         final failed = (resp['failed'] as List?) ?? [];
@@ -352,6 +374,7 @@ class _UploadSectionState extends State<UploadSection> {
       setState(() {
         _uploading = false;
         _selectedFiles.clear();
+        _selectedMediaType = null;
       });
       _refreshStats();
     }
@@ -423,6 +446,12 @@ class _UploadSectionState extends State<UploadSection> {
               icon: const Icon(Icons.group_outlined),
               onPressed: widget.onOpenUserManagement,
             ),
+          if (widget.storage.isAdminMode)
+            IconButton(
+              tooltip: '服务器媒体管理',
+              icon: const Icon(Icons.folder_delete_outlined),
+              onPressed: widget.onOpenServerMediaManager,
+            ),
           IconButton(
             tooltip: '刷新统计',
             icon: const Icon(Icons.refresh),
@@ -459,15 +488,39 @@ class _UploadSectionState extends State<UploadSection> {
             _sectionHeader('难度评级'),
             _difficultyRow(),
             const SizedBox(height: 16),
-            _sectionHeader('描述（可选） · 性别 / 年龄 / 羽况'),
+            _sectionHeader(_selectedMediaType == 'audio'
+                ? '描述（可选）'
+                : '描述（可选） · 性别 / 年龄 / 羽况'),
             TextField(
               controller: _descriptionCtrl,
               decoration: const InputDecoration(
-                hintText: '例：雄性成鸟夏羽 / 雌性幼鸟 / 飞行 / 巢鸟…',
+                hintText: '图片例：雄性成鸟夏羽；音频例：黎明鸣唱 / 飞行叫声',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
             ),
+            if (_selectedMediaType == 'audio') ...[
+              const SizedBox(height: 16),
+              _sectionHeader('音频类型 *'),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'call',
+                    icon: Icon(Icons.record_voice_over_outlined),
+                    label: Text('鸣叫 call'),
+                  ),
+                  ButtonSegment(
+                    value: 'song',
+                    icon: Icon(Icons.music_note_outlined),
+                    label: Text('鸣唱 song'),
+                  ),
+                ],
+                selected: {_audioType},
+                onSelectionChanged: _uploading
+                    ? null
+                    : (values) => setState(() => _audioType = values.first),
+              ),
+            ],
             const SizedBox(height: 16),
             _sectionHeader('识别特征（可选）'),
             TextField(
@@ -758,8 +811,7 @@ class _UploadSectionState extends State<UploadSection> {
                   title: Text(b.zh.isEmpty ? b.en : b.zh,
                       style: const TextStyle(fontSize: 14)),
                   subtitle: Text('${b.en} · ${b.sci}',
-                      style: const TextStyle(
-                          fontSize: 11, fontStyle: FontStyle.italic)),
+                      style: const TextStyle(fontSize: 11)),
                   onTap: () => _selectBird(b),
                 );
               },
@@ -796,7 +848,7 @@ class _UploadSectionState extends State<UploadSection> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: _uploading
+                onPressed: (_uploading || _pickingFiles)
                     ? null
                     : () => _pickFiles(FileType.image, null),
                 icon: const Icon(Icons.image_outlined),
@@ -806,7 +858,7 @@ class _UploadSectionState extends State<UploadSection> {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: _uploading
+                onPressed: (_uploading || _pickingFiles)
                     ? null
                     : () => _pickFiles(FileType.custom,
                         ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg']),

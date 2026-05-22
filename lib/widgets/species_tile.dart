@@ -72,13 +72,19 @@ class SpeciesTile extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey[600],
-                        fontStyle: FontStyle.italic,
+                        fontStyle: species.en.isEmpty
+                            ? FontStyle.italic
+                            : FontStyle.normal,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       species.sci,
-                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[500],
+                        fontStyle: FontStyle.italic,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Wrap(

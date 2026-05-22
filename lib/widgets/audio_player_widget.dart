@@ -24,8 +24,22 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   final AudioPlayer _player = AudioPlayer();
   int _currentIndex = 0;
   bool _isPlaying = false;
+  String? _error;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
+
+  List<String> get _paths =>
+      widget.audioPaths.map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+
+  List<String> get _labels {
+    final paths = _paths;
+    return List.generate(paths.length, (i) {
+      if (i < widget.audioLabels.length && widget.audioLabels[i].trim().isNotEmpty) {
+        return widget.audioLabels[i].trim();
+      }
+      return '音频 ${i + 1}';
+    });
+  }
 
   @override
   void initState() {
@@ -62,22 +76,36 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       _currentIndex = 0;
       _duration = Duration.zero;
       _position = Duration.zero;
+      _error = null;
     }
   }
 
   Future<void> _play(int index) async {
-    if (index < 0 || index >= widget.audioPaths.length) return;
+    final paths = _paths;
+    if (index < 0 || index >= paths.length) return;
     setState(() {
       _currentIndex = index;
       _isPlaying = true;
       _position = Duration.zero;
+      _error = null;
     });
     try {
-      await _player.setSource(DeviceFileSource(widget.audioPaths[index]));
+      final path = paths[index];
+      final uri = Uri.tryParse(path);
+      final source = uri != null &&
+              uri.hasScheme &&
+              (uri.scheme == 'http' || uri.scheme == 'https')
+          ? UrlSource(path)
+          : DeviceFileSource(path);
+      await _player.setSource(source);
       await _player.resume();
       widget.onPlayStarted?.call();
     } catch (e) {
-      setState(() => _isPlaying = false);
+      if (!mounted) return;
+      setState(() {
+        _isPlaying = false;
+        _error = '音频加载失败';
+      });
     }
   }
 
@@ -98,7 +126,9 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.audioPaths.isEmpty) {
+    final paths = _paths;
+    final labels = _labels;
+    if (paths.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(16),
         child: Center(
@@ -111,18 +141,18 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       mainAxisSize: MainAxisSize.min,
       children: [
         // 音频类型标签切换
-        if (widget.audioPaths.length > 1)
+        if (paths.length > 1)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(widget.audioPaths.length, (i) {
+              children: List.generate(paths.length, (i) {
                 final active = i == _currentIndex;
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: ChoiceChip(
                     label: Text(
-                      widget.audioLabels[i],
+                      labels[i],
                       style: const TextStyle(fontSize: 12),
                     ),
                     selected: active,
@@ -140,7 +170,7 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               width: 44,
               height: 44,
               child: FloatingActionButton(
-                heroTag: 'play_btn',
+                heroTag: null,
                 backgroundColor: Colors.green[700],
                 onPressed: _togglePlay,
                 child: Icon(
@@ -183,13 +213,17 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             ),
           ],
         ),
+        if (_error != null) ...[
+          const SizedBox(height: 6),
+          Text(_error!, style: const TextStyle(fontSize: 12, color: Colors.red)),
+        ],
       ],
     );
   }
 
   /// 外部调用：自动播放
   void autoPlay() {
-    if (widget.audioPaths.isNotEmpty) {
+    if (_paths.isNotEmpty) {
       _play(0);
     }
   }

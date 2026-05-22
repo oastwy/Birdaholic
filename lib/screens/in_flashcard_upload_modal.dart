@@ -64,7 +64,9 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   final _descriptionCtrl = TextEditingController();
   final List<File> _files = [];
   int _difficulty = 1;
+  String _audioType = 'call';
   bool _ccChecked = false;
+  bool _pickingFiles = false;
   bool _uploading = false;
   int _progress = 0;
   String? _resultMessage;
@@ -107,6 +109,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   }
 
   Future<void> _pickFiles() async {
+    if (_pickingFiles) return;
+    setState(() => _pickingFiles = true);
     try {
       final result = await FilePicker.pickFiles(
         type: widget.kind == UploadKind.image
@@ -124,6 +128,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
       });
     } catch (e) {
       _snack('选取文件失败：$e');
+    } finally {
+      if (mounted) setState(() => _pickingFiles = false);
     }
   }
 
@@ -168,6 +174,9 @@ class _UploadModalContentState extends State<_UploadModalContent> {
             token: token,
             difficulty: _difficulty,
             description: _descriptionCtrl.text.trim(),
+            mediaType: widget.kind == UploadKind.image ? 'image' : 'audio',
+            audioType: widget.kind == UploadKind.audio ? _audioType : '',
+            license: 'CC BY-NC 4.0',
           );
         } else {
           // 仅本地保存
@@ -231,7 +240,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
 
   Future<void> _openCcUrl() async {
     final uri =
-        Uri.parse('https://creativecommons.org/licenses/by/4.0/deed.zh-hans');
+        Uri.parse('https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans');
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -283,6 +292,29 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                         isDense: true,
                       ),
                     ),
+                    if (widget.kind == UploadKind.audio) ...[
+                      const SizedBox(height: 14),
+                      _label('音频类型 *'),
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 'call',
+                            icon: Icon(Icons.record_voice_over_outlined),
+                            label: Text('鸣叫 call'),
+                          ),
+                          ButtonSegment(
+                            value: 'song',
+                            icon: Icon(Icons.music_note_outlined),
+                            label: Text('鸣唱 song'),
+                          ),
+                        ],
+                        selected: {_audioType},
+                        onSelectionChanged: _uploading
+                            ? null
+                            : (values) =>
+                                setState(() => _audioType = values.first),
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     _label('难度（默认 1 星）'),
                     Row(
@@ -321,7 +353,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                     _label(
                         widget.kind == UploadKind.image ? '选取图片 *' : '选取音频 *'),
                     OutlinedButton.icon(
-                      onPressed: _uploading ? null : _pickFiles,
+                      onPressed: (_uploading || _pickingFiles) ? null : _pickFiles,
                       icon: Icon(widget.kind == UploadKind.image
                           ? Icons.image_outlined
                           : Icons.audiotrack_outlined),
@@ -548,14 +580,14 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '我确认拥有该媒体的版权，并以 CC BY 4.0 协议授权 Birdaholic 使用',
+                    '我确认拥有该媒体的版权，并以 CC BY-NC 4.0（署名-非商业性使用）协议授权 Birdaholic 使用',
                     style: TextStyle(fontSize: 13),
                   ),
                   const SizedBox(height: 4),
                   InkWell(
                     onTap: _openCcUrl,
                     child: const Text(
-                      '了解 CC BY 4.0 →',
+                      '了解 CC BY-NC 4.0 →',
                       style: TextStyle(
                         fontSize: 12,
                         color: Color(0xFF2d7d32),

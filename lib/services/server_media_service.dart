@@ -288,27 +288,36 @@ class ServerImageMedia {
 }
 
 class ServerAudioMedia {
+  final String file;
   final String url;
   final String type;
   final String contributor;
   final String contributorUrl;
   final String license;
+  final String spectrogram;
+  final String spectrogramUrl;
 
   const ServerAudioMedia({
+    required this.file,
     required this.url,
     required this.type,
     required this.contributor,
     required this.contributorUrl,
     required this.license,
+    required this.spectrogram,
+    required this.spectrogramUrl,
   });
 
   factory ServerAudioMedia.fromJson(Map<String, dynamic> json) {
     return ServerAudioMedia(
+      file: json['file'] as String? ?? '',
       url: json['url'] as String? ?? '',
       type: json['type'] as String? ?? '',
       contributor: json['contributor'] as String? ?? '',
       contributorUrl: json['contributor_url'] as String? ?? '',
       license: json['license'] as String? ?? '',
+      spectrogram: json['spectrogram'] as String? ?? '',
+      spectrogramUrl: json['spectrogram_url'] as String? ?? '',
     );
   }
 }

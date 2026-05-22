@@ -174,6 +174,9 @@ class AdminUploadService {
     required String filePath,
     required String token,
     String contributor = '管理员上传',
+    String mediaType = '',
+    String audioType = '',
+    String license = 'CC BY-NC 4.0',
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -182,6 +185,9 @@ class AdminUploadService {
     request.headers['Authorization'] = 'Bearer $token';
     request.fields['sci'] = species.sci;
     request.fields['contributor'] = contributor;
+    if (mediaType.isNotEmpty) request.fields['media_type'] = mediaType;
+    if (audioType.isNotEmpty) request.fields['audio_type'] = audioType;
+    request.fields['license'] = license;
     request.files.add(await http.MultipartFile.fromPath('files', filePath));
 
     final response = await request.send();
@@ -201,6 +207,9 @@ class AdminUploadService {
     required String token,
     int difficulty = 0,
     String description = '',
+    String mediaType = '',
+    String audioType = '',
+    String license = 'CC BY-NC 4.0',
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -210,6 +219,9 @@ class AdminUploadService {
     request.fields['token'] = token;
     request.fields['sci'] = sci;
     request.fields['contributor'] = contributor;
+    if (mediaType.isNotEmpty) request.fields['media_type'] = mediaType;
+    if (audioType.isNotEmpty) request.fields['audio_type'] = audioType;
+    request.fields['license'] = license;
     if (description.trim().isNotEmpty) {
       request.fields['description'] = description.trim();
     }
@@ -228,6 +240,30 @@ class AdminUploadService {
       throw Exception('服务器拒收：$reason');
     }
     return data;
+  }
+
+  Future<void> deleteServerMedia({
+    required String sci,
+    required String kind,
+    required String file,
+    required String token,
+  }) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/api/admin/media'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'sci': sci,
+        'kind': kind,
+        'file': file,
+        'token': token,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('删除失败: ${response.statusCode} ${response.body}');
+    }
   }
 
   Future<List<HistoryItem>> fetchHistory({

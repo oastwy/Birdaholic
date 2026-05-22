@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import time
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -194,6 +195,47 @@ def load_manifest(sci: str, item: dict[str, Any] | None = None) -> dict[str, Any
 def public_url(sci: str, kind: str, filename: str) -> str:
     key = species_key(sci)
     return f"{PUBLIC_BASE_URL}/species/{key}/{kind}/{filename}"
+
+
+def _safe_manifest_file(value: str, expected_prefix: str) -> Path:
+    rel = Path(value)
+    if rel.is_absolute() or ".." in rel.parts or not value.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    return rel
+
+
+def try_generate_spectrogram(sci: str, audio_file: Path) -> dict[str, str]:
+    """Best-effort spectrogram generation. Upload must succeed even if this fails."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return {}
+    key = species_key(sci)
+    out_dir = SPECIES_DIR / key / "audio_spectrograms"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_name = f"{audio_file.stem}.png"
+    out_path = out_dir / out_name
+    try:
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(audio_file),
+                "-lavfi",
+                "showspectrumpic=s=900x300:legend=disabled",
+                str(out_path),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=45,
+            check=True,
+        )
+    except Exception:
+        return {}
+    return {
+        "spectrogram": f"audio_spectrograms/{out_name}",
+        "spectrogram_url": public_url(sci, "audio_spectrograms", out_name),
+    }
 
 
 def build_index_rows() -> list[dict[str, Any]]:
@@ -486,6 +528,10 @@ async def upload(
     contributor: str = Form("用户上传"),
     difficulty: int = Form(0),
     features: str = Form(""),
+    description: str = Form(""),
+    media_type: str = Form(""),
+    audio_type: str = Form(""),
+    license: str = Form("CC BY-NC 4.0"),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     user = authenticate(authorization, token)
@@ -509,6 +555,18 @@ async def upload(
 
     for upload_file in files:
         kind = media_kind(upload_file.filename, upload_file.content_type or "")
+        requested_kind = media_type.strip().lower()
+        if requested_kind in {"image", "images"}:
+            requested_kind = "images"
+        elif requested_kind == "audio":
+            requested_kind = "audio"
+        else:
+            requested_kind = ""
+        if requested_kind and kind and requested_kind != kind:
+            failed.append({"file": upload_file.filename, "reason": "media type mismatch"})
+            continue
+        if requested_kind and not kind:
+            kind = requested_kind
         if kind is None:
             failed.append({"file": upload_file.filename, "reason": "unsupported file type"})
             continue
@@ -538,11 +596,14 @@ async def upload(
                 "contributor": contributor.strip() or user.get("name", "用户上传"),
                 "contributor_url": "",
                 "source": "birdaholic-upload",
+                "license": license.strip() or "CC BY-NC 4.0",
                 "uploader_id": user["id"],
                 "uploader_role": user["role"],
                 "uploader_name": user.get("name", ""),
                 "uploaded_at": now_ts,
             }
+            if description.strip():
+                entry["description"] = description.strip()
             if difficulty:
                 # Admin: authoritative entry-level difficulty.
                 # Beta: suggested difficulty, surfaced during review.
@@ -553,19 +614,25 @@ async def upload(
                 entry["pending"] = True
             manifest.setdefault("images", []).append(entry)
         else:
-            file_type = "song" if "song" in upload_file.filename.lower() else "call"
+            normalized_audio_type = audio_type.strip().lower()
+            if normalized_audio_type not in {"song", "call"}:
+                normalized_audio_type = "song" if "song" in upload_file.filename.lower() else "call"
             entry = {
                 "file": f"audio/{filename}",
                 "url": public_url(target_sci, "audio", filename),
-                "type": file_type,
+                "type": normalized_audio_type,
                 "contributor": contributor.strip() or user.get("name", "用户上传"),
                 "contributor_url": "",
                 "source": "birdaholic-upload",
+                "license": license.strip() or "CC BY-NC 4.0",
                 "uploader_id": user["id"],
                 "uploader_role": user["role"],
                 "uploader_name": user.get("name", ""),
                 "uploaded_at": now_ts,
             }
+            if description.strip():
+                entry["description"] = description.strip()
+            entry.update(try_generate_spectrogram(target_sci, target))
             if difficulty:
                 entry["difficulty" if is_admin else "suggested_difficulty"] = difficulty
             if feat:
@@ -800,6 +867,71 @@ async def admin_reject(
     return {"rejected": True, "sci": sci, "file": file}
 
 
+@app.delete("/api/admin/media")
+async def admin_delete_media(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    kind = str(payload.get("kind", "")).strip()
+    file = str(payload.get("file", "")).strip()
+    if not sci or not kind or not file:
+        raise HTTPException(status_code=400, detail="Missing sci/kind/file")
+    if kind not in ("images", "audio"):
+        raise HTTPException(status_code=400, detail="kind must be images or audio")
+
+    prefix = "images/" if kind == "images" else "audio/"
+    rel = _safe_manifest_file(file, prefix)
+    key = species_key(sci)
+    mp = SPECIES_DIR / key / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+    m = json.loads(mp.read_text(encoding="utf-8"))
+
+    removed: dict[str, Any] | None = None
+    kept = []
+    for entry in m.get(kind, []):
+        if entry.get("file") == file and removed is None:
+            removed = entry
+            continue
+        kept.append(entry)
+    if removed is None:
+        raise HTTPException(status_code=404, detail="Media entry not found")
+    m[kind] = kept
+
+    for field in ("file", "spectrogram"):
+        rel_value = str(removed.get(field, "")).strip()
+        if not rel_value:
+            continue
+        expected = prefix if field == "file" else "audio_spectrograms/"
+        try:
+            rel_path = _safe_manifest_file(rel_value, expected)
+        except HTTPException:
+            continue
+        target = SPECIES_DIR / key / rel_path
+        try:
+            if target.exists():
+                target.unlink()
+        except Exception:
+            pass
+
+    if kind == "images" and m.get("image") == file:
+        next_image = next((e for e in m.get("images", []) if not e.get("pending")), None)
+        if next_image:
+            m["image"] = next_image.get("file", "")
+            m["image_credit"] = next_image.get("credit") or next_image.get("contributor", "")
+            m["image_license"] = next_image.get("license", "")
+        else:
+            for field in ("image", "image_credit", "image_license"):
+                m.pop(field, None)
+
+    mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    update_index()
+    return {"deleted": True, "sci": sci, "kind": kind, "file": file}
+
+
 def _save_users(users: dict) -> None:
     USERS_FILE.write_text(
         json.dumps(users, ensure_ascii=False, indent=2) + "\n",
@@ -925,4 +1057,3 @@ async def set_image_difficulty(
         raise HTTPException(status_code=404, detail="File not found in manifest")
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {"saved": True, "sci": sci, "file": file, "difficulty": difficulty}
-

@@ -19,6 +19,7 @@ import 'audit_history_section.dart';
 import 'upload_section.dart';
 import 'upload_review_section.dart';
 import 'user_management_section.dart';
+import 'server_media_manager_section.dart';
 
 enum _PackManageSection {
   root,
@@ -29,6 +30,7 @@ enum _PackManageSection {
   upload,
   uploadReview,
   uploadHistory,
+  serverMediaManager,
   userManagement,
   feedbackReview,
 }
@@ -970,6 +972,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _PackManageSection.upload => _buildUploadSection(),
         _PackManageSection.uploadReview => _buildUploadReviewSection(),
         _PackManageSection.uploadHistory => _buildUploadHistorySection(),
+        _PackManageSection.serverMediaManager => _buildServerMediaManagerSection(),
         _PackManageSection.userManagement => _buildUserManagementSection(),
         _PackManageSection.feedbackReview => _buildFeedbackReviewSection(),
       },
@@ -1155,6 +1158,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
           setState(() => _section = _PackManageSection.userManagement),
       onOpenFeedbackReview: () =>
           setState(() => _section = _PackManageSection.feedbackReview),
+      onOpenServerMediaManager: () =>
+          setState(() => _section = _PackManageSection.serverMediaManager),
     );
   }
 
@@ -1191,6 +1196,13 @@ class _PackManageScreenState extends State<PackManageScreen> {
       );
     }
     return UserManagementSection(
+      storage: widget.storage,
+      onBack: () => setState(() => _section = _PackManageSection.upload),
+    );
+  }
+
+  Widget _buildServerMediaManagerSection() {
+    return ServerMediaManagerSection(
       storage: widget.storage,
       onBack: () => setState(() => _section = _PackManageSection.upload),
     );

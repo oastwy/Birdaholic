@@ -1877,7 +1877,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                         fontSize: 13,
                                         height: 1.1,
                                         color: color ?? Colors.grey[700],
-                                        fontStyle: FontStyle.italic,
                                       ),
                                     ),
                                   ),

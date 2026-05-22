@@ -337,6 +337,15 @@ class BirdCardState extends State<BirdCard>
             style: TextStyle(
               fontSize: 15,
               color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            sp.sci,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[500],
               fontStyle: FontStyle.italic,
             ),
             textAlign: TextAlign.center,

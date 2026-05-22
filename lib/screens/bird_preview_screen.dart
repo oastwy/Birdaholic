@@ -446,8 +446,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
                 sp.en,
                 style: const TextStyle(
                     fontSize: 16,
-                    color: Colors.white70,
-                    fontStyle: FontStyle.italic),
+                    color: Colors.white70),
               ),
               if (sp.consText.isNotEmpty) ...[
                 const SizedBox(height: 6),
@@ -752,34 +751,53 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
             final label = audio.type == 'song' ? '鸣唱 song' : '鸣叫 call';
             return Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: AudioPlayerWidget(
-                      audioPaths: [audio.url],
-                      audioLabels: [label],
-                    ),
-                  ),
-                  if (audio.contributor.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: audio.contributorUrl.isNotEmpty
-                          ? () => launchUrl(
-                                Uri.parse(audio.contributorUrl),
-                                mode: LaunchMode.externalApplication,
-                              )
-                          : null,
-                      child: Text(
-                        audio.contributor,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: audio.contributorUrl.isNotEmpty
-                              ? Colors.greenAccent[200]
-                              : Colors.white38,
-                          decoration: audio.contributorUrl.isNotEmpty
-                              ? TextDecoration.underline
-                              : null,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: AudioPlayerWidget(
+                          audioPaths: [audio.url],
+                          audioLabels: [label],
                         ),
+                      ),
+                      if (audio.contributor.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: audio.contributorUrl.isNotEmpty
+                              ? () => launchUrl(
+                                    Uri.parse(audio.contributorUrl),
+                                    mode: LaunchMode.externalApplication,
+                                  )
+                              : null,
+                          child: Text(
+                            audio.contributor,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: audio.contributorUrl.isNotEmpty
+                                  ? Colors.greenAccent[200]
+                                  : Colors.white38,
+                              decoration: audio.contributorUrl.isNotEmpty
+                                  ? TextDecoration.underline
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (audio.spectrogramUrl.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        audio.spectrogramUrl,
+                        height: 86,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            const SizedBox.shrink(),
                       ),
                     ),
                   ],
