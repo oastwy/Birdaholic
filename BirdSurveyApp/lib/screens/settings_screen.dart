@@ -451,7 +451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         controller: _syncServerCtrl,
                         decoration: const InputDecoration(
                           labelText: '服务器地址',
-                          hintText: '例如 https://birding.today/api',
+                          hintText: '例如 https://birding.today/survey-api',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.dns),
                         ),
@@ -1088,7 +1088,7 @@ class _InviteCodeWidgetState extends State<_InviteCodeWidget> {
   Future<void> _redeem() async {
     final code = _codeCtrl.text.trim();
     final server = _serverCtrl.text.trim().isEmpty
-        ? 'https://birding.today/api'
+        ? 'https://birding.today/survey-api'
         : _serverCtrl.text.trim();
     if (code.isEmpty) {
       setState(() {
@@ -1179,7 +1179,7 @@ class _InviteCodeWidgetState extends State<_InviteCodeWidget> {
               controller: _serverCtrl,
               decoration: const InputDecoration(
                 labelText: '服务器地址（留空用默认）',
-                hintText: 'https://birding.today/api',
+                hintText: 'https://birding.today/survey-api',
                 border: OutlineInputBorder(),
                 isDense: true,
                 prefixIcon: Icon(Icons.dns_outlined),
