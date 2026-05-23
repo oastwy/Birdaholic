@@ -138,6 +138,21 @@ class SyncService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  Future<List<Map<String, String>>> fetchOrganizations() async {
+    final res = await _client
+        .get(Uri.parse('$serverUrl/admin/organizations'), headers: _headers)
+        .timeout(const Duration(seconds: 15));
+    _throwIfBad(res);
+    final json = jsonDecode(res.body) as Map<String, dynamic>;
+    final items = (json['organizations'] as List? ?? const []);
+    return items
+        .map((e) => {
+              'id': (e as Map)['id']?.toString() ?? '',
+              'name': e['name']?.toString() ?? '',
+            })
+        .toList();
+  }
+
   Future<Map<String, dynamic>> createOrganization(String name) async {
     final res = await _client
         .post(

@@ -133,6 +133,25 @@ def me(principal: Principal = Depends(require_principal)):
     }
 
 
+@app.get("/admin/organizations")
+def list_organizations(principal: Principal = Depends(require_admin)):
+    with connect() as conn:
+        if principal.role == "super_admin":
+            rows = conn.execute(
+                "SELECT id, name, created_at FROM organizations ORDER BY created_at DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, name, created_at FROM organizations WHERE id = %s",
+                (principal.organization_id,),
+            ).fetchall()
+    return {
+        "organizations": [
+            {"id": str(r["id"]), "name": r["name"]} for r in rows
+        ]
+    }
+
+
 @app.post("/admin/organizations")
 def create_organization(
     data: OrganizationIn, principal: Principal = Depends(require_admin)

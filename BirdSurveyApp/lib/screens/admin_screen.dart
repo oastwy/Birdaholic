@@ -16,6 +16,7 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _loading = false;
   String? _error;
   List<CloudProject> _projects = [];
+  List<Map<String, String>> _orgs = [];
 
   @override
   void initState() {
@@ -34,10 +35,18 @@ class _AdminScreenState extends State<AdminScreen> {
       _error = null;
     });
     try {
-      final list = await _svc().fetchProjects();
+      final svc = _svc();
+      final projects = await svc.fetchProjects();
+      List<Map<String, String>> orgs = [];
+      try {
+        orgs = await svc.fetchOrganizations();
+      } catch (_) {
+        // member tokens can't list orgs — fall back silently
+      }
       if (mounted) {
         setState(() {
-          _projects = list;
+          _projects = projects;
+          _orgs = orgs;
           _loading = false;
         });
       }
@@ -55,10 +64,11 @@ class _AdminScreenState extends State<AdminScreen> {
     final name = await _promptText('新建机构', '机构名称');
     if (name == null || name.trim().isEmpty) return;
     try {
-      final org = await _svc().createOrganization(name.trim());
+      await _svc().createOrganization(name.trim());
+      await _refresh();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('机构已创建：${org['name']}')),
+        SnackBar(content: Text('机构「${name.trim()}」已创建')),
       );
     } catch (e) {
       _showError(e);
@@ -66,8 +76,14 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Future<void> _createProject() async {
+    if (_orgs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先新建一个机构')),
+      );
+      return;
+    }
     final orgId = await _pickOrgId();
-    if (orgId == null) return;
+    if (orgId == null || orgId.isEmpty) return;
     final name = await _promptText('新建项目', '项目名称');
     if (name == null || name.trim().isEmpty) return;
     try {
@@ -83,61 +99,22 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Future<String?> _pickOrgId() async {
-    final ctrl = TextEditingController();
     return showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => SimpleDialog(
         title: const Text('选择机构'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '当前项目所属的机构 ID（从已有项目里复制，或粘贴新建机构返回的 id）',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            ..._uniqueOrgs().map(
-              (e) => ListTile(
-                dense: true,
-                title: Text(e.$2.isEmpty ? '(无名机构)' : e.$2),
-                subtitle: Text(e.$1, style: const TextStyle(fontSize: 10)),
-                onTap: () => Navigator.pop(context, e.$1),
+        children: _orgs
+            .map(
+              (e) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, e['id']),
+                child: Text(
+                  (e['name'] ?? '').isEmpty ? '(无名机构)' : e['name']!,
+                ),
               ),
-            ),
-            const Divider(),
-            TextField(
-              controller: ctrl,
-              decoration: const InputDecoration(
-                labelText: '或手动粘贴机构 ID',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-            child: const Text('使用粘贴的 ID'),
-          ),
-        ],
+            )
+            .toList(),
       ),
     );
-  }
-
-  List<(String, String)> _uniqueOrgs() {
-    final map = <String, String>{};
-    for (final p in _projects) {
-      if (p.organizationId.isNotEmpty) {
-        map[p.organizationId] = p.organizationName;
-      }
-    }
-    return map.entries.map((e) => (e.key, e.value)).toList();
   }
 
   Future<String?> _promptText(String title, String label) async {
@@ -357,6 +334,35 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                       ),
                     ),
+                  if (_orgs.isNotEmpty) ...[
+                    const Divider(height: 32),
+                    Text(
+                      '机构列表（${_orgs.length}）',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._orgs.map(
+                      (o) => Card(
+                        child: ListTile(
+                          leading: Icon(Icons.business,
+                              color: Colors.green[700]),
+                          title: Text(
+                            (o['name'] ?? '').isEmpty
+                                ? '(无名机构)'
+                                : o['name']!,
+                          ),
+                          subtitle: SelectableText(
+                            'ID: ${o['id']}',
+                            style: const TextStyle(
+                                fontSize: 10, color: Colors.grey),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   const Divider(height: 32),
                   Text(
                     '项目列表（${_projects.length}）',
