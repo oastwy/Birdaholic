@@ -123,6 +123,96 @@ class SyncService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> redeemInviteCode({
+    required String code,
+    required String label,
+  }) async {
+    final res = await _client
+        .post(
+          Uri.parse('$serverUrl/invite/redeem'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'code': code.trim().toUpperCase(), 'label': label.trim()}),
+        )
+        .timeout(const Duration(seconds: 15));
+    _throwIfBad(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createOrganization(String name) async {
+    final res = await _client
+        .post(
+          Uri.parse('$serverUrl/admin/organizations'),
+          headers: _headers,
+          body: jsonEncode({'name': name}),
+        )
+        .timeout(const Duration(seconds: 15));
+    _throwIfBad(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createProject({
+    required String name,
+    String? organizationId,
+  }) async {
+    final res = await _client
+        .post(
+          Uri.parse('$serverUrl/projects'),
+          headers: _headers,
+          body: jsonEncode({
+            'name': name,
+            if (organizationId != null && organizationId.isNotEmpty)
+              'organizationId': organizationId,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    _throwIfBad(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createAdminToken({
+    required String role,
+    required String label,
+    String? organizationId,
+    String? projectId,
+  }) async {
+    final res = await _client
+        .post(
+          Uri.parse('$serverUrl/admin/tokens'),
+          headers: _headers,
+          body: jsonEncode({
+            'role': role,
+            'label': label,
+            if (organizationId != null && organizationId.isNotEmpty)
+              'organizationId': organizationId,
+            if (projectId != null && projectId.isNotEmpty)
+              'projectId': projectId,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    _throwIfBad(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createInviteCode({
+    required String projectId,
+    String labelPrefix = '',
+    int? maxUses,
+  }) async {
+    final res = await _client
+        .post(
+          Uri.parse('$serverUrl/admin/invite-codes'),
+          headers: _headers,
+          body: jsonEncode({
+            'projectId': projectId,
+            'labelPrefix': labelPrefix,
+            if (maxUses != null) 'maxUses': maxUses,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    _throwIfBad(res);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   void _throwIfBad(http.Response res) {
     if (res.statusCode >= 200 && res.statusCode < 300) return;
     String message = res.body;

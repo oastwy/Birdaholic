@@ -81,6 +81,19 @@ CREATE TABLE IF NOT EXISTS field_configs (
   UNIQUE(project_id, client_id)
 );
 
+CREATE TABLE IF NOT EXISTS invite_codes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT NOT NULL UNIQUE,
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  organization_id UUID REFERENCES organizations(id),
+  label_prefix TEXT NOT NULL DEFAULT '',
+  max_uses INTEGER,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ,
+  created_by_token_id UUID REFERENCES access_tokens(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID REFERENCES projects(id) ON DELETE CASCADE,

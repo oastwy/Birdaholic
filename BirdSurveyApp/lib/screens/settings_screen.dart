@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/custom_field.dart';
 import '../providers/survey_provider.dart';
+import '../services/sync_service.dart';
 import '../services/tide_service.dart';
 import '../services/webdav_service.dart';
 
@@ -418,87 +419,110 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 32),
 
           // ── 协作同步 ──────────────────────────────────────────────────────
-          _SectionHeader('协作同步（Token）'),
+          _SectionHeader('协作同步'),
           const Text(
-            '无需注册登录。填写服务器地址和管理员分配的 Token 后，可同步项目样点、字段配置和调查记录。',
+            '无需注册账号。输入管理员发给你的邀请码，一键加入调查项目。',
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _syncServerCtrl,
-            decoration: const InputDecoration(
-              labelText: '服务器地址',
-              hintText: '例如 https://survey.example.com',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.dns),
-            ),
+          _InviteCodeWidget(
+            syncServerCtrl: _syncServerCtrl,
+            syncTokenCtrl: _syncTokenCtrl,
+            onSettingsChanged: () => setState(() {}),
           ),
-          const SizedBox(height: 8),
-          _ApiKeyField(
-            controller: _syncTokenCtrl,
-            label: '同步 Token',
-            hint: '由超级管理员或机构管理员生成；请求使用 Authorization: Bearer token',
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Consumer<SurveyProvider>(
-            builder:
-                (context, prov, _) => Card(
-                  color: const Color(0xFFF7F9F7),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          prov.syncStatus,
-                          style: const TextStyle(fontSize: 12),
+            builder: (context, prov, _) {
+              final isAdmin = prov.syncIdentity?.role == 'org_admin' ||
+                  prov.syncIdentity?.role == 'super_admin';
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    title: const Text(
+                      '手动填写（高级）',
+                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                    children: [
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _syncServerCtrl,
+                        decoration: const InputDecoration(
+                          labelText: '服务器地址',
+                          hintText: '例如 https://birding.today/api',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.dns),
                         ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              icon: const Icon(Icons.verified_user),
-                              label: const Text('验证 Token'),
-                              onPressed: () async {
-                                await prov.saveSyncSettings(
-                                  serverUrl: _syncServerCtrl.text,
-                                  token: _syncTokenCtrl.text,
-                                );
-                                await prov.validateSyncToken();
-                              },
-                            ),
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.sync),
-                              label: const Text('立即同步'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green[700],
-                                foregroundColor: Colors.white,
+                      ),
+                      const SizedBox(height: 8),
+                      _ApiKeyField(
+                        controller: _syncTokenCtrl,
+                        label: '同步 Token',
+                        hint: '由管理员生成或通过邀请码自动填入',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Card(
+                    color: const Color(0xFFF7F9F7),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            prov.syncStatus,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.verified_user),
+                                label: const Text('验证连接'),
+                                onPressed: () async {
+                                  await prov.saveSyncSettings(
+                                    serverUrl: _syncServerCtrl.text,
+                                    token: _syncTokenCtrl.text,
+                                  );
+                                  await prov.validateSyncToken();
+                                },
                               ),
-                              onPressed: () async {
-                                await prov.saveSyncSettings(
-                                  serverUrl: _syncServerCtrl.text,
-                                  token: _syncTokenCtrl.text,
-                                );
-                                await prov.syncNow();
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.sync),
+                                label: const Text('立即同步'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green[700],
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () async {
+                                  await prov.saveSyncSettings(
+                                    serverUrl: _syncServerCtrl.text,
+                                    token: _syncTokenCtrl.text,
+                                  );
+                                  await prov.syncNow();
+                                },
+                              ),
+                              if (isAdmin)
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.admin_panel_settings),
+                                  label: const Text('管理页（机构/项目/邀请码）'),
+                                  onPressed: () => Navigator.of(context)
+                                      .pushNamed('/admin'),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-          ),
-          const _ApiGuideCard(
-            title: 'Token 协作使用教程',
-            lines: [
-              '1. 超级管理员在后端创建机构、项目和机构管理员 Token。',
-              '2. 机构管理员继续创建普通成员 Token，并分发给志愿者。',
-              '3. App 只填写服务器地址和 Token，不需要账号密码。',
-              '4. Token 可撤销、可设置有效期；管理员修改他人记录会写入审计日志。',
-            ],
+                ],
+              );
+            },
           ),
 
           const Divider(height: 32),
@@ -1025,6 +1049,174 @@ class _FieldEditDialogState extends State<_FieldEditDialog> {
       if (parent.isNotEmpty && children.isNotEmpty) result[parent] = children;
     }
     return result;
+  }
+}
+
+// ── 邀请码兑换 ────────────────────────────────────────────────────────────────
+
+class _InviteCodeWidget extends StatefulWidget {
+  final TextEditingController syncServerCtrl;
+  final TextEditingController syncTokenCtrl;
+  final VoidCallback onSettingsChanged;
+
+  const _InviteCodeWidget({
+    required this.syncServerCtrl,
+    required this.syncTokenCtrl,
+    required this.onSettingsChanged,
+  });
+
+  @override
+  State<_InviteCodeWidget> createState() => _InviteCodeWidgetState();
+}
+
+class _InviteCodeWidgetState extends State<_InviteCodeWidget> {
+  final _codeCtrl = TextEditingController();
+  final _labelCtrl = TextEditingController();
+  final _serverCtrl = TextEditingController();
+  bool _loading = false;
+  String? _result;
+  bool _success = false;
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    _labelCtrl.dispose();
+    _serverCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _redeem() async {
+    final code = _codeCtrl.text.trim();
+    final server = _serverCtrl.text.trim().isEmpty
+        ? 'https://birding.today/api'
+        : _serverCtrl.text.trim();
+    if (code.isEmpty) {
+      setState(() {
+        _result = '请输入邀请码';
+        _success = false;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _result = null;
+    });
+    try {
+      final svc = SyncService(serverUrl: server, token: '');
+      final data = await svc.redeemInviteCode(
+        code: code,
+        label: _labelCtrl.text.trim(),
+      );
+      final token = data['token'] as String? ?? '';
+      final projectId = data['projectId'] as String? ?? '';
+      final projectName = data['projectName'] as String? ?? '';
+      widget.syncServerCtrl.text = server;
+      widget.syncTokenCtrl.text = token;
+      if (!mounted) return;
+      // ignore: use_build_context_synchronously
+      final prov = context.read<SurveyProvider>();
+      await prov.saveSyncSettings(serverUrl: server, token: token);
+      widget.onSettingsChanged();
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _success = true;
+          _result = '已加入项目「$projectName」(ID: ${projectId.substring(0, 8)}…)';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _success = false;
+          _result = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: _codeCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: '邀请码',
+                      hintText: 'BIRD-XXXXX',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      prefixIcon: Icon(Icons.vpn_key_outlined),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _labelCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '你的名字',
+                      hintText: '张三',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _serverCtrl,
+              decoration: const InputDecoration(
+                labelText: '服务器地址（留空用默认）',
+                hintText: 'https://birding.today/api',
+                border: OutlineInputBorder(),
+                isDense: true,
+                prefixIcon: Icon(Icons.dns_outlined),
+              ),
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              icon: _loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.login),
+              label: const Text('兑换邀请码加入项目'),
+              onPressed: _loading ? null : _redeem,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[700],
+                foregroundColor: Colors.white,
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _result!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _success ? Colors.green[700] : Colors.red[700],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 

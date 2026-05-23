@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/survey_provider.dart';
+import 'screens/admin_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
@@ -52,6 +53,7 @@ class BirdSurveyApp extends StatelessWidget {
         '/survey_points': (_) => const SurveyPointsScreen(),
         '/survey_projects': (_) => const SurveyProjectsScreen(),
         '/setup': (_) => const SetupScreen(),
+        '/admin': (_) => const AdminScreen(),
       },
     );
   }

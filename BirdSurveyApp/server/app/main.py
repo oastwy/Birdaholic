@@ -1,5 +1,7 @@
 import os
-from datetime import datetime
+import secrets
+import string
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -42,6 +44,18 @@ class TokenIn(BaseModel):
 class InviteIn(BaseModel):
     label: str = ""
     expiresAt: Optional[datetime] = None
+
+
+class InviteCodeIn(BaseModel):
+    projectId: str
+    labelPrefix: str = ""
+    maxUses: Optional[int] = None
+    expiresAt: Optional[datetime] = None
+
+
+class RedeemIn(BaseModel):
+    code: str
+    label: str = ""
 
 
 class SyncItem(BaseModel):
@@ -274,6 +288,113 @@ def project_invite(
         ),
         principal,
     )
+
+
+@app.post("/admin/invite-codes")
+def create_invite_code(
+    data: InviteCodeIn, principal: Principal = Depends(require_admin)
+):
+    _ensure_project_access(data.projectId, principal, require_admin_role=True)
+    with connect() as conn:
+        project = conn.execute(
+            "SELECT id, name, organization_id FROM projects WHERE id = %s",
+            (data.projectId,),
+        ).fetchone()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        for _ in range(10):
+            code = "BIRD-" + "".join(
+                secrets.choice(string.ascii_uppercase + string.digits) for _ in range(5)
+            )
+            exists = conn.execute(
+                "SELECT id FROM invite_codes WHERE code = %s", (code,)
+            ).fetchone()
+            if not exists:
+                break
+        else:
+            raise HTTPException(status_code=500, detail="Code generation failed")
+        row = conn.execute(
+            """
+            INSERT INTO invite_codes(
+              code, project_id, organization_id, label_prefix, max_uses,
+              expires_at, created_by_token_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, code, project_id, max_uses, expires_at
+            """,
+            (
+                code,
+                data.projectId,
+                str(project["organization_id"]) if project["organization_id"] else None,
+                data.labelPrefix,
+                data.maxUses,
+                data.expiresAt,
+                principal.id,
+            ),
+        ).fetchone()
+        conn.commit()
+    return {
+        "code": row["code"],
+        "projectId": str(row["project_id"]),
+        "projectName": project["name"],
+        "maxUses": row["max_uses"],
+        "expiresAt": row["expires_at"].isoformat() if row["expires_at"] else None,
+    }
+
+
+@app.post("/invite/redeem")
+def redeem_invite_code(data: RedeemIn):
+    code = data.code.strip().upper()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ic.id, ic.project_id, ic.organization_id, ic.label_prefix,
+                   ic.max_uses, ic.use_count, ic.expires_at,
+                   p.name AS project_name
+            FROM invite_codes ic
+            JOIN projects p ON p.id = ic.project_id
+            WHERE ic.code = %s
+            """,
+            (code,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="邀请码无效")
+        if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="邀请码已过期")
+        if row["max_uses"] is not None and row["use_count"] >= row["max_uses"]:
+            raise HTTPException(status_code=410, detail="邀请码已达到使用上限")
+        label = data.label.strip() or (row["label_prefix"] + "成员")
+        raw = new_token()
+        token_row = conn.execute(
+            """
+            INSERT INTO access_tokens(
+              token_hash, label, role, organization_id, project_id
+            )
+            VALUES (%s, %s, 'member', %s, %s)
+            RETURNING id, label, role, organization_id, project_id
+            """,
+            (hash_token(raw), label, row["organization_id"], str(row["project_id"])),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO project_members(project_id, token_id, role)
+            VALUES (%s, %s, 'member')
+            ON CONFLICT (project_id, token_id) DO NOTHING
+            """,
+            (str(row["project_id"]), token_row["id"]),
+        )
+        conn.execute(
+            "UPDATE invite_codes SET use_count = use_count + 1 WHERE id = %s",
+            (row["id"],),
+        )
+        conn.commit()
+    return {
+        "token": raw,
+        "projectId": str(row["project_id"]),
+        "projectName": row["project_name"],
+        "organizationId": str(row["organization_id"]) if row["organization_id"] else "",
+        "label": label,
+    }
 
 
 @app.get("/projects/{project_id}/sync")
