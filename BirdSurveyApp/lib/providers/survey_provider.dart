@@ -17,6 +17,7 @@ import '../services/ebird_service.dart';
 import '../services/location_service.dart';
 import '../services/survey_point_service.dart';
 import '../services/survey_project_service.dart';
+import '../services/sync_service.dart';
 import '../services/tide_service.dart';
 import '../services/transect_event_log_service.dart';
 import '../services/weather_service.dart';
@@ -61,6 +62,11 @@ class SurveyProvider extends ChangeNotifier {
   List<SurveyProject> _surveyProjects = [];
   List<HistoryFolder> _historyFolders = [];
   String _tiandituKey = '';
+  String _syncServerUrl = '';
+  String _syncToken = '';
+  SyncIdentity? _syncIdentity;
+  String _syncStatus = '未配置';
+  String _syncProjectId = '';
 
   // Per-species custom field definitions
   List<CustomField> _speciesFieldDefs = [];
@@ -118,6 +124,11 @@ class SurveyProvider extends ChangeNotifier {
   Set<String> get surveyPointWindFarms =>
       _surveyPoints.map((p) => p.windFarm).where((w) => w.isNotEmpty).toSet();
   String get tiandituKey => _tiandituKey;
+  String get syncServerUrl => _syncServerUrl;
+  String get syncToken => _syncToken;
+  SyncIdentity? get syncIdentity => _syncIdentity;
+  String get syncStatus => _syncStatus;
+  String get syncProjectId => _syncProjectId;
   bool get isTransect => _currentSession?.surveyMode == 'transect';
   List<TransectTrackPoint> get transectTrack =>
       _currentSession?.transectTrack ?? const [];
@@ -275,6 +286,10 @@ class SurveyProvider extends ChangeNotifier {
     _worldtidesKey = prefs.getString('worldtides_key') ?? '';
     _qweatherKey = prefs.getString('qweather_key') ?? '';
     _tiandituKey = prefs.getString('tianditu_key') ?? '';
+    _syncServerUrl = prefs.getString('sync_server_url') ?? '';
+    _syncToken = prefs.getString('sync_token') ?? '';
+    _syncProjectId = prefs.getString('sync_project_id') ?? '';
+    _syncStatus = _syncServerUrl.isEmpty || _syncToken.isEmpty ? '未配置' : '待验证';
     _tideSource = TideSourceLabel.fromName(
       prefs.getString('tide_source') ?? 'local',
     );
@@ -327,6 +342,114 @@ class SurveyProvider extends ChangeNotifier {
     _tiandituKey = tianditu;
     _qweatherKey = qweather;
     _tideSource = tideSource;
+    notifyListeners();
+  }
+
+  Future<void> saveSyncSettings({
+    required String serverUrl,
+    required String token,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    _syncServerUrl = serverUrl.trim();
+    _syncToken = token.trim();
+    _syncIdentity = null;
+    _syncStatus = _syncServerUrl.isEmpty || _syncToken.isEmpty ? '未配置' : '待验证';
+    await prefs.setString('sync_server_url', _syncServerUrl);
+    await prefs.setString('sync_token', _syncToken);
+    notifyListeners();
+  }
+
+  Future<void> validateSyncToken() async {
+    if (_syncServerUrl.isEmpty || _syncToken.isEmpty) {
+      _syncStatus = '请先填写服务器地址和 Token';
+      notifyListeners();
+      return;
+    }
+    _syncStatus = '验证中...';
+    notifyListeners();
+    try {
+      final service = SyncService(serverUrl: _syncServerUrl, token: _syncToken);
+      final identity = await service.validateToken();
+      final projects = await service.fetchProjects();
+      _syncIdentity = identity;
+      if (_syncProjectId.isEmpty && projects.isNotEmpty) {
+        _syncProjectId = projects.first.id;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('sync_project_id', _syncProjectId);
+      }
+      _syncStatus = '已连接：${identity.display}';
+    } catch (e) {
+      _syncStatus = '验证失败：$e';
+    }
+    notifyListeners();
+  }
+
+  Future<void> syncNow() async {
+    if (_syncServerUrl.isEmpty || _syncToken.isEmpty) {
+      _syncStatus = '请先填写服务器地址和 Token';
+      notifyListeners();
+      return;
+    }
+    _syncStatus = '同步中...';
+    notifyListeners();
+    try {
+      final service = SyncService(serverUrl: _syncServerUrl, token: _syncToken);
+      _syncIdentity ??= await service.validateToken();
+      final projects = await service.fetchProjects();
+      if (_syncProjectId.isEmpty && projects.isNotEmpty) {
+        _syncProjectId = projects.first.id;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('sync_project_id', _syncProjectId);
+      }
+      if (_syncProjectId.isEmpty) {
+        _syncStatus = '当前 Token 没有可同步项目';
+        notifyListeners();
+        return;
+      }
+      final fieldPayloads = [
+        {
+          'clientId': 'survey_custom_fields',
+          'kind': 'survey_custom_fields',
+          'payload': _customFields.map((f) => f.toJson()).toList(),
+        },
+        {
+          'clientId': 'species_field_defs',
+          'kind': 'species_field_defs',
+          'payload': _speciesFieldDefs.map((f) => f.toJson()).toList(),
+        },
+      ];
+      final result = await service.syncProject(
+        projectId: _syncProjectId,
+        surveySessions:
+            _history
+                .map(
+                  (s) => {
+                    'clientId':
+                        s.id?.toString() ?? s.startTime.toIso8601String(),
+                    'payload':
+                        s
+                            .copyWith(
+                              cloudProjectId: _syncProjectId,
+                              ownerUserLabel: _syncIdentity?.label ?? '',
+                              syncState: 'dirty',
+                              updatedAt: () => DateTime.now(),
+                            )
+                            .toMap(),
+                  },
+                )
+                .toList(),
+        surveyPoints:
+            _surveyPoints
+                .map((p) => {'clientId': p.id, 'payload': p.toJson()})
+                .toList(),
+        fieldConfigs: fieldPayloads,
+        since: null,
+      );
+      _syncStatus =
+          '同步完成：上传 ${result['accepted'] ?? 0} 条，下载 ${result['downloaded'] ?? 0} 条';
+    } catch (e) {
+      _syncStatus = '同步失败：$e';
+    }
     notifyListeners();
   }
 
@@ -914,6 +1037,7 @@ class SurveyProvider extends ChangeNotifier {
     double? manualLat,
     double? manualLon,
     SurveyMode mode = SurveyMode.point,
+    String title = '',
   }) async {
     _error = null;
     _resetCounts();
@@ -940,8 +1064,14 @@ class SurveyProvider extends ChangeNotifier {
       lon = pos?.longitude ?? 0;
     }
 
+    final now = DateTime.now();
+    final sessionTitle =
+        title.trim().isEmpty
+            ? _defaultSurveyTitle(customValues, mode, now)
+            : title.trim();
     final session = SurveySession(
-      startTime: DateTime.now(),
+      title: sessionTitle,
+      startTime: now,
       latitude: lat,
       longitude: lon,
       customValues: customValues,
@@ -959,6 +1089,7 @@ class SurveyProvider extends ChangeNotifier {
             : null;
     _currentSession = SurveySession(
       id: id,
+      title: session.title,
       startTime: session.startTime,
       latitude: lat,
       longitude: lon,
@@ -985,6 +1116,20 @@ class SurveyProvider extends ChangeNotifier {
       _fetchTide(lat, lon);
       _fetchWeather(lat, lon);
     }
+  }
+
+  String _defaultSurveyTitle(
+    Map<String, String> customValues,
+    SurveyMode mode,
+    DateTime time,
+  ) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final stamp =
+        '${time.year}-${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}';
+    final site = (customValues['位点名称'] ?? '').trim();
+    if (site.isNotEmpty) return '$site $stamp';
+    return '${mode == SurveyMode.transect ? '样线调查' : '样点调查'} $stamp';
   }
 
   void setNearbyMode(NearbyMode mode) {

@@ -15,7 +15,7 @@ class DatabaseService {
     final path = join(await getDatabasesPath(), 'bird_survey.db');
     return openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE surveys (
@@ -41,7 +41,14 @@ class DatabaseService {
             surveyMode TEXT DEFAULT 'point',
             activeTransectPointId TEXT DEFAULT '',
             transectTrack TEXT DEFAULT '',
-            observationEvents TEXT DEFAULT ''
+            observationEvents TEXT DEFAULT '',
+            cloudId TEXT DEFAULT '',
+            cloudProjectId TEXT DEFAULT '',
+            ownerTokenId TEXT DEFAULT '',
+            ownerUserLabel TEXT DEFAULT '',
+            revision INTEGER DEFAULT 0,
+            updatedAt TEXT,
+            syncState TEXT DEFAULT 'local'
           )
         ''');
         await _createVersionTable(db);
@@ -104,6 +111,27 @@ class DatabaseService {
         if (oldVersion < 9) {
           await db.execute(
             "ALTER TABLE surveys ADD COLUMN activeTransectPointId TEXT DEFAULT ''",
+          );
+        }
+        if (oldVersion < 10) {
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN cloudId TEXT DEFAULT ''",
+          );
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN cloudProjectId TEXT DEFAULT ''",
+          );
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN ownerTokenId TEXT DEFAULT ''",
+          );
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN ownerUserLabel TEXT DEFAULT ''",
+          );
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN revision INTEGER DEFAULT 0",
+          );
+          await db.execute("ALTER TABLE surveys ADD COLUMN updatedAt TEXT");
+          await db.execute(
+            "ALTER TABLE surveys ADD COLUMN syncState TEXT DEFAULT 'local'",
           );
         }
       },

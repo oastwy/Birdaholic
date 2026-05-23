@@ -19,6 +19,7 @@ class SurveyStartScreen extends StatefulWidget {
 
 class _SurveyStartScreenState extends State<SurveyStartScreen> {
   final Map<String, TextEditingController> _ctrl = {};
+  final TextEditingController _titleCtrl = TextEditingController();
   final Map<String, String> _sel = {};
   SurveyPoint? _selectedPoint;
   LatLng? _manualLocation;
@@ -83,6 +84,7 @@ class _SurveyStartScreenState extends State<SurveyStartScreen> {
     for (final c in _ctrl.values) {
       c.dispose();
     }
+    _titleCtrl.dispose();
     super.dispose();
   }
 
@@ -626,6 +628,19 @@ class _SurveyStartScreenState extends State<SurveyStartScreen> {
                       (set) => setState(() => _surveyMode = set.first),
                 ),
                 const SizedBox(height: 12),
+                TextField(
+                  controller: _titleCtrl,
+                  decoration: InputDecoration(
+                    labelText: '调查名称',
+                    hintText:
+                        _surveyMode == SurveyMode.transect
+                            ? '留空则自动生成：样线调查 + 时间'
+                            : '留空则自动生成：位点名 + 时间',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.drive_file_rename_outline),
+                  ),
+                ),
+                const SizedBox(height: 12),
 
                 SizedBox(
                   width: double.infinity,
@@ -675,6 +690,7 @@ class _SurveyStartScreenState extends State<SurveyStartScreen> {
                                 manualLat: manualLat,
                                 manualLon: manualLon,
                                 mode: _surveyMode,
+                                title: _titleCtrl.text,
                               );
                               if (context.mounted) {
                                 Navigator.pushReplacement(

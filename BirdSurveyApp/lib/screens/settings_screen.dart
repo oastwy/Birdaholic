@@ -21,6 +21,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _worldCtrl;
   late TextEditingController _tiandituCtrl;
   late TextEditingController _qweatherCtrl;
+  late TextEditingController _syncServerCtrl;
+  late TextEditingController _syncTokenCtrl;
   late TideSource _selectedSource;
   String _exportTemplate = 'full';
   String _nestedParentFieldId = '';
@@ -39,6 +41,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _worldCtrl = TextEditingController(text: prov.worldtidesKey);
     _tiandituCtrl = TextEditingController(text: prov.tiandituKey);
     _qweatherCtrl = TextEditingController(text: prov.qweatherKey);
+    _syncServerCtrl = TextEditingController(text: prov.syncServerUrl);
+    _syncTokenCtrl = TextEditingController(text: prov.syncToken);
     _selectedSource = prov.tideSource;
     _nestedParentFieldId = prov.nestedParentFieldId;
     _nestedChildFieldId = prov.nestedChildFieldId;
@@ -59,6 +63,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _worldCtrl.dispose();
     _tiandituCtrl.dispose();
     _qweatherCtrl.dispose();
+    _syncServerCtrl.dispose();
+    _syncTokenCtrl.dispose();
     super.dispose();
   }
 
@@ -79,6 +85,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prov.saveNestedFieldRelation(
       parentFieldId: _nestedParentFieldId,
       childFieldId: _nestedChildFieldId,
+    );
+    await prov.saveSyncSettings(
+      serverUrl: _syncServerCtrl.text,
+      token: _syncTokenCtrl.text,
     );
     if (mounted) {
       ScaffoldMessenger.of(
@@ -403,6 +413,92 @@ class _SettingsScreenState extends State<SettingsScreen> {
             groupValue: _exportTemplate,
             activeColor: Colors.green[700],
             onChanged: (v) => setState(() => _exportTemplate = v!),
+          ),
+
+          const Divider(height: 32),
+
+          // ── 协作同步 ──────────────────────────────────────────────────────
+          _SectionHeader('协作同步（Token）'),
+          const Text(
+            '无需注册登录。填写服务器地址和管理员分配的 Token 后，可同步项目样点、字段配置和调查记录。',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _syncServerCtrl,
+            decoration: const InputDecoration(
+              labelText: '服务器地址',
+              hintText: '例如 https://survey.example.com',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.dns),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ApiKeyField(
+            controller: _syncTokenCtrl,
+            label: '同步 Token',
+            hint: '由超级管理员或机构管理员生成；请求使用 Authorization: Bearer token',
+          ),
+          const SizedBox(height: 8),
+          Consumer<SurveyProvider>(
+            builder:
+                (context, prov, _) => Card(
+                  color: const Color(0xFFF7F9F7),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          prov.syncStatus,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.verified_user),
+                              label: const Text('验证 Token'),
+                              onPressed: () async {
+                                await prov.saveSyncSettings(
+                                  serverUrl: _syncServerCtrl.text,
+                                  token: _syncTokenCtrl.text,
+                                );
+                                await prov.validateSyncToken();
+                              },
+                            ),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.sync),
+                              label: const Text('立即同步'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green[700],
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () async {
+                                await prov.saveSyncSettings(
+                                  serverUrl: _syncServerCtrl.text,
+                                  token: _syncTokenCtrl.text,
+                                );
+                                await prov.syncNow();
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+          ),
+          const _ApiGuideCard(
+            title: 'Token 协作使用教程',
+            lines: [
+              '1. 超级管理员在后端创建机构、项目和机构管理员 Token。',
+              '2. 机构管理员继续创建普通成员 Token，并分发给志愿者。',
+              '3. App 只填写服务器地址和 Token，不需要账号密码。',
+              '4. Token 可撤销、可设置有效期；管理员修改他人记录会写入审计日志。',
+            ],
           ),
 
           const Divider(height: 32),

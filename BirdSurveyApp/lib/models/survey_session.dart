@@ -148,6 +148,13 @@ class SurveySession {
   final String activeTransectPointId;
   final List<TransectTrackPoint> transectTrack;
   final List<SpeciesObservationEvent> observationEvents;
+  final String cloudId;
+  final String cloudProjectId;
+  final String ownerTokenId;
+  final String ownerUserLabel;
+  final int revision;
+  final DateTime? updatedAt;
+  final String syncState; // local / dirty / synced / failed
 
   SurveySession({
     this.id,
@@ -174,6 +181,13 @@ class SurveySession {
     this.activeTransectPointId = '',
     List<TransectTrackPoint>? transectTrack,
     List<SpeciesObservationEvent>? observationEvents,
+    this.cloudId = '',
+    this.cloudProjectId = '',
+    this.ownerTokenId = '',
+    this.ownerUserLabel = '',
+    this.revision = 0,
+    this.updatedAt,
+    this.syncState = 'local',
   }) : observations = observations ?? {},
        speciesNames = speciesNames ?? {},
        customValues = customValues ?? {},
@@ -216,6 +230,13 @@ class SurveySession {
     String? activeTransectPointId,
     List<TransectTrackPoint>? transectTrack,
     List<SpeciesObservationEvent>? observationEvents,
+    String? cloudId,
+    String? cloudProjectId,
+    String? ownerTokenId,
+    String? ownerUserLabel,
+    int? revision,
+    DateTime? Function()? updatedAt,
+    String? syncState,
   }) => SurveySession(
     id: id,
     title: title ?? this.title,
@@ -267,6 +288,13 @@ class SurveySession {
               ),
             )
             .toList(),
+    cloudId: cloudId ?? this.cloudId,
+    cloudProjectId: cloudProjectId ?? this.cloudProjectId,
+    ownerTokenId: ownerTokenId ?? this.ownerTokenId,
+    ownerUserLabel: ownerUserLabel ?? this.ownerUserLabel,
+    revision: revision ?? this.revision,
+    updatedAt: updatedAt != null ? updatedAt() : this.updatedAt,
+    syncState: syncState ?? this.syncState,
     observations: Map.from(observations),
     speciesNames: Map.from(speciesNames),
     customValues: Map.from(customValues),
@@ -336,6 +364,13 @@ class SurveySession {
       'observationEvents': jsonEncode(
         observationEvents.map((e) => e.toJson()).toList(),
       ),
+      'cloudId': cloudId,
+      'cloudProjectId': cloudProjectId,
+      'ownerTokenId': ownerTokenId,
+      'ownerUserLabel': ownerUserLabel,
+      'revision': revision,
+      'updatedAt': updatedAt?.toIso8601String(),
+      'syncState': syncState,
     };
   }
 
@@ -427,6 +462,13 @@ class SurveySession {
       observationEvents: _decodeObservationEvents(
         map['observationEvents'] as String? ?? '',
       ),
+      cloudId: map['cloudId'] as String? ?? '',
+      cloudProjectId: map['cloudProjectId'] as String? ?? '',
+      ownerTokenId: map['ownerTokenId'] as String? ?? '',
+      ownerUserLabel: map['ownerUserLabel'] as String? ?? '',
+      revision: int.tryParse(map['revision']?.toString() ?? '') ?? 0,
+      updatedAt: DateTime.tryParse(map['updatedAt']?.toString() ?? ''),
+      syncState: map['syncState'] as String? ?? 'local',
     );
   }
 
