@@ -1,0 +1,174 @@
+{
+  "provinces": [
+    {
+      "code": "CN-11",
+      "name": "北京",
+      "count": 519
+    },
+    {
+      "code": "CN-12",
+      "name": "天津",
+      "count": 422
+    },
+    {
+      "code": "CN-13",
+      "name": "河北",
+      "count": 493
+    },
+    {
+      "code": "CN-14",
+      "name": "山西",
+      "count": 371
+    },
+    {
+      "code": "CN-15",
+      "name": "内蒙古",
+      "count": 414
+    },
+    {
+      "code": "CN-21",
+      "name": "辽宁",
+      "count": 412
+    },
+    {
+      "code": "CN-22",
+      "name": "吉林",
+      "count": 333
+    },
+    {
+      "code": "CN-23",
+      "name": "黑龙江",
+      "count": 307
+    },
+    {
+      "code": "CN-31",
+      "name": "上海",
+      "count": 527
+    },
+    {
+      "code": "CN-32",
+      "name": "江苏",
+      "count": 507
+    },
+    {
+      "code": "CN-33",
+      "name": "浙江",
+      "count": 637
+    },
+    {
+      "code": "CN-34",
+      "name": "安徽",
+      "count": 431
+    },
+    {
+      "code": "CN-35",
+      "name": "福建",
+      "count": 587
+    },
+    {
+      "code": "CN-36",
+      "name": "江西",
+      "count": 454
+    },
+    {
+      "code": "CN-37",
+      "name": "山东",
+      "count": 477
+    },
+    {
+      "code": "CN-41",
+      "name": "河南",
+      "count": 427
+    },
+    {
+      "code": "CN-42",
+      "name": "湖北",
+      "count": 513
+    },
+    {
+      "code": "CN-43",
+      "name": "湖南",
+      "count": 447
+    },
+    {
+      "code": "CN-44",
+      "name": "广东",
+      "count": 600
+    },
+    {
+      "code": "CN-45",
+      "name": "广西",
+      "count": 595
+    },
+    {
+      "code": "CN-46",
+      "name": "海南",
+      "count": 417
+    },
+    {
+      "code": "CN-50",
+      "name": "重庆",
+      "count": 401
+    },
+    {
+      "code": "CN-51",
+      "name": "四川",
+      "count": 679
+    },
+    {
+      "code": "CN-52",
+      "name": "贵州",
+      "count": 437
+    },
+    {
+      "code": "CN-53",
+      "name": "云南",
+      "count": 880
+    },
+    {
+      "code": "CN-54",
+      "name": "西藏",
+      "count": 632
+    },
+    {
+      "code": "CN-61",
+      "name": "陕西",
+      "count": 466
+    },
+    {
+      "code": "CN-62",
+      "name": "甘肃",
+      "count": 493
+    },
+    {
+      "code": "CN-63",
+      "name": "青海",
+      "count": 446
+    },
+    {
+      "code": "CN-64",
+      "name": "宁夏",
+      "count": 298
+    },
+    {
+      "code": "CN-65",
+      "name": "新疆",
+      "count": 410
+    },
+    {
+      "code": "CN-71",
+      "name": "中国 · 台湾",
+      "count": 737
+    },
+    {
+      "code": "CN-91",
+      "name": "中国 · 香港",
+      "count": 653
+    },
+    {
+      "code": "CN-92",
+      "name": "中国 · 澳门",
+      "count": 343
+    }
+  ]
+}

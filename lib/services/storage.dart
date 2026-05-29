@@ -13,6 +13,7 @@ class StorageService {
   static const _userRoleKey = 'upload_user_role'; // admin / beta / ''
   static const _userNameKey = 'upload_user_name';
   static const _contributorKey = 'upload_contributor';
+  static const _consentAcceptedKey = 'consent_accepted_version';
   static const _feedbackJournalKey = 'feedback_journal';
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
@@ -101,6 +102,13 @@ class StorageService {
     }
     await _prefs.setString(_userRoleKey, role);
     await _prefs.setString(_userNameKey, name);
+  }
+
+  String getConsentAcceptedVersion() =>
+      _prefs.getString(_consentAcceptedKey) ?? '';
+
+  Future<void> setConsentAccepted(String version) async {
+    await _prefs.setString(_consentAcceptedKey, version);
   }
 
   Future<void> setContributorName(String value) async {

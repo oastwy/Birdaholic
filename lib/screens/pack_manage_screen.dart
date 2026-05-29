@@ -277,6 +277,15 @@ class _PackManageScreenState extends State<PackManageScreen> {
                   label: const Text('下载中国完整名录（无需 eBird）'),
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(ctx, '__province_picker__'),
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('按中国省份下载（内置名录，无需 eBird）'),
+                ),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
@@ -357,7 +366,112 @@ class _PackManageScreenState extends State<PackManageScreen> {
       await _downloadFullChinaCatalog();
       return;
     }
+    if (countryCode == '__province_picker__') {
+      await _showProvincePicker();
+      return;
+    }
     await _downloadCountrySpecies(countryCode);
+  }
+
+  Future<void> _showProvincePicker() async {
+    final manifestText =
+        await rootBundle.loadString('assets/data/provinces/_manifest.json');
+    final manifest =
+        (jsonDecode(manifestText) as Map<String, dynamic>)['provinces']
+            as List<dynamic>;
+    final provinces = manifest
+        .whereType<Map<String, dynamic>>()
+        .map((m) => (
+              code: m['code'] as String,
+              name: m['name'] as String,
+              count: (m['count'] as num).toInt(),
+            ))
+        .toList();
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.78,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('选择省 / 直辖市 / 特别行政区',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '名录数据来源：eBird (Cornell Lab of Ornithology, ebird.org)，'
+                      '依据 eBird API 条款用于非商业用途。点击后逐物种从服务器下载媒体。',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 14),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: provinces.length,
+                  itemBuilder: (ctx, i) {
+                    final p = provinces[i];
+                    return ListTile(
+                      dense: true,
+                      title: Text(p.name,
+                          style:
+                              const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text('${p.count} 种',
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.grey)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.pop(ctx, p.code),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await _downloadProvinceSpecies(picked);
+  }
+
+  Future<void> _downloadProvinceSpecies(String provinceCode) async {
+    try {
+      final raw = await rootBundle
+          .loadString('assets/data/provinces/$provinceCode.json');
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final list = data['species'] as List<dynamic>;
+      final entries = list.whereType<Map<String, dynamic>>().map((item) {
+        final sci = (item['sci'] as String? ?? '').trim();
+        final en = (item['en'] as String? ?? '').trim();
+        final cn = (item['zh'] as String? ?? '').trim();
+        return SpeciesEntry(
+          cn: cn.isNotEmpty ? cn : en,
+          en: en.isNotEmpty ? en : sci,
+          sci: sci,
+          cons: '',
+          habitat: 'ebird:$provinceCode',
+        );
+      }).where((e) => e.sci.isNotEmpty).toList();
+      await _downloadChinaSpecies(entries);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载省份名录失败：$e')),
+      );
+    }
   }
 
   Future<void> _showLocationSpeciesDownloadSheet() async {

@@ -11,7 +11,7 @@
         android:maxSdkVersion="32" />
 
     <application
-        android:label="Birdaholic"
+        android:label="鸟瘾综合征"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.BirdFlashcard">

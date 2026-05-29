@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_version.dart';
+import 'data_attribution_screen.dart';
+import 'privacy_policy_screen.dart';
+import 'user_agreement_screen.dart';
 
 class AboutScreen extends StatelessWidget {
   final bool embedded;
@@ -70,11 +73,29 @@ class AboutScreen extends StatelessWidget {
         body:
             '鸟鸣、鸟图和鸟种名录可能来自 eBird、Xeno-canto、Wikimedia、iNaturalist 或用户自建数据包。数据包会为物种保留图片/音频提供者致谢字段，并在学习页展示。',
       ),
-      _section(
-        title: '隐私原则',
-        icon: Icons.privacy_tip_outlined,
-        body:
-            'API Key 由用户自行填写并保存在本机；识别笔记、纠错日记和学习记录默认只保存在本机。我们不应在代码中内置个人 API Key。',
+      Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          children: [
+            _navTile(
+              icon: Icons.shield_outlined,
+              title: '隐私政策',
+              builder: (_) => const PrivacyPolicyScreen(),
+            ),
+            const Divider(height: 0),
+            _navTile(
+              icon: Icons.gavel_outlined,
+              title: '用户协议',
+              builder: (_) => const UserAgreementScreen(),
+            ),
+            const Divider(height: 0),
+            _navTile(
+              icon: Icons.fact_check_outlined,
+              title: '数据声明与致谢（CC BY 4.0）',
+              builder: (_) => const DataAttributionScreen(),
+            ),
+          ],
+        ),
       ),
       _section(
         title: '找到我们',
@@ -102,6 +123,40 @@ class AboutScreen extends StatelessWidget {
           SelectableText('有问题请联系：birderrrr@gmail.com\n微信 / v：hotpeaker'),
         ],
       ),
+      const SizedBox(height: 8),
+      Center(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
+          child: Column(
+            children: [
+              Text(
+                '开发者：伍洋（品牌：奇趣自然团队）',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: () => launchUrl(
+                  Uri.parse('https://beian.miit.gov.cn/'),
+                  mode: LaunchMode.externalApplication,
+                ),
+                child: Text(
+                  '粤ICP备2026057758号-2A',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[700],
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '本 App 免费、无广告、非商业用途',
+                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+              ),
+            ],
+          ),
+        ),
+      ),
     ];
     if (embedded) {
       return Column(children: children);
@@ -109,6 +164,26 @@ class AboutScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       children: children,
+    );
+  }
+
+  Widget _navTile({
+    required IconData icon,
+    required String title,
+    required WidgetBuilder builder,
+  }) {
+    return Builder(
+      builder: (ctx) => ListTile(
+        leading: Icon(icon, color: const Color(0xFF2d5016)),
+        title: Text(title,
+            style: const TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 14)),
+        trailing: const Icon(Icons.chevron_right, size: 18),
+        onTap: () => Navigator.push(
+          ctx,
+          MaterialPageRoute(builder: builder),
+        ),
+      ),
     );
   }
 
