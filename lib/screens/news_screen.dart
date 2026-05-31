@@ -24,7 +24,7 @@ const _volunteers = <_VolunteerItem>[
     org: '南堡水鸟调查组',
     location: '河北曹妃甸南堡',
     date: '2026春迁',
-    url: 'http://xhslink.com/o/AVPp9tsUw8V',
+    url: 'https://xhslink.com/o/AVPp9tsUw8V',
     note: '复制链接，在小红书中打开',
   ),
 ];
@@ -54,6 +54,25 @@ class NewsScreen extends StatelessWidget {
         _sectionHeader('🙋 志愿者招募'),
         const SizedBox(height: 8),
         ..._volunteers.map((item) => _buildVolunteerCard(context, item)),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.campaign_outlined, color: Colors.green[700]),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    '如有需要发布研究招募信息，请联系 birderrrr@gmail.com',
+                    style: TextStyle(fontSize: 13, height: 1.45),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }

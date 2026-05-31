@@ -103,7 +103,7 @@ class _UserManagementSectionState extends State<UserManagementSection> {
                     border: OutlineInputBorder(),
                   ),
                   items: const [
-                    DropdownMenuItem(value: 'beta', child: Text('内测用户（需审核）')),
+                    DropdownMenuItem(value: 'beta', child: Text('受邀用户（需审核）')),
                     DropdownMenuItem(value: 'admin', child: Text('管理员（直接生效）')),
                   ],
                   onChanged: (v) => setLocal(() => role = v ?? 'beta'),

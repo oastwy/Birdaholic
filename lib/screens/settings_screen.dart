@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/admin_upload_service.dart';
 import '../services/storage.dart';
 import '../services/pack_manager.dart';
-import 'about_screen.dart';
+import 'data_attribution_screen.dart';
 import 'pack_manage_screen.dart';
+import 'privacy_policy_screen.dart';
+import 'user_agreement_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final StorageService storage;
@@ -129,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               controller: adminController,
               decoration: const InputDecoration(
                 labelText: '上传 Token',
-                hintText: '管理员 / 内测用户填写各自 Token，保存后自动识别身份',
+                hintText: '管理员 / 受邀用户填写各自 Token，保存后自动识别身份',
               ),
               obscureText: true,
             ),
@@ -389,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : widget.storage.isAdminMode
                           ? '管理员（${widget.storage.getUserName()}）'
                           : widget.storage.isBetaMode
-                              ? '内测用户（${widget.storage.getUserName()}）'
+                              ? '受邀用户（${widget.storage.getUserName()}）'
                               : '已配置',
                 ),
                 trailing: const Icon(Icons.chevron_right),
@@ -411,8 +414,133 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 10),
-        const AboutScreen(embedded: true),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.shield_outlined,
+                    color: Color(0xFF2d5016)),
+                title: const Text('隐私政策'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const PrivacyPolicyScreen()),
+                ),
+              ),
+              const Divider(height: 0),
+              ListTile(
+                leading: const Icon(Icons.gavel_outlined,
+                    color: Color(0xFF2d5016)),
+                title: const Text('用户协议'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const UserAgreementScreen()),
+                ),
+              ),
+              const Divider(height: 0),
+              ListTile(
+                leading: const Icon(Icons.fact_check_outlined,
+                    color: Color(0xFF2d5016)),
+                title: const Text('声明与致谢'),
+                subtitle: const Text('关于 App、数据来源、许可协议和联系方式'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const DataAttributionScreen()),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        const _FollowUsCard(),
+        const SizedBox(height: 10),
+        Center(
+          child: GestureDetector(
+            onTap: () => launchUrl(Uri.parse('https://beian.miit.gov.cn/'),
+                mode: LaunchMode.externalApplication),
+            child: Text(
+              '粤ICP备2026057758号-2A',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
       ],
+    );
+  }
+}
+
+class _FollowUsCard extends StatelessWidget {
+  const _FollowUsCard();
+
+  Future<void> _open(String url) async {
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.favorite_border, color: Color(0xFF2d5016)),
+                SizedBox(width: 8),
+                Text(
+                  '关注我们',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ActionChip(
+                  avatar: const Icon(Icons.podcasts_outlined, size: 18),
+                  label: const Text('小宇宙'),
+                  onPressed: () => _open(
+                    'https://www.xiaoyuzhoufm.com/podcast/6688a873ae8e21859ade308b',
+                  ),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.bookmark_border, size: 18),
+                  label: const Text('小红书'),
+                  onPressed: () => _open(
+                    'https://www.xiaohongshu.com/user/profile/6516e3ef00000000240167e9',
+                  ),
+                ),
+                ActionChip(
+                  avatar:
+                      const Icon(Icons.ondemand_video_outlined, size: 18),
+                  label: const Text('B站'),
+                  onPressed: () => _open(
+                    'https://space.bilibili.com/3546850323860358',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const SelectableText(
+              '有问题请联系：birderrrr@gmail.com\n微信 / v：hotpeaker',
+              style: TextStyle(fontSize: 12.5, height: 1.45),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

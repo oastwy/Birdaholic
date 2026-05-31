@@ -53,7 +53,7 @@ eBird 功能为可选；不配置 eBird API Key 即无任何数据出境。
 | Xeno-canto | 录音 | CC BY-SA / BY-NC 等 |
 | iNaturalist | 照片 | CC BY-NC / BY-SA 等 |
 | Wikimedia Commons | 照片 | CC0 / CC BY / BY-SA |
-| 用户贡献 | 照片/录音 | CC BY 4.0（上传时勾选授权） |
+| 用户贡献 | 照片/录音 | CC BY-NC 4.0（仅受邀用户上传，管理员审核后公开） |
 
 ## eBird API 合规处理
 
@@ -66,7 +66,7 @@ eBird 功能为可选；不配置 eBird API Key 即无任何数据出境。
 
 - [x] 首次启动隐私政策 + 用户协议同意框（不同意退出）
 - [x] 隐私政策含：收集清单、第三方共享清单、数据出境、账号注销
-- [x] 用户协议含：CC BY 4.0 上传授权、行为规范、免责、争议解决
+- [x] 用户协议含：CC BY-NC 4.0 上传授权、受邀上传与管理员审核、行为规范、免责、争议解决
 - [x] 全站 HTTPS（已消除明文 HTTP）
 - [x] 最小必要权限，移除未使用权限
 - [x] 无第三方 SDK

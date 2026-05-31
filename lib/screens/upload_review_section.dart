@@ -118,6 +118,13 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
         const SnackBar(content: Text('已拒绝并删除')),
       );
     } catch (e) {
+      final message = '$e';
+      if (message.contains('Pending entry not found')) {
+        if (!mounted) return;
+        setState(() => _items.removeWhere((x) => _itemKey(x) == key));
+        _showSnack('这条记录已经不在待审核队列，已自动刷新列表。');
+        return;
+      }
       _showSnack('拒绝失败：$e');
     } finally {
       if (mounted) setState(() => _busy.remove(key));

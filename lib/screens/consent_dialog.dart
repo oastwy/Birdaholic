@@ -81,7 +81,7 @@ class _ConsentDialog extends StatelessWidget {
                 const TextSpan(text: '完全免费、无广告、无第三方统计 SDK、非商业用途'),
                 const TextSpan(text: '。\n\n'),
                 const TextSpan(
-                  text: '• 鸟种基础数据 / 媒体来自 eBird、Xeno-canto、iNaturalist、Wikimedia 等公开开放资源；用户贡献内容按 CC BY 4.0 协议授权。\n\n',
+                  text: '• 鸟种基础数据 / 媒体来自 eBird、Xeno-canto、iNaturalist、Wikimedia 等公开开放资源；仅受邀用户可上传媒体，上传后需经管理员审核，用户贡献内容按 CC BY-NC 4.0 协议授权。\n\n',
                 ),
                 const TextSpan(
                   text: '• 仅当您主动配置 eBird API Key 并使用"按位置查询"时，位置坐标会由您的设备直接发往 eBird（美国）；此功能可选，不配置则无任何数据出境。\n\n',

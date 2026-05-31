@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../app_version.dart';
+
 class DataAttributionScreen extends StatelessWidget {
   const DataAttributionScreen({super.key});
 
@@ -11,6 +13,21 @@ class DataAttributionScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         children: const [
+          _Section(
+            title: '关于鸟瘾综合征',
+            body:
+                '鸟瘾综合征是奇趣自然团队的观鸟斑块。我们聚集了一群热爱自然、热爱动物的科研小伙伴，希望通过这个平台把对自然的热爱传递给每一个热爱生活的朋友。',
+          ),
+          _Section(
+            title: '这个 App 想解决什么',
+            body:
+                'Birdaholic 面向观鸟前的预习和观鸟后的复习：把鸟种清单、鸟鸣、鸟图和个人识别笔记放在一起，用闪卡、选择题和打卡机制帮助你更快进入状态。',
+          ),
+          _Section(
+            title: 'App 信息',
+            body:
+                '版本：$appVersionName ($appBuildNumber)\n开发者：伍洋（品牌：奇趣自然团队）\n本 App 免费、无广告、非商业用途。',
+          ),
           _Section(
             title: '开放数据声明',
             body:
@@ -66,24 +83,24 @@ class DataAttributionScreen extends StatelessWidget {
           ),
           _CitationCard(
             name: '用户贡献（birdaholic-upload）',
-            org: '内测用户 / 管理员',
-            description: '由用户主动上传，已签署 CC BY 4.0 授权',
-            url: 'https://creativecommons.org/licenses/by/4.0/deed.zh-hans',
-            licenseNote: 'CC BY 4.0 — 署名 4.0 国际',
+            org: '受邀用户 / 管理员',
+            description: '仅受邀用户可主动上传，上传后需经管理员审核',
+            url: 'https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans',
+            licenseNote: 'CC BY-NC 4.0 — 署名-非商业性使用 4.0 国际',
           ),
           SizedBox(height: 18),
           _Section(
-            title: 'CC BY 4.0 协议说明',
+            title: 'CC BY-NC 4.0 协议说明',
             body:
-                '本 App 中由内测用户和管理员上传的所有媒体均按 CC BY 4.0（署名 4.0 国际）协议公开：'
+                '本 App 中由受邀用户和管理员上传的所有媒体均按 CC BY-NC 4.0（署名-非商业性使用 4.0 国际）协议公开：'
                 '\n• 您可以自由共享、改编这些素材；'
                 '\n• 必须**署名**（标注原作者和来源），不得暗示原作者认可您的使用方式；'
-                '\n• 用于商业目的也被允许；'
+                '\n• 不得用于商业目的；'
                 '\n• 不得附加额外限制条款。',
           ),
           _LinkCard(
-            label: '查看 CC BY 4.0 协议全文',
-            url: 'https://creativecommons.org/licenses/by/4.0/deed.zh-hans',
+            label: '查看 CC BY-NC 4.0 协议全文',
+            url: 'https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans',
           ),
           SizedBox(height: 18),
           _Section(
@@ -95,8 +112,13 @@ class DataAttributionScreen extends StatelessWidget {
           _Section(
             title: '感谢',
             body:
-                '感谢 eBird、Xeno-canto、iNaturalist、Wikimedia Commons、AviList、郑光美教授团队 以及所有内测用户为本 App 提供的数据和内容。'
-                '\n如您发现署名错误或希望撤回您贡献的素材，请通过"关于"页底部的联系方式与我们联系。',
+                '感谢 eBird、Xeno-canto、iNaturalist、Wikimedia Commons、AviList 以及所有受邀用户为本 App 提供的数据和内容。深切缅怀郑光美院士为中国鸟类学研究作出的重要贡献。'
+                '\n如您发现署名错误或希望撤回您贡献的素材，请通过下方联系方式与我们联系。',
+          ),
+          _Section(
+            title: '找到我们',
+            body:
+                '小红书、B站、小宇宙、抖音和微博等平台，全网同名。如您发现署名错误或希望撤回您贡献的素材，请通过设置页底部的联系方式与我们联系。',
           ),
         ],
       ),

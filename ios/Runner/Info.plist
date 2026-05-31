@@ -26,6 +26,8 @@
 	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>仅在你主动使用"按当前位置查找附近鸟种"时获取一次位置；App 不会在后台追踪你的位置。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>仅在你主动使用"按当前位置查找附近鸟种"时获取一次位置；App 不会在后台追踪你的位置，也不会在后台持续获取位置。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于从相册选择你要上传或导入的鸟类照片/数据包。</string>
 	<key>LSRequiresIPhoneOS</key>

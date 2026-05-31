@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
@@ -276,10 +277,13 @@ class _UploadSectionState extends State<UploadSection> {
 
   // ── 上传 ─────────────────────────────────────────────────────
 
+  bool _ccChecked = false;
+
   bool get _canUpload =>
       _selectedBird != null &&
       _contributorCtrl.text.trim().isNotEmpty &&
       _selectedFiles.isNotEmpty &&
+      _ccChecked &&
       !_uploading;
 
   Future<void> _upload() async {
@@ -375,6 +379,7 @@ class _UploadSectionState extends State<UploadSection> {
         _uploading = false;
         _selectedFiles.clear();
         _selectedMediaType = null;
+        _ccChecked = false;
       });
       _refreshStats();
     }
@@ -569,7 +574,7 @@ class _UploadSectionState extends State<UploadSection> {
               Text('需要先在「设置」里填写上传 Token',
                   style: TextStyle(fontSize: 15)),
               SizedBox(height: 6),
-              Text('设置后会自动获取你的身份（管理员 / 内测）',
+              Text('设置后会自动获取你的身份（管理员 / 受邀用户）',
                   style: TextStyle(fontSize: 12, color: Colors.grey)),
             ],
           ),
@@ -582,7 +587,7 @@ class _UploadSectionState extends State<UploadSection> {
     final stats = _stats;
     final roleLabel = widget.storage.isAdminMode
         ? '管理员'
-        : (widget.storage.isBetaMode ? '内测用户' : '未识别');
+        : (widget.storage.isBetaMode ? '受邀用户' : '未识别');
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -898,18 +903,65 @@ class _UploadSectionState extends State<UploadSection> {
         ],
       );
     }
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: _canUpload ? _upload : null,
-        icon: const Icon(Icons.cloud_upload),
-        label: Text(widget.storage.isBetaMode
-            ? '提交上传（等管理员审核）'
-            : '直接上传到服务器'),
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+    return Column(
+      children: [
+        InkWell(
+          onTap: () => setState(() => _ccChecked = !_ccChecked),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Checkbox(
+                value: _ccChecked,
+                onChanged: (v) => setState(() => _ccChecked = v ?? false),
+                visualDensity: VisualDensity.compact,
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: GestureDetector(
+                    onTap: () => launchUrl(
+                      Uri.parse(
+                          'https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    child: const Text.rich(
+                      TextSpan(
+                        style: TextStyle(fontSize: 12.5, height: 1.4),
+                        children: [
+                          TextSpan(
+                              text: '我确认拥有该媒体的版权，并以 '),
+                          TextSpan(
+                            text: 'CC BY-NC 4.0（署名-非商业性使用）',
+                            style: TextStyle(
+                              color: Color(0xFF2d5016),
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                          TextSpan(text: ' 协议授权 Birdaholic 使用'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _canUpload ? _upload : null,
+            icon: const Icon(Icons.cloud_upload),
+            label: Text(widget.storage.isBetaMode
+                ? '提交上传（等管理员审核）'
+                : '直接上传到服务器'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

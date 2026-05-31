@@ -91,7 +91,7 @@ class AboutScreen extends StatelessWidget {
             const Divider(height: 0),
             _navTile(
               icon: Icons.fact_check_outlined,
-              title: '数据声明与致谢（CC BY 4.0）',
+              title: '数据声明与致谢（CC BY-NC 4.0）',
               builder: (_) => const DataAttributionScreen(),
             ),
           ],

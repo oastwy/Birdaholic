@@ -1133,9 +1133,9 @@ class _PackManageScreenState extends State<PackManageScreen> {
           icon: Icons.cloud_upload_outlined,
           title: widget.storage.isAdminMode ? '上传 & 审核' : '上传数据',
           subtitle: widget.storage.isAdminMode
-              ? '管理员上传 / 审核内测用户提交'
+              ? '管理员上传 / 审核受邀用户提交'
               : widget.storage.isBetaMode
-                  ? '内测用户上传（需要管理员审核）'
+                  ? '受邀用户上传（需要管理员审核）'
                   : '需先在设置里配置上传 Token',
           onTap: () => setState(() => _section = _PackManageSection.upload),
         ),
