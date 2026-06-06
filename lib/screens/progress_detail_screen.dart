@@ -71,13 +71,14 @@ class ProgressDetailScreen extends StatelessWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             children: [
-              _statCard('已学习', '$studied', '出现过学习记录的鸟种数', Colors.green),
+              _statCard('已学习', '$studied', '出现过学习记录的鸟种数', Colors.blue),
               _statCard('已掌握', '$mastered', '连续认识达到 3 次', Colors.teal),
               _statCard('正确率', '${(stats.accuracy * 100).round()}%', '累计答题准确率',
-                  Colors.blue),
+                  Colors.green),
               _statCard('收藏', '${favorites.length}', '已标星保存', Colors.amber),
-              _statCard('不熟悉', '${unfamiliar.length}', '待优先复习', Colors.orange),
-              _statCard('总答题', '${stats.total}', '累计答题数量', Colors.purple),
+              _statCard(
+                  '不熟悉', '${unfamiliar.length}', '答错或不认识，待优先复习', Colors.red),
+              _statCard('累计答题', '${stats.total}', '累计答题数量', Colors.amber),
             ],
           ),
           const SizedBox(height: 20),
@@ -115,13 +116,11 @@ class ProgressDetailScreen extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text.rich(
                     TextSpan(
-                      style:
-                          TextStyle(color: Colors.grey[700], height: 1.35),
+                      style: TextStyle(color: Colors.grey[700], height: 1.35),
                       children: [
                         TextSpan(
                           text: item.sci,
-                          style:
-                              const TextStyle(fontStyle: FontStyle.italic),
+                          style: const TextStyle(fontStyle: FontStyle.italic),
                         ),
                         TextSpan(
                           text:
@@ -136,7 +135,7 @@ class ProgressDetailScreen extends StatelessWidget {
                       Navigator.pop(context);
                       onJumpToFlashcard(item);
                     },
-                    child: const Text('去学习'),
+                    child: const Text('去打卡'),
                   ),
                 ),
               );

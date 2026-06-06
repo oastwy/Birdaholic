@@ -63,13 +63,17 @@ class _ServerMediaManagerSectionState extends State<ServerMediaManagerSection> {
     try {
       final raw = await rootBundle.loadString('assets/data/world_birds.json');
       final list = jsonDecode(raw) as List<dynamic>;
-      final birds = list.whereType<Map<String, dynamic>>().map((m) {
-        return _BirdSearchItem(
-          sci: (m['sci'] as String? ?? '').trim(),
-          cn: ((m['zh'] as String?) ?? (m['cn'] as String?) ?? '').trim(),
-          en: (m['en'] as String? ?? '').trim(),
-        );
-      }).where((b) => b.sci.isNotEmpty).toList();
+      final birds = list
+          .whereType<Map<String, dynamic>>()
+          .map((m) {
+            return _BirdSearchItem(
+              sci: (m['sci'] as String? ?? '').trim(),
+              cn: ((m['zh'] as String?) ?? (m['cn'] as String?) ?? '').trim(),
+              en: (m['en'] as String? ?? '').trim(),
+            );
+          })
+          .where((b) => b.sci.isNotEmpty)
+          .toList();
       if (mounted) setState(() => _allBirds = birds);
     } catch (e) {
       if (mounted) setState(() => _message = '名录加载失败：$e');
@@ -350,7 +354,15 @@ class _ServerMediaManagerSectionState extends State<ServerMediaManagerSection> {
             AudioPlayerWidget(audioPaths: [audio.url], audioLabels: [label]),
             if (audio.spectrogramUrl.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Image.network(audio.spectrogramUrl, fit: BoxFit.contain),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.network(
+                  audio.spectrogramUrl,
+                  height: 148,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
             ],
           ],
         ),

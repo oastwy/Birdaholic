@@ -12,6 +12,7 @@ import '../services/ebird_service.dart';
 import '../services/pack_manager.dart';
 import '../services/server_media_service.dart';
 import '../services/storage.dart';
+import '../utils/file_picker_guard.dart';
 import '../widgets/audio_player_widget.dart';
 
 class BirdPreviewScreen extends StatefulWidget {
@@ -60,6 +61,8 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
   // Photo page index per species sci
   final Map<String, int> _photoPageIndex = {};
   final Map<String, PageController> _photoControllers = {};
+  final Map<String, int> _imageDifficultyOverrides = {};
+  final Set<String> _imageDifficultyBusy = {};
 
   @override
   void initState() {
@@ -71,6 +74,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
 
   @override
   void dispose() {
+    FilePickerGuard.forceReset();
     for (final c in _photoControllers.values) {
       c.dispose();
     }
@@ -265,10 +269,19 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
 
   Future<void> _uploadImage() async {
     final sp = _current;
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
+    FilePickerResult? result;
+    try {
+      result = await FilePickerGuard.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('选择图片失败: $e'), backgroundColor: Colors.red),
+      );
+      return;
+    }
     final path = result?.files.single.path;
     if (path == null || path.isEmpty) return;
     try {
@@ -298,21 +311,46 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
 
   Future<void> _uploadAudio() async {
     final sp = _current;
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg'],
-      allowMultiple: false,
-    );
+    FilePickerResult? result;
+    try {
+      result = await FilePickerGuard.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg'],
+        allowMultiple: false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('选择音频失败: $e'), backgroundColor: Colors.red),
+      );
+      return;
+    }
     final path = result?.files.single.path;
     if (path == null || path.isEmpty) return;
     try {
-      await widget.packManager.addSpeciesAudioFromFile(sp, path);
       if (widget.storage.isAdminMode) {
-        await AdminUploadService().uploadMedia(
-          species: sp,
+        final resp = await AdminUploadService().uploadFile(
+          sci: sp.sci,
+          contributor: '管理员上传',
           filePath: path,
           token: widget.storage.getAdminUploadToken(),
+          mediaType: 'audio',
+          audioType: 'call',
+          license: 'CC BY-NC 4.0',
         );
+        final saved = (resp['saved'] as List?) ?? const [];
+        final first = saved.isNotEmpty ? saved.first : null;
+        final entry = first is Map && first['entry'] is Map
+            ? Map<String, dynamic>.from(first['entry'] as Map)
+            : <String, dynamic>{};
+        await widget.packManager.addUploadedSpeciesAudioFromFile(
+          sci: sp.sci,
+          sourcePath: path,
+          serverEntry: entry,
+          audioType: 'call',
+        );
+      } else {
+        await widget.packManager.addSpeciesAudioFromFile(sp, path);
       }
       _serverCache.remove(sp.sci);
       if (!mounted) return;
@@ -444,9 +482,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
             children: [
               Text(
                 sp.en,
-                style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.white70),
+                style: const TextStyle(fontSize: 16, color: Colors.white70),
               ),
               if (sp.consText.isNotEmpty) ...[
                 const SizedBox(height: 6),
@@ -517,7 +553,6 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
   }
 
   Widget _buildPhotoSection(Species sp) {
-    final localImagePaths = _localImagePaths(sp);
     final serverImages = _currentServerMedia?.images ?? [];
     final localNames = sp.imageFiles.map((p) => p.split('/').last).toSet();
     final filteredServerImages = serverImages.where((img) {
@@ -527,20 +562,17 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
     });
     // Combine local + server images
     final allImages = <_PreviewImage>[
-      for (var i = 0; i < localImagePaths.length; i++)
-        _PreviewImage(
-          path: localImagePaths[i],
-          isNetwork: false,
-          credit: i < sp.images.length && sp.images[i].credit.isNotEmpty
-              ? sp.images[i].credit
-              : sp.imageCredit,
-        ),
+      ..._localPreviewImages(sp, serverImages),
       ...filteredServerImages.map((img) => _PreviewImage(
             path: img.url,
             isNetwork: true,
+            sourceFile: null,
+            serverFile: img.file,
             credit: img.contributor.isNotEmpty
                 ? img.contributor
                 : (img.source.isNotEmpty ? img.source : ''),
+            difficulty: img.difficulty,
+            source: img.source,
           )),
     ];
 
@@ -605,6 +637,8 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
               textAlign: TextAlign.center,
             ),
           ),
+        if (pageIdx < allImages.length)
+          _buildImageDifficultyControls(sp, allImages[pageIdx]),
         if (_serverLoading)
           const Padding(
             padding: EdgeInsets.only(top: 6),
@@ -615,6 +649,204 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
           ),
       ],
     );
+  }
+
+  List<_PreviewImage> _localPreviewImages(
+    Species sp,
+    List<ServerImageMedia> serverImages,
+  ) {
+    final dir = _cachedPackDir;
+    if (dir == null) {
+      _warmCachedPackDir();
+      return const [];
+    }
+    return sp.imageFiles
+        .map((sourceFile) {
+          final path = '$dir/$sourceFile';
+          if (!File(path).existsSync()) return null;
+          final info = _imageInfoForFile(sp, sourceFile);
+          return _PreviewImage(
+            path: path,
+            isNetwork: false,
+            sourceFile: sourceFile,
+            serverFile: _matchServerImageFile(sourceFile, info, serverImages),
+            credit:
+                info?.credit.isNotEmpty == true ? info!.credit : sp.imageCredit,
+            difficulty: info?.difficulty ?? sp.difficulty,
+            source: info?.source ?? '',
+          );
+        })
+        .whereType<_PreviewImage>()
+        .toList();
+  }
+
+  SpeciesImageInfo? _imageInfoForFile(Species sp, String file) {
+    for (final item in sp.images) {
+      if (item.file == file) return item;
+    }
+    return null;
+  }
+
+  String? _matchServerImageFile(
+    String sourceFile,
+    SpeciesImageInfo? info,
+    List<ServerImageMedia> serverImages,
+  ) {
+    final localBase = _basename(sourceFile).toLowerCase();
+    for (final image in serverImages) {
+      if (info != null &&
+          info.contributorUrl.isNotEmpty &&
+          image.contributorUrl.isNotEmpty &&
+          info.contributorUrl == image.contributorUrl) {
+        return image.file;
+      }
+      final serverBase = _basename(image.file).toLowerCase();
+      final urlBase = _basename(image.url).toLowerCase();
+      if (serverBase.isNotEmpty &&
+          (localBase == serverBase || localBase.endsWith('_$serverBase'))) {
+        return image.file;
+      }
+      if (urlBase.isNotEmpty &&
+          (localBase == urlBase || localBase.endsWith('_$urlBase'))) {
+        return image.file.isNotEmpty ? image.file : 'images/$urlBase';
+      }
+    }
+    return null;
+  }
+
+  String _basename(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri != null && uri.pathSegments.isNotEmpty) {
+      return uri.pathSegments.last;
+    }
+    return value.split('/').last.split(Platform.pathSeparator).last;
+  }
+
+  Widget _buildImageDifficultyControls(Species sp, _PreviewImage image) {
+    final key = image.sourceFile ?? image.serverFile ?? image.path;
+    final difficulty = (_imageDifficultyOverrides[key] ?? image.difficulty)
+        .clamp(1, 5)
+        .toInt();
+    final busy = _imageDifficultyBusy.contains(key);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            widget.storage.isAdminMode ? '图片难度：' : '图片难度：$difficulty 星',
+            style: const TextStyle(fontSize: 12, color: Colors.white54),
+          ),
+          if (widget.storage.isAdminMode) ...[
+            ...List.generate(5, (i) {
+              final value = i + 1;
+              return GestureDetector(
+                onTap: busy ? null : () => _setImageDifficulty(image, value),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Icon(
+                    i < difficulty
+                        ? Icons.star_rounded
+                        : Icons.star_outline_rounded,
+                    size: 24,
+                    color: i < difficulty ? Colors.amber : Colors.white30,
+                  ),
+                ),
+              );
+            }),
+            if (busy) ...[
+              const SizedBox(width: 8),
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setImageDifficulty(_PreviewImage image, int difficulty) async {
+    if (!widget.storage.isAdminMode) return;
+    final key = image.sourceFile ?? image.serverFile ?? image.path;
+    setState(() {
+      _imageDifficultyOverrides[key] = difficulty;
+      _imageDifficultyBusy.add(key);
+    });
+
+    var localSaved = false;
+    var serverSaved = false;
+    try {
+      final sp = _current;
+      if (!image.isNetwork && image.sourceFile != null) {
+        final packDir =
+            _cachedPackDir ?? await widget.packManager.getActivePackDir();
+        if (packDir != null) {
+          await widget.packManager.saveSpeciesImageDifficulty(
+            packDir,
+            sp.sci,
+            image.sourceFile!,
+            difficulty,
+          );
+          _replaceCurrentSpeciesImageDifficulty(image.sourceFile!, difficulty);
+          localSaved = true;
+        }
+      }
+
+      final token = widget.storage.getAdminUploadToken();
+      final serverFile = image.serverFile;
+      if (token.isNotEmpty && serverFile != null && serverFile.isNotEmpty) {
+        await AdminUploadService().setImageDifficulty(
+          sci: sp.sci,
+          file: serverFile,
+          difficulty: difficulty,
+          token: token,
+        );
+        serverSaved = true;
+        _serverCache.remove(sp.sci);
+        _loadServerMedia();
+      }
+
+      if (!mounted) return;
+      final message = serverSaved
+          ? '已同步图片难度到服务器'
+          : localSaved
+              ? '已保存本地难度；这张图暂未匹配到服务器文件'
+              : '已设置本页显示难度';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('图片难度同步失败：$e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _imageDifficultyBusy.remove(key));
+      }
+    }
+  }
+
+  void _replaceCurrentSpeciesImageDifficulty(String file, int difficulty) {
+    final sp = _current;
+    final images = sp.images.map((item) {
+      if (item.file != file) return item;
+      return SpeciesImageInfo(
+        file: item.file,
+        credit: item.credit,
+        contributor: item.contributor,
+        contributorUrl: item.contributorUrl,
+        source: item.source,
+        license: item.license,
+        difficulty: difficulty,
+      );
+    }).toList();
+    if (!images.any((item) => item.file == file)) {
+      images.add(SpeciesImageInfo(file: file, difficulty: difficulty));
+    }
+    _list[_idx] = sp.copyWith(images: images);
   }
 
   Widget _buildPhotoPage(_PreviewImage img) {
@@ -789,23 +1021,90 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
                   ),
                   if (audio.spectrogramUrl.isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        audio.spectrogramUrl,
-                        height: 86,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const SizedBox.shrink(),
-                      ),
-                    ),
+                    _buildSpectrogramImage(audio.spectrogramUrl),
                   ],
                 ],
               ),
             );
           }),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSpectrogramImage(String url) {
+    return GestureDetector(
+      onTap: () => _showSpectrogramPreview(url),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          height: 148,
+          width: double.infinity,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+              Positioned(
+                right: 8,
+                top: 8,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.46),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.zoom_out_map, color: Colors.white, size: 13),
+                        SizedBox(width: 4),
+                        Text('放大',
+                            style:
+                                TextStyle(color: Colors.white, fontSize: 10)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSpectrogramPreview(String url) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(8),
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 8,
+              child: Container(
+                color: Colors.black,
+                alignment: Alignment.center,
+                child: Image.network(url, fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              top: 8,
+              child: IconButton.filled(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -895,21 +1194,6 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
     );
   }
 
-  List<String> _localImagePaths(Species sp) {
-    // We need a sync path — use cached packDir
-    final dir = _cachedPackDir;
-    if (dir == null) {
-      _warmCachedPackDir();
-      return const [];
-    }
-    final paths = <String>[];
-    for (final image in sp.imageFiles) {
-      final path = '$dir/$image';
-      if (File(path).existsSync()) paths.add(path);
-    }
-    return paths;
-  }
-
   String? _cachedPackDir;
 
   Future<void> _warmCachedPackDir() async {
@@ -939,10 +1223,18 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
 class _PreviewImage {
   final String path;
   final bool isNetwork;
+  final String? sourceFile;
+  final String? serverFile;
   final String credit;
+  final int difficulty;
+  final String source;
   const _PreviewImage({
     required this.path,
     required this.isNetwork,
+    required this.sourceFile,
+    required this.serverFile,
     required this.credit,
+    this.difficulty = 1,
+    this.source = '',
   });
 }

@@ -23,9 +23,6 @@ end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
-# Disable media picker to remove DKPhotoGallery / DKImagePickerController deps
-Pod::PICKER_MEDIA = false
-
 flutter_ios_podfile_setup
 
 target 'Runner' do

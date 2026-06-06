@@ -113,7 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             TextField(
               controller: xenoController,
               decoration: const InputDecoration(
-                labelText: 'Xeno-Canto API Key',
+                labelText: 'xeno-canto API Key',
                 hintText: '用于第三方鸟鸣补充下载',
               ),
               obscureText: true,
@@ -161,7 +161,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         try {
           final who = await AdminUploadService().whoami(token: newToken);
           if (who != null) {
-            await widget.storage.setUserIdentity(role: who.role, name: who.name);
+            await widget.storage
+                .setUserIdentity(role: who.role, name: who.name);
             identityMsg = who.role == 'admin' ? '（管理员）' : '（内测：${who.name}）';
           } else {
             await widget.storage.setUserIdentity(role: '', name: '');
@@ -418,8 +419,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             children: [
               ListTile(
-                leading: const Icon(Icons.shield_outlined,
-                    color: Color(0xFF2d5016)),
+                leading:
+                    const Icon(Icons.shield_outlined, color: Color(0xFF2d5016)),
                 title: const Text('隐私政策'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(
@@ -430,8 +431,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const Divider(height: 0),
               ListTile(
-                leading: const Icon(Icons.gavel_outlined,
-                    color: Color(0xFF2d5016)),
+                leading:
+                    const Icon(Icons.gavel_outlined, color: Color(0xFF2d5016)),
                 title: const Text('用户协议'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(
@@ -524,8 +525,7 @@ class _FollowUsCard extends StatelessWidget {
                   ),
                 ),
                 ActionChip(
-                  avatar:
-                      const Icon(Icons.ondemand_video_outlined, size: 18),
+                  avatar: const Icon(Icons.ondemand_video_outlined, size: 18),
                   label: const Text('B站'),
                   onPressed: () => _open(
                     'https://space.bilibili.com/3546850323860358',

@@ -214,23 +214,42 @@ def try_generate_spectrogram(sci: str, audio_file: Path) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_name = f"{audio_file.stem}.png"
     out_path = out_dir / out_name
-    try:
-        subprocess.run(
-            [
-                ffmpeg,
-                "-y",
-                "-i",
-                str(audio_file),
-                "-lavfi",
-                "showspectrumpic=s=900x300:legend=disabled",
-                str(out_path),
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=45,
-            check=True,
-        )
-    except Exception:
+    # The first pass removes common low-frequency rumble and high-frequency hiss
+    # before showspectrumpic renders the FFT image.  Some ffmpeg builds lack
+    # afftdn; fall back to a plain spectrogram so upload never fails.
+    filter_chains = [
+        (
+            "aformat=channel_layouts=mono,"
+            "highpass=f=120,"
+            "lowpass=f=12000,"
+            "afftdn=nf=-25,"
+            "showspectrumpic=s=1400x520:legend=disabled"
+        ),
+        "showspectrumpic=s=1400x520:legend=disabled",
+    ]
+    generated = False
+    for filter_chain in filter_chains:
+        try:
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    str(audio_file),
+                    "-lavfi",
+                    filter_chain,
+                    str(out_path),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=75,
+                check=True,
+            )
+            generated = True
+            break
+        except Exception:
+            continue
+    if not generated:
         return {}
     return {
         "spectrogram": f"audio_spectrograms/{out_name}",
@@ -644,7 +663,12 @@ async def upload(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        saved.append({"file": upload_file.filename, "sci": target_sci, "kind": kind})
+        saved.append({
+            "file": upload_file.filename,
+            "sci": target_sci,
+            "kind": kind,
+            "entry": entry,
+        })
 
     update_index()
     return {"saved": saved, "failed": failed}
@@ -783,6 +807,7 @@ def admin_pending(
                         "file": entry.get("file", ""),
                         "url": entry.get("url", ""),
                         "contributor": entry.get("contributor", ""),
+                        "suggested_difficulty": entry.get("suggested_difficulty", 0),
                         "uploader_id": entry.get("uploader_id", ""),
                         "uploader_name": entry.get("uploader_name", ""),
                         "uploaded_at": entry.get("uploaded_at", 0),
@@ -815,6 +840,12 @@ async def admin_approve(
         if idx >= 0:
             entry = lst.pop(idx)
             entry.pop("pending", None)
+            suggested = entry.pop("suggested_difficulty", None)
+            if suggested and not entry.get("difficulty"):
+                try:
+                    entry["difficulty"] = max(1, min(5, int(suggested)))
+                except Exception:
+                    pass
             entry["approved_at"] = approved_at
             # 置顶到数组第 0 位，但不动顶层 image/image_credit 主图字段
             lst.insert(0, entry)
@@ -825,7 +856,7 @@ async def admin_approve(
         raise HTTPException(status_code=404, detail="Pending entry not found")
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
-    return {"approved": True, "sci": sci, "file": file, "kind": found_kind}
+    return {"approved": True, "sci": sci, "file": file, "kind": found_kind, "entry": entry}
 
 
 @app.post("/api/admin/reject")
@@ -1056,4 +1087,81 @@ async def set_image_difficulty(
     if not found:
         raise HTTPException(status_code=404, detail="File not found in manifest")
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    update_index()
     return {"saved": True, "sci": sci, "file": file, "difficulty": difficulty}
+
+
+@app.post("/api/admin/spectrograms/backfill")
+async def admin_backfill_spectrograms(
+    payload: dict = Body(default={}),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    limit = int(payload.get("limit", 5000))
+    dry_run = bool(payload.get("dry_run", False))
+    force = bool(payload.get("force", False))
+    limit = max(1, min(50000, limit))
+
+    scanned = generated = skipped = failed = 0
+    items: list[dict[str, Any]] = []
+    for mp in sorted(SPECIES_DIR.glob("*/manifest.json")):
+        if scanned >= limit:
+            break
+        try:
+            manifest = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            failed += 1
+            continue
+        sci = str(manifest.get("sci", "")).strip()
+        if not sci:
+            skipped += 1
+            continue
+        changed = False
+        for entry in manifest.get("audio", []):
+            if scanned >= limit:
+                break
+            scanned += 1
+            if entry.get("pending"):
+                skipped += 1
+                continue
+            if entry.get("spectrogram_url") and not force:
+                skipped += 1
+                continue
+            rel = str(entry.get("file", "")).strip()
+            try:
+                audio_rel = _safe_manifest_file(rel, "audio/")
+            except HTTPException:
+                failed += 1
+                continue
+            audio_path = mp.parent / audio_rel
+            if not audio_path.exists():
+                failed += 1
+                continue
+            if dry_run:
+                items.append({"sci": sci, "file": rel, "would_generate": True})
+                continue
+            result = try_generate_spectrogram(sci, audio_path)
+            if result:
+                entry.update(result)
+                generated += 1
+                changed = True
+                items.append({"sci": sci, "file": rel, **result})
+            else:
+                failed += 1
+        if changed:
+            mp.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+    if generated and not dry_run:
+        update_index()
+    return {
+        "scanned": scanned,
+        "generated": generated,
+        "skipped": skipped,
+        "failed": failed,
+        "dry_run": dry_run,
+        "force": force,
+        "items": items[:50],
+    }

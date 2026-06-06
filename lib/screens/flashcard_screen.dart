@@ -84,6 +84,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   List<String> _extraImagePaths = [];
   List<String> _extraImageCredits = [];
   String? _extraImagesForSci;
+  final Map<String, String> _serverSpectrogramCache = {};
 
   final _cardKey = GlobalKey<BirdCardState>();
   final _audioKey = GlobalKey<AudioPlayerWidgetState>();
@@ -127,9 +128,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (oldWidget.isActive && !widget.isActive) {
       _audioKey.currentState?.stop();
       _lastAutoPlayKey = null;
-    }
-    if (!oldWidget.isActive && widget.isActive && !_focusMode) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => enterFocusMode());
     }
   }
 
@@ -202,6 +200,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }
 
   void _scheduleAutoPlay({List<String>? audioPaths}) {
+    if (!_focusMode) return;
     final bird = _currentBird;
     if (audioPaths != null && audioPaths.isEmpty) return;
     final playKey = audioPaths == null || bird == null
@@ -490,6 +489,50 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       if (p != null) paths.add(p);
     }
     return paths;
+  }
+
+  Future<String> _getAudioSpectrogramPath() async {
+    final bird = _currentBird;
+    if (bird == null) return '';
+    for (final audio in bird.audios) {
+      if (audio.spectrogram.isNotEmpty) {
+        final local =
+            await widget.packManager.getResourcePath(audio.spectrogram);
+        if (local != null) return local;
+      }
+      if (audio.spectrogramUrl.isNotEmpty) return audio.spectrogramUrl;
+    }
+    final cached = _serverSpectrogramCache[bird.sci];
+    if (cached != null) return cached;
+    try {
+      final media = await ServerMediaService().fetchSpeciesMedia(bird.sci);
+      if (media == null) {
+        _serverSpectrogramCache[bird.sci] = '';
+        return '';
+      }
+      final localAudioNames = bird.audios
+          .map((audio) => audio.file.split('/').last.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet();
+      for (final audio in media.audio) {
+        final remoteName = audio.file.split('/').last.trim();
+        if (audio.spectrogramUrl.isNotEmpty &&
+            localAudioNames.contains(remoteName)) {
+          _serverSpectrogramCache[bird.sci] = audio.spectrogramUrl;
+          return audio.spectrogramUrl;
+        }
+      }
+      for (final audio in media.audio) {
+        if (audio.spectrogramUrl.isNotEmpty) {
+          _serverSpectrogramCache[bird.sci] = audio.spectrogramUrl;
+          return audio.spectrogramUrl;
+        }
+      }
+    } catch (_) {
+      // Network fallback is best-effort; audio flashcards should remain usable.
+    }
+    _serverSpectrogramCache[bird.sci] = '';
+    return '';
   }
 
   void _jumpToSpecies(Species target) {
@@ -1174,10 +1217,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required StudyMode mode,
     PromptMode promptMode = PromptMode.audio,
     String order = 'random',
+    bool autoFocus = true,
   }) {
     setState(() {
       _filter = filter;
-      _answerMode = AnswerMode.learning;
+      _answerMode = AnswerMode.review;
       _mode = mode;
       _promptMode = promptMode;
       _order = order;
@@ -1187,12 +1231,13 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _quizChoiceCache.clear();
     });
     _buildDeck();
-    enterFocusMode();
+    if (autoFocus) enterFocusMode();
   }
 
   void enterFocusMode() {
     if (!mounted || _focusMode) return;
     _setFocusMode(true);
+    _scheduleAutoPlay();
   }
 
   void exitFocusMode() {
@@ -1218,37 +1263,25 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       return '${List.filled(value, '⭐').join()} ($count)';
     }
 
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          const Text('难度:', style: TextStyle(fontSize: 13)),
-          ...List.generate(6, (i) {
-            final selected = _imageDifficultyFilter == i;
-            return ChoiceChip(
-              label: Text(
-                labelFor(i),
-                style: TextStyle(
-                  fontSize: i == 0 ? 12 : 11,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-              selected: selected,
-              visualDensity: VisualDensity.compact,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              selectedColor: const Color(0xFF2d5016).withValues(alpha: 0.16),
-              onSelected: (_) {
-                setState(() => _imageDifficultyFilter = i);
-                sheetSetState?.call(() {});
-                _buildDeck();
-              },
-            );
-          }),
-        ],
+    return DropdownButtonFormField<int>(
+      value: _imageDifficultyFilter,
+      decoration: const InputDecoration(
+        labelText: '难度',
+        border: OutlineInputBorder(),
       ),
+      items: List.generate(
+        6,
+        (i) => DropdownMenuItem<int>(
+          value: i,
+          child: Text(labelFor(i)),
+        ),
+      ),
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _imageDifficultyFilter = value);
+        sheetSetState?.call(() {});
+        _buildDeck();
+      },
     );
   }
 
@@ -1331,7 +1364,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   SegmentedButton<AnswerMode>(
                     segments: const [
                       ButtonSegment(
-                          value: AnswerMode.learning, label: Text('学习')),
+                          value: AnswerMode.learning, label: Text('预习')),
                       ButtonSegment(
                           value: AnswerMode.review, label: Text('复习')),
                     ],
@@ -1480,7 +1513,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         enterFocusMode();
                       },
                       icon: const Icon(Icons.fullscreen),
-                      label: const Text('开始全屏答题'),
+                      label: Text(
+                        _answerMode == AnswerMode.learning ? '开始预习' : '开始打卡',
+                      ),
                     ),
                   ),
                 ],
@@ -1530,7 +1565,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                 TextButton.icon(
                   onPressed: enterFocusMode,
                   icon: const Icon(Icons.fullscreen, size: 18),
-                  label: const Text('全屏'),
+                  label: Text(
+                    _answerMode == AnswerMode.learning ? '开始预习' : '开始打卡',
+                  ),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF2d5016),
                   ),
@@ -1630,6 +1667,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                   _mediaFutureIdx = _idx;
                                   _mediaFuture = Future.wait<Object?>([
                                     _getAudioPaths(),
+                                    _getAudioSpectrogramPath(),
                                     _getStudyImages(),
                                   ]);
                                 }
@@ -1642,7 +1680,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 }
                                 final audioPaths =
                                     snapshot.data![0] as List<String>;
-                                final studyImage = snapshot.data![1] as ({
+                                final spectrogramPath =
+                                    snapshot.data![1] as String;
+                                final studyImage = snapshot.data![2] as ({
                                   String? path,
                                   String? file,
                                   String credit,
@@ -1684,6 +1724,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                             imageCredit: studyImage.credit,
                                             audioPaths: audioPaths,
                                             labels: labels,
+                                            audioSpectrogramPath:
+                                                spectrogramPath,
                                             extraImagePaths: extraImagePaths,
                                             extraImageSourceFiles:
                                                 extraImageSourceFiles,
@@ -1697,6 +1739,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                             imageCredit: studyImage.credit,
                                             audioPaths: audioPaths,
                                             labels: labels,
+                                            audioSpectrogramPath:
+                                                spectrogramPath,
                                             extraImagePaths: extraImagePaths,
                                             extraImageSourceFiles:
                                                 extraImageSourceFiles,
@@ -2024,6 +2068,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
+    required String audioSpectrogramPath,
     required List<String> extraImagePaths,
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
@@ -2042,6 +2087,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   imageCredit: imageCredit,
                   audioPaths: audioPaths,
                   labels: labels,
+                  audioSpectrogramPath: audioSpectrogramPath,
                   extraImagePaths: extraImagePaths,
                   extraImageSourceFiles: extraImageSourceFiles,
                   extraImageCredits: extraImageCredits,
@@ -2063,6 +2109,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
+    required String audioSpectrogramPath,
     required List<String> extraImagePaths,
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
@@ -2093,6 +2140,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         imageCredit: imageCredit,
                         audioPaths: audioPaths,
                         labels: labels,
+                        audioSpectrogramPath: audioSpectrogramPath,
                         extraImagePaths: extraImagePaths,
                         extraImageSourceFiles: extraImageSourceFiles,
                         extraImageCredits: extraImageCredits,
@@ -2137,6 +2185,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               imageCredit: imageCredit,
               audioPaths: audioPaths,
               labels: labels,
+              audioSpectrogramPath: audioSpectrogramPath,
               extraImagePaths: extraImagePaths,
               extraImageSourceFiles: extraImageSourceFiles,
               extraImageCredits: extraImageCredits,
@@ -2154,6 +2203,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
+    required String audioSpectrogramPath,
     required List<String> extraImagePaths,
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
@@ -2168,6 +2218,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           imageCredit: imageCredit,
           audioPaths: audioPaths,
           audioLabels: labels,
+          audioSpectrogramPath: audioSpectrogramPath,
           audioPlayerKey: _audioKey,
           onPreviousSpecies: _mode == StudyMode.quiz ? null : _previousCard,
           onNextSpecies: _mode == StudyMode.quiz ? null : _nextCard,
@@ -2445,7 +2496,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            '请前往“数据包”页安装内置试用包、导入 ZIP，或使用在线导入功能开始学习。',
+            '请前往“设置 > 数据包管理”安装内置包、导入 ZIP，或使用在线下载功能开始预习和打卡。',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey[600]),
           ),

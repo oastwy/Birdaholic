@@ -12,6 +12,7 @@ import '../services/ebird_service.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
+import '../utils/file_picker_guard.dart';
 
 /// 物种清单导入 + 在线下载页面
 class OnlineImportScreen extends StatefulWidget {
@@ -59,6 +60,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
 
   @override
   void dispose() {
+    FilePickerGuard.forceReset();
     _searchController.dispose();
     _manualInputController.dispose();
     _packNameController.dispose();
@@ -114,7 +116,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
   }
 
   Future<void> _importFromFile() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePickerGuard.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['txt', 'csv', 'json'],
     );
@@ -650,7 +652,7 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('在线导入鸟种数据'),
+        title: const Text('自定义批量下载'),
         backgroundColor: const Color(0xFF2d5016),
         foregroundColor: Colors.white,
       ),
@@ -692,9 +694,9 @@ class _OnlineImportScreenState extends State<OnlineImportScreen> {
                 children: [
                   Text(
                     '1. 会优先从 Birdaholic 服务器下载已优化媒体\n'
-                    '2. 如需按地点导入，请在“设置”页填写 eBird API key\n'
+                    '2. 如需按地点下载，请在“设置”页填写 eBird API key\n'
                     '3. 这里可直接输入、搜索，或导入 txt / csv / json\n'
-                    '4. 填写 Xeno-Canto API key 后，可补充服务器暂无的鸟鸣\n'
+                    '4. 填写 xeno-canto API key 后，可补充服务器暂无的鸟鸣\n'
                     '5. 下载会在后台继续进行，完成后自动生成并激活数据包',
                     style: TextStyle(fontSize: 13, color: Colors.blue[900]),
                   ),

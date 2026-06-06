@@ -9,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
+import '../services/pack_manager.dart';
 import '../services/pinyin.dart';
 import '../services/storage.dart';
+import '../utils/file_picker_guard.dart';
 
 class _WorldBird {
   final String sci;
@@ -40,6 +42,7 @@ class _UploadResult {
 
 class UploadSection extends StatefulWidget {
   final StorageService storage;
+  final PackManager packManager;
   final VoidCallback onOpenReview; // admin only
   final VoidCallback onOpenUserManagement; // admin only
   final VoidCallback onOpenFeedbackReview; // admin only
@@ -49,6 +52,7 @@ class UploadSection extends StatefulWidget {
   const UploadSection({
     super.key,
     required this.storage,
+    required this.packManager,
     required this.onOpenReview,
     required this.onOpenUserManagement,
     required this.onOpenFeedbackReview,
@@ -103,6 +107,7 @@ class _UploadSectionState extends State<UploadSection> {
 
   @override
   void dispose() {
+    FilePickerGuard.forceReset();
     _speciesCtrl.dispose();
     _contributorCtrl.dispose();
     _regionCtrl.dispose();
@@ -118,14 +123,18 @@ class _UploadSectionState extends State<UploadSection> {
     try {
       final raw = await rootBundle.loadString('assets/data/world_birds.json');
       final list = jsonDecode(raw) as List<dynamic>;
-      final birds = list.whereType<Map<String, dynamic>>().map((m) {
-        return _WorldBird(
-          sci: (m['sci'] as String? ?? '').trim(),
-          en: (m['en'] as String? ?? '').trim(),
-          zh: (m['zh'] as String? ?? '').trim(),
-          code: (m['code'] as String? ?? '').trim(),
-        );
-      }).where((b) => b.sci.isNotEmpty).toList();
+      final birds = list
+          .whereType<Map<String, dynamic>>()
+          .map((m) {
+            return _WorldBird(
+              sci: (m['sci'] as String? ?? '').trim(),
+              en: (m['en'] as String? ?? '').trim(),
+              zh: (m['zh'] as String? ?? '').trim(),
+              code: (m['code'] as String? ?? '').trim(),
+            );
+          })
+          .where((b) => b.sci.isNotEmpty)
+          .toList();
       if (mounted) setState(() => _allBirds = birds);
     } catch (e) {
       // ignore
@@ -139,7 +148,8 @@ class _UploadSectionState extends State<UploadSection> {
     try {
       final stats = await _service.fetchStats(token: token);
       if (mounted) setState(() => _stats = stats);
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       if (mounted) setState(() => _statsLoading = false);
     }
   }
@@ -176,7 +186,6 @@ class _UploadSectionState extends State<UploadSection> {
       if (mounted) setState(() => _searchResults = results);
     });
   }
-
 
   void _selectBird(_WorldBird b) {
     setState(() {
@@ -249,7 +258,7 @@ class _UploadSectionState extends State<UploadSection> {
     }
     setState(() => _pickingFiles = true);
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePickerGuard.pickFiles(
         type: type,
         allowedExtensions: exts,
         allowMultiple: true,
@@ -262,7 +271,9 @@ class _UploadSectionState extends State<UploadSection> {
         }
       });
     } catch (e) {
-      _showSnack('选取文件失败：$e');
+      final message =
+          '$e'.contains('multiple_request') ? '文件选择器还在打开，请稍等一下再试' : '$e';
+      _showSnack('选取文件失败：$message');
     } finally {
       if (mounted) setState(() => _pickingFiles = false);
     }
@@ -321,6 +332,27 @@ class _UploadSectionState extends State<UploadSection> {
         final saved = (resp['saved'] as List?) ?? [];
         final failed = (resp['failed'] as List?) ?? [];
         if (saved.isNotEmpty) {
+          if (widget.storage.isAdminMode) {
+            final first = saved.first;
+            final entry = first is Map && first['entry'] is Map
+                ? Map<String, dynamic>.from(first['entry'] as Map)
+                : <String, dynamic>{};
+            if (_selectedMediaType == 'image') {
+              await widget.packManager.addUploadedSpeciesImageFromFile(
+                sci: sci,
+                sourcePath: file.path,
+                serverEntry: entry,
+                difficulty: _difficulty,
+              );
+            } else if (_selectedMediaType == 'audio') {
+              await widget.packManager.addUploadedSpeciesAudioFromFile(
+                sci: sci,
+                sourcePath: file.path,
+                serverEntry: entry,
+                audioType: _audioType,
+              );
+            }
+          }
           results.add(_UploadResult(
             fileName: fname,
             success: true,
@@ -328,13 +360,15 @@ class _UploadSectionState extends State<UploadSection> {
           ));
         } else if (failed.isNotEmpty) {
           final r = (failed.first as Map)['reason'] ?? '未知错误';
-          results.add(_UploadResult(fileName: fname, success: false, error: '$r'));
+          results
+              .add(_UploadResult(fileName: fname, success: false, error: '$r'));
         } else {
           results.add(const _UploadResult(
               fileName: '', success: false, error: '服务器无响应'));
         }
       } catch (e) {
-        results.add(_UploadResult(fileName: fname, success: false, error: '$e'));
+        results
+            .add(_UploadResult(fileName: fname, success: false, error: '$e'));
       }
       if (mounted) {
         setState(() {
@@ -349,8 +383,7 @@ class _UploadSectionState extends State<UploadSection> {
       try {
         // saveIdentificationFeatures 期望 species 对象，但这里只有 _WorldBird
         // 直接发 POST /api/features
-        final uri =
-            Uri.parse('${AdminUploadService().baseUrl}/api/features');
+        final uri = Uri.parse('${AdminUploadService().baseUrl}/api/features');
         final r = await HttpClient().postUrl(uri).then((req) async {
           req.headers.set('Authorization', 'Bearer $token');
           req.headers.contentType = ContentType.json;
@@ -366,11 +399,12 @@ class _UploadSectionState extends State<UploadSection> {
         if (r.statusCode >= 200 && r.statusCode < 300) {
           results.add(const _UploadResult(fileName: '识别特征', success: true));
         } else {
-          results.add(
-              _UploadResult(fileName: '识别特征', success: false, error: 'HTTP ${r.statusCode}'));
+          results.add(_UploadResult(
+              fileName: '识别特征', success: false, error: 'HTTP ${r.statusCode}'));
         }
       } catch (e) {
-        results.add(_UploadResult(fileName: '识别特征', success: false, error: '$e'));
+        results
+            .add(_UploadResult(fileName: '识别特征', success: false, error: '$e'));
       }
       if (mounted) setState(() => _uploadResults = List.of(results));
     }
@@ -571,8 +605,7 @@ class _UploadSectionState extends State<UploadSection> {
             children: [
               Icon(Icons.lock_outline, size: 48, color: Colors.grey),
               SizedBox(height: 12),
-              Text('需要先在「设置」里填写上传 Token',
-                  style: TextStyle(fontSize: 15)),
+              Text('需要先在「设置」里填写上传 Token', style: TextStyle(fontSize: 15)),
               SizedBox(height: 6),
               Text('设置后会自动获取你的身份（管理员 / 受邀用户）',
                   style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -631,8 +664,8 @@ class _UploadSectionState extends State<UploadSection> {
             InkWell(
               onTap: widget.onOpenReview,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
@@ -831,9 +864,12 @@ class _UploadSectionState extends State<UploadSection> {
       children: [
         for (var i = 1; i <= 5; i++)
           IconButton(
-            onPressed: _uploading ? null : () => setState(() => _difficulty = i),
+            onPressed:
+                _uploading ? null : () => setState(() => _difficulty = i),
             icon: Icon(
-              i <= _difficulty ? Icons.star_rounded : Icons.star_outline_rounded,
+              i <= _difficulty
+                  ? Icons.star_rounded
+                  : Icons.star_outline_rounded,
               color: i <= _difficulty ? Colors.amber : Colors.grey,
             ),
             iconSize: 28,
@@ -877,7 +913,8 @@ class _UploadSectionState extends State<UploadSection> {
           ListTile(
             dense: true,
             leading: const Icon(Icons.insert_drive_file_outlined),
-            title: Text(_selectedFiles[i].path.split(Platform.pathSeparator).last,
+            title: Text(
+                _selectedFiles[i].path.split(Platform.pathSeparator).last,
                 style: const TextStyle(fontSize: 13)),
             trailing: IconButton(
               icon: const Icon(Icons.close),
@@ -928,8 +965,7 @@ class _UploadSectionState extends State<UploadSection> {
                       TextSpan(
                         style: TextStyle(fontSize: 12.5, height: 1.4),
                         children: [
-                          TextSpan(
-                              text: '我确认拥有该媒体的版权，并以 '),
+                          TextSpan(text: '我确认拥有该媒体的版权，并以 '),
                           TextSpan(
                             text: 'CC BY-NC 4.0（署名-非商业性使用）',
                             style: TextStyle(
@@ -953,9 +989,8 @@ class _UploadSectionState extends State<UploadSection> {
           child: FilledButton.icon(
             onPressed: _canUpload ? _upload : null,
             icon: const Icon(Icons.cloud_upload),
-            label: Text(widget.storage.isBetaMode
-                ? '提交上传（等管理员审核）'
-                : '直接上传到服务器'),
+            label:
+                Text(widget.storage.isBetaMode ? '提交上传（等管理员审核）' : '直接上传到服务器'),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),

@@ -62,28 +62,18 @@ class PackManager {
   static const _builtinInstalledKey = 'builtin_pack_installed';
   static Future<Map<String, _SpeciesNameTaxonomy>>? _taxonomyIndexFuture;
 
-  /// 内置小包随 App 发布；大包通过服务器下载
+  /// 内置小包随 App 发布。完整中国名录只作为逐物种下载目录，不再维护整包 ZIP。
   static const builtinPacks = [
     BuiltinPackInfo(
-      assetPath: 'data_packs/china_common_100_v1.0_opt.zip',
-      dirName: 'china_common_100_v1',
+      assetPath: 'data_packs/china_common_100_v1.2_opt.zip',
+      dirName: 'china_common_100_v1_1',
       label: '中国常见鸟 100',
-      description: '100种鸟 · 安装后离线可学',
+      description: '100种鸟 · 用户上传图优先 · 安装后离线可学',
     ),
   ];
 
-  /// 服务器可下载数据包（备案通过后可换为域名）
-  static const remotePacks = [
-    RemotePackInfo(
-      url: 'https://birding.today/packs/china_birds_v1.0_opt.zip',
-      dirName: 'china_birds_v1',
-      partsManifestUrl:
-          'https://birding.today/packs/china_birds_v1.0_opt_parts.json',
-      label: '中国全鸟种 v1.0（1519种）',
-      description: '1519种鸟 · 中国全鸟种',
-      sizeBytes: 538968064,
-    ),
-  ];
+  /// 服务器整包下载已下线，避免弱网大文件失败；请使用逐物种下载。
+  static const List<RemotePackInfo> remotePacks = [];
 
   /// 获取当前激活的数据包目录
   Future<String?> getActivePackDir() async {
@@ -1180,6 +1170,98 @@ class PackManager {
     return Species.fromJson(updatedItem);
   }
 
+  Future<Species?> addUploadedSpeciesImageFromFile({
+    required String sci,
+    required String sourcePath,
+    required Map<String, dynamic> serverEntry,
+    int difficulty = 1,
+  }) async {
+    final packDir = await findWritablePackDirForSpecies(sci);
+    if (packDir == null) return null;
+
+    final source = File(sourcePath);
+    if (!await source.exists()) throw Exception('图片文件不存在');
+
+    final speciesFile = File('$packDir/species.json');
+    final manifestFile = File('$packDir/manifest.json');
+    if (!await speciesFile.exists()) return null;
+
+    final ext = _safeExtension(source.path);
+    final imagesDir = Directory('$packDir/images');
+    await imagesDir.create(recursive: true);
+    final entryFile = (serverEntry['file'] as String? ?? '').trim();
+    final serverName = entryFile.split('/').last;
+    final baseName = serverName.isNotEmpty
+        ? serverName
+        : '${_slug(sci)}_upload_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    var target = File('${imagesDir.path}/$baseName');
+    if (await target.exists()) {
+      final stem = baseName.contains('.')
+          ? baseName.substring(0, baseName.lastIndexOf('.'))
+          : baseName;
+      target = File(
+        '${imagesDir.path}/${stem}_${DateTime.now().millisecondsSinceEpoch}.$ext',
+      );
+    }
+    await source.copy(target.path);
+    final relative = 'images/${target.path.split(Platform.pathSeparator).last}';
+
+    final speciesList =
+        (jsonDecode(await speciesFile.readAsString()) as List<dynamic>)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+    Map<String, dynamic>? updatedItem;
+    for (final item in speciesList) {
+      if ((item['sci'] as String? ?? '').trim().toLowerCase() !=
+          sci.trim().toLowerCase()) {
+        continue;
+      }
+      final images = _imageEntriesFromItem(item);
+      images
+          .removeWhere((image) => (image['file'] as String? ?? '') == relative);
+      final entry = <String, dynamic>{
+        'file': relative,
+        'source': (serverEntry['source'] as String? ?? 'birdaholic-upload'),
+        'credit': (serverEntry['contributor'] as String? ?? '用户上传'),
+        if ((serverEntry['contributor'] as String? ?? '').trim().isNotEmpty)
+          'contributor': serverEntry['contributor'],
+        if ((serverEntry['contributor_url'] as String? ?? '').trim().isNotEmpty)
+          'contributor_url': serverEntry['contributor_url'],
+        if ((serverEntry['license'] as String? ?? '').trim().isNotEmpty)
+          'license': serverEntry['license'],
+        if (difficulty.clamp(1, 5) != 1) 'difficulty': difficulty.clamp(1, 5),
+      };
+      images.add(entry);
+      item['images'] = images;
+      if (!_isUserProvidedCover(item)) {
+        item['image'] = relative;
+        item['image_credit'] = entry['credit'];
+        item['image_source'] = entry['source'];
+        if (entry['license'] != null) item['image_license'] = entry['license'];
+      }
+      updatedItem = item;
+      break;
+    }
+    if (updatedItem == null) return null;
+
+    await speciesFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(speciesList),
+    );
+    if (await manifestFile.exists()) {
+      final manifest = Map<String, dynamic>.from(
+        jsonDecode(await manifestFile.readAsString()) as Map,
+      );
+      manifest['image_count'] = speciesList.fold<int>(
+        0,
+        (sum, item) => sum + _imageCountForManifest(item),
+      );
+      await manifestFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(manifest),
+      );
+    }
+    return Species.fromJson(updatedItem);
+  }
+
   Future<Species> addSpeciesAudioFromFile(Species species, String sourcePath,
       {String? packDirOverride}) async {
     final packDir = packDirOverride ?? await getActivePackDir();
@@ -1245,6 +1327,96 @@ class PackManager {
     return Species.fromJson(updatedItem);
   }
 
+  Future<Species?> addUploadedSpeciesAudioFromFile({
+    required String sci,
+    required String sourcePath,
+    required Map<String, dynamic> serverEntry,
+    String audioType = 'call',
+  }) async {
+    final packDir = await findWritablePackDirForSpecies(sci);
+    if (packDir == null) return null;
+
+    final source = File(sourcePath);
+    if (!await source.exists()) throw Exception('音频文件不存在');
+
+    final speciesFile = File('$packDir/species.json');
+    final manifestFile = File('$packDir/manifest.json');
+    if (!await speciesFile.exists()) return null;
+
+    final ext = _safeAudioExtension(source.path);
+    final soundsDir = Directory('$packDir/sounds');
+    await soundsDir.create(recursive: true);
+    final entryFile = (serverEntry['file'] as String? ?? '').trim();
+    final serverName = entryFile.split('/').last;
+    final baseName = serverName.isNotEmpty
+        ? serverName
+        : '${_slug(sci)}_upload_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    var target = File('${soundsDir.path}/$baseName');
+    if (await target.exists()) {
+      final stem = baseName.contains('.')
+          ? baseName.substring(0, baseName.lastIndexOf('.'))
+          : baseName;
+      target = File(
+        '${soundsDir.path}/${stem}_${DateTime.now().millisecondsSinceEpoch}.$ext',
+      );
+    }
+    await source.copy(target.path);
+    final relative = 'sounds/${target.path.split(Platform.pathSeparator).last}';
+
+    final speciesList =
+        (jsonDecode(await speciesFile.readAsString()) as List<dynamic>)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+    Map<String, dynamic>? updatedItem;
+    for (final item in speciesList) {
+      if ((item['sci'] as String? ?? '').trim().toLowerCase() !=
+          sci.trim().toLowerCase()) {
+        continue;
+      }
+      final audios = (item['audios'] as List<dynamic>? ?? const [])
+          .map((audio) => Map<String, dynamic>.from(audio as Map))
+          .toList();
+      audios
+          .removeWhere((audio) => (audio['file'] as String? ?? '') == relative);
+      final type = (serverEntry['type'] as String? ?? audioType).trim();
+      final entry = <String, dynamic>{
+        'type': type.isEmpty ? 'call' : type,
+        'file': relative,
+        'contributor': (serverEntry['contributor'] as String? ?? '用户上传'),
+        'source': (serverEntry['source'] as String? ?? 'birdaholic-upload'),
+        if ((serverEntry['license'] as String? ?? '').trim().isNotEmpty)
+          'license': serverEntry['license'],
+        if ((serverEntry['spectrogram_url'] as String? ?? '').trim().isNotEmpty)
+          'spectrogram_url': serverEntry['spectrogram_url'],
+        if ((serverEntry['description'] as String? ?? '').trim().isNotEmpty)
+          'description': serverEntry['description'],
+      };
+      audios.add(entry);
+      item['audios'] = audios;
+      item['audio_credit'] = entry['contributor'];
+      updatedItem = item;
+      break;
+    }
+    if (updatedItem == null) return null;
+
+    await speciesFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(speciesList),
+    );
+    if (await manifestFile.exists()) {
+      final manifest = Map<String, dynamic>.from(
+        jsonDecode(await manifestFile.readAsString()) as Map,
+      );
+      manifest['audio_count'] = speciesList.fold<int>(
+        0,
+        (sum, item) => sum + ((item['audios'] as List<dynamic>?)?.length ?? 0),
+      );
+      await manifestFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(manifest),
+      );
+    }
+    return Species.fromJson(updatedItem);
+  }
+
   Future<MediaUpdateResult> updateActivePackFromServer({
     void Function(int current, int total, String speciesName)? onProgress,
   }) async {
@@ -1302,6 +1474,7 @@ class PackManager {
               'contributor_url': image.contributorUrl,
             if (image.source.isNotEmpty) 'source': image.source,
             if (image.license.isNotEmpty) 'license': image.license,
+            if (image.difficulty != 1) 'difficulty': image.difficulty,
             'credit':
                 image.contributor.isNotEmpty ? image.contributor : image.source,
           });
@@ -1341,6 +1514,18 @@ class PackManager {
             outputDir: soundsDir.path,
           );
           if (downloaded == null) continue;
+          String spectrogramRelative = '';
+          if (audio.spectrogramUrl.isNotEmpty) {
+            final spectrogramsDir = Directory('$packDir/spectrograms');
+            await spectrogramsDir.create(recursive: true);
+            final spectrogram = await service.downloadMediaFile(
+              url: audio.spectrogramUrl,
+              outputDir: spectrogramsDir.path,
+            );
+            if (spectrogram != null) {
+              spectrogramRelative = 'spectrograms/${spectrogram.filename}';
+            }
+          }
           final relative = 'sounds/${downloaded.filename}';
           audios.add({
             'type': audio.type.isEmpty ? 'call' : audio.type,
@@ -1349,6 +1534,10 @@ class PackManager {
             if (audio.contributorUrl.isNotEmpty)
               'contributor_url': audio.contributorUrl,
             if (audio.license.isNotEmpty) 'license': audio.license,
+            if (spectrogramRelative.isNotEmpty)
+              'spectrogram': spectrogramRelative,
+            if (audio.spectrogramUrl.isNotEmpty)
+              'spectrogram_url': audio.spectrogramUrl,
           });
           audioKeys.addAll([relative, downloaded.filename, audio.url]);
           if (audio.contributorUrl.isNotEmpty) {
@@ -1467,6 +1656,8 @@ class PackManager {
         'file': image,
         if ((item['image_credit'] as String? ?? '').trim().isNotEmpty)
           'credit': item['image_credit'],
+        if ((item['image_source'] as String? ?? '').trim().isNotEmpty)
+          'source': item['image_source'],
         if ((item['image_license'] as String? ?? '').trim().isNotEmpty)
           'license': item['image_license'],
       });
@@ -1516,9 +1707,29 @@ class PackManager {
   }
 
   static bool _isCustomImage(Map<String, dynamic> item) {
+    return _isUserProvidedCover(item);
+  }
+
+  static bool _isUserProvidedCover(Map<String, dynamic> item) {
     final image = (item['image'] as String? ?? '').toLowerCase();
     final credit = (item['image_credit'] as String? ?? '').trim();
-    return credit == '用户上传' || image.contains('_custom_');
+    final source = (item['image_source'] as String? ?? '').trim().toLowerCase();
+    if (credit == '用户上传' || image.contains('_custom_')) return true;
+    if (source == 'birdaholic-upload' || source == 'local') return true;
+    for (final entry in _imageEntriesFromItem(item)) {
+      if ((entry['file'] as String? ?? '').trim().toLowerCase() != image) {
+        continue;
+      }
+      final entrySource =
+          (entry['source'] as String? ?? '').trim().toLowerCase();
+      final entryCredit = (entry['credit'] as String? ?? '').trim();
+      final contributor = (entry['contributor'] as String? ?? '').trim();
+      if (entrySource == 'birdaholic-upload' || entrySource == 'local') {
+        return true;
+      }
+      if (entryCredit == '用户上传' || contributor == '用户上传') return true;
+    }
+    return false;
   }
 
   /// 保存物种难度分到本地 species.json

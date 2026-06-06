@@ -1,6 +1,6 @@
 name: bird_flashcard
 description: 鸟鸣闪卡学习工具
-version: 1.6.2+58
+version: 1.6.11+67
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -36,4 +36,4 @@ flutter:
     - assets/data/provinces/
     - assets/brand/birdaholic_logo.png
     - assets/sounds/complete.m4a
-    - data_packs/china_common_100_v1.0_opt.zip
+    - data_packs/china_common_100_v1.2_opt.zip

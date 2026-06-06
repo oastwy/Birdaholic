@@ -150,151 +150,155 @@ class _ProgressScreenState extends State<ProgressScreen> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 56,
-                  child: ElevatedButton.icon(
-                    onPressed: _species.isEmpty
-                        ? null
-                        : () => widget.onStartSession(
-                              'all',
-                              StudyMode.review,
-                              PromptMode.audio,
-                            ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2d7d32),
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.grey[300],
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(28),
+    return SafeArea(
+      bottom: false,
+      child: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: _species.isEmpty
+                          ? null
+                          : () => widget.onStartSession(
+                                'all',
+                                StudyMode.review,
+                                PromptMode.audio,
+                              ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2d7d32),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey[300],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                        elevation: 0,
                       ),
-                      elevation: 0,
-                    ),
-                    icon: const Icon(Icons.headphones_rounded, size: 22),
-                    label: const Text(
-                      '打卡',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      icon: const Icon(Icons.headphones_rounded, size: 22),
+                      label: const Text(
+                        '打卡',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 56,
-                  child: ElevatedButton.icon(
-                    onPressed: widget.onJumpToPreview,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1565C0),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: widget.onJumpToPreview,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1565C0),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                        elevation: 0,
                       ),
-                      elevation: 0,
-                    ),
-                    icon: const Icon(Icons.auto_stories_rounded, size: 22),
-                    label: const Text(
-                      '预习',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      icon: const Icon(Icons.auto_stories_rounded, size: 22),
+                      label: const Text(
+                        '预习',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (!_guideDismissed) ...[
-            _newUserGuideCard(),
+              ],
+            ),
             const SizedBox(height: 14),
-          ],
-          _homeBannerCarousel(
-            currentPackStudied: currentPackStudied,
-            currentPackTotal: _species.length,
-            currentPackProgress: currentPackProgress,
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                  child: _compactStatCard('已学习', '$studied', Colors.green)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _compactStatCard(
-                  '正确率',
-                  '${(stats.accuracy * 100).round()}%',
-                  Colors.blue,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _compactStatCard(
-                    '不熟悉', '${unfamiliarNames.length}', Colors.orange),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                  child:
-                      _compactStatCard('总答题', '${stats.total}', Colors.purple)),
+            if (!_guideDismissed) ...[
+              _newUserGuideCard(),
+              const SizedBox(height: 14),
             ],
-          ),
-          const SizedBox(height: 10),
-          _checkInCalendar(checkInDates),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: () async {
-              final changed = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ProgressDetailScreen(
-                    storage: widget.storage,
-                    species: _species,
-                    onJumpToFlashcard: widget.onJumpToFlashcard,
+            _homeBannerCarousel(
+              currentPackStudied: currentPackStudied,
+              currentPackTotal: _species.length,
+              currentPackProgress: currentPackProgress,
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                    child: _compactStatCard('已学习', '$studied', Colors.blue)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _compactStatCard(
+                    '正确率',
+                    '${(stats.accuracy * 100).round()}%',
+                    Colors.green,
                   ),
                 ),
-              );
-              if (changed == true && mounted) {
-                setState(() {});
-              }
-            },
-            icon: const Icon(Icons.insights_outlined),
-            label: const Text('查看学习详情'),
-          ),
-          const SizedBox(height: 20),
-          _sectionHeader(
-            '建议优先复习',
-            actionLabel: unfamiliarNames.isEmpty ? null : '清空不熟悉',
-            onAction: unfamiliarNames.isEmpty
-                ? null
-                : () async {
-                    await widget.storage.clearUnfamiliar();
-                    if (!mounted) return;
-                    setState(() {});
-                  },
-          ),
-          const SizedBox(height: 8),
-          if (weakSpecies.isEmpty)
-            _emptyPanel('还没有不熟悉鸟种', '当你选择“不认识”时，这里会形成强化复习清单。')
-          else
-            ...weakSpecies.take(5).map((entry) {
-              final species = entry.$1;
-              final mastery = entry.$2;
-              return _speciesCard(
-                species: species,
-                subtitle:
-                    '不认识 ${mastery.unknownCount} 次 · 连续认识 ${mastery.knownStreak} 次',
-                chipLabel: mastery.unfamiliar ? '建议复习' : '观察中',
-                chipColor: mastery.unfamiliar ? Colors.orange : Colors.blueGrey,
-              );
-            }),
-        ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _compactStatCard(
+                      '不熟悉', '${unfamiliarNames.length}', Colors.red),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: _compactStatCard(
+                        '累计答题', '${stats.total}', Colors.amber)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _checkInCalendar(checkInDates),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final changed = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProgressDetailScreen(
+                      storage: widget.storage,
+                      species: _species,
+                      onJumpToFlashcard: widget.onJumpToFlashcard,
+                    ),
+                  ),
+                );
+                if (changed == true && mounted) {
+                  setState(() {});
+                }
+              },
+              icon: const Icon(Icons.insights_outlined),
+              label: const Text('查看学习详情'),
+            ),
+            const SizedBox(height: 20),
+            _sectionHeader(
+              '建议优先复习',
+              actionLabel: unfamiliarNames.isEmpty ? null : '清空不熟悉',
+              onAction: unfamiliarNames.isEmpty
+                  ? null
+                  : () async {
+                      await widget.storage.clearUnfamiliar();
+                      if (!mounted) return;
+                      setState(() {});
+                    },
+            ),
+            const SizedBox(height: 8),
+            if (weakSpecies.isEmpty)
+              _emptyPanel('还没有不熟悉鸟种', '答错或选择“不认识”的鸟会进入这里；连续认识后会移出。')
+            else
+              ...weakSpecies.take(5).map((entry) {
+                final species = entry.$1;
+                final mastery = entry.$2;
+                return _speciesCard(
+                  species: species,
+                  subtitle:
+                      '不认识 ${mastery.unknownCount} 次 · 连续认识 ${mastery.knownStreak} 次',
+                  chipLabel: mastery.unfamiliar ? '建议复习' : '观察中',
+                  chipColor:
+                      mastery.unfamiliar ? Colors.orange : Colors.blueGrey,
+                );
+              }),
+          ],
+        ),
       ),
     );
   }
@@ -435,7 +439,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           const SizedBox(height: 6),
           _guideStep('2', '去“预习”看图、听声、记特征，再回首页打卡。'),
           const SizedBox(height: 6),
-          _guideStep('3', '学习时左右换同种照片，上滑认识，下滑不认识。'),
+          _guideStep('3', '打卡时左右换同种照片，上滑认识，下滑不认识。'),
         ],
       ),
     );
@@ -848,7 +852,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
               onTap: () => widget.onJumpToFlashcard(species),
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Text('去学习', style: TextStyle(fontSize: 12)),
+                child: Text('去打卡', style: TextStyle(fontSize: 12)),
               ),
             ),
           ],

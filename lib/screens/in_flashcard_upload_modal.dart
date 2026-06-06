@@ -9,6 +9,7 @@ import '../services/admin_upload_service.dart';
 import '../services/pack_manager.dart';
 import '../services/server_media_service.dart';
 import '../services/storage.dart';
+import '../utils/file_picker_guard.dart';
 
 enum UploadKind { image, audio }
 
@@ -88,6 +89,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
 
   @override
   void dispose() {
+    FilePickerGuard.forceReset();
     _contributorCtrl.dispose();
     _featuresCtrl.dispose();
     _descriptionCtrl.dispose();
@@ -96,8 +98,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
 
   Future<void> _loadExistingImages() async {
     try {
-      final media = await ServerMediaService()
-          .fetchSpeciesMedia(widget.currentBird.sci);
+      final media =
+          await ServerMediaService().fetchSpeciesMedia(widget.currentBird.sci);
       if (!mounted) return;
       setState(() {
         _existingImages = media?.images ?? const [];
@@ -112,10 +114,9 @@ class _UploadModalContentState extends State<_UploadModalContent> {
     if (_pickingFiles) return;
     setState(() => _pickingFiles = true);
     try {
-      final result = await FilePicker.pickFiles(
-        type: widget.kind == UploadKind.image
-            ? FileType.image
-            : FileType.custom,
+      final result = await FilePickerGuard.pickFiles(
+        type:
+            widget.kind == UploadKind.image ? FileType.image : FileType.custom,
         allowedExtensions: widget.kind == UploadKind.audio
             ? ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg']
             : null,
@@ -127,7 +128,9 @@ class _UploadModalContentState extends State<_UploadModalContent> {
         }
       });
     } catch (e) {
-      _snack('选取文件失败：$e');
+      final message =
+          '$e'.contains('multiple_request') ? '文件选择器还在打开，请稍等一下再试' : '$e';
+      _snack('选取文件失败：$message');
     } finally {
       if (mounted) setState(() => _pickingFiles = false);
     }
@@ -167,7 +170,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
       final file = _files[i];
       try {
         if (hasToken) {
-          await svc.uploadFile(
+          final resp = await svc.uploadFile(
             sci: sci,
             contributor: contributor,
             filePath: file.path,
@@ -178,6 +181,28 @@ class _UploadModalContentState extends State<_UploadModalContent> {
             audioType: widget.kind == UploadKind.audio ? _audioType : '',
             license: 'CC BY-NC 4.0',
           );
+          final saved = (resp['saved'] as List?) ?? const [];
+          if (widget.storage.isAdminMode && saved.isNotEmpty) {
+            final first = saved.first;
+            final entry = first is Map && first['entry'] is Map
+                ? Map<String, dynamic>.from(first['entry'] as Map)
+                : <String, dynamic>{};
+            if (widget.kind == UploadKind.image) {
+              await widget.packManager.addUploadedSpeciesImageFromFile(
+                sci: sci,
+                sourcePath: file.path,
+                serverEntry: entry,
+                difficulty: _difficulty,
+              );
+            } else {
+              await widget.packManager.addUploadedSpeciesAudioFromFile(
+                sci: sci,
+                sourcePath: file.path,
+                serverEntry: entry,
+                audioType: _audioType,
+              );
+            }
+          }
         } else {
           // 仅本地保存
           if (widget.kind == UploadKind.image) {
@@ -239,8 +264,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   }
 
   Future<void> _openCcUrl() async {
-    final uri =
-        Uri.parse('https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans');
+    final uri = Uri.parse(
+        'https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans');
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -266,8 +291,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSpeciesRow(),
-                    if (widget.kind == UploadKind.image &&
-                        _existingLoaded) ...[
+                    if (widget.kind == UploadKind.image && _existingLoaded) ...[
                       const SizedBox(height: 14),
                       _buildExistingImagesStrip(),
                     ],
@@ -329,9 +353,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                               i <= _difficulty
                                   ? Icons.star_rounded
                                   : Icons.star_outline_rounded,
-                              color: i <= _difficulty
-                                  ? Colors.amber
-                                  : Colors.grey,
+                              color:
+                                  i <= _difficulty ? Colors.amber : Colors.grey,
                             ),
                           ),
                       ],
@@ -353,7 +376,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                     _label(
                         widget.kind == UploadKind.image ? '选取图片 *' : '选取音频 *'),
                     OutlinedButton.icon(
-                      onPressed: (_uploading || _pickingFiles) ? null : _pickFiles,
+                      onPressed:
+                          (_uploading || _pickingFiles) ? null : _pickFiles,
                       icon: Icon(widget.kind == UploadKind.image
                           ? Icons.image_outlined
                           : Icons.audiotrack_outlined),
@@ -364,8 +388,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                     for (var i = 0; i < _files.length; i++)
                       ListTile(
                         dense: true,
-                        leading:
-                            const Icon(Icons.insert_drive_file_outlined),
+                        leading: const Icon(Icons.insert_drive_file_outlined),
                         title: Text(
                           _files[i].path.split(Platform.pathSeparator).last,
                           style: const TextStyle(fontSize: 13),
@@ -374,8 +397,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                           icon: const Icon(Icons.close),
                           onPressed: _uploading
                               ? null
-                              : () =>
-                                  setState(() => _files.removeAt(i)),
+                              : () => setState(() => _files.removeAt(i)),
                         ),
                       ),
                     const SizedBox(height: 14),
@@ -385,9 +407,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                     if (_uploading) ...[
                       const SizedBox(height: 8),
                       LinearProgressIndicator(
-                        value: _files.isEmpty
-                            ? null
-                            : _progress / _files.length,
+                        value:
+                            _files.isEmpty ? null : _progress / _files.length,
                       ),
                       const SizedBox(height: 4),
                       Text('进度 $_progress / ${_files.length}',
@@ -399,9 +420,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: _resultOk
-                              ? Colors.green[50]
-                              : Colors.red[50],
+                          color: _resultOk ? Colors.green[50] : Colors.red[50],
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -450,9 +469,8 @@ class _UploadModalContentState extends State<_UploadModalContent> {
           const Spacer(),
           IconButton(
             icon: const Icon(Icons.close),
-            onPressed: _uploading
-                ? null
-                : () => Navigator.pop(context, _resultOk),
+            onPressed:
+                _uploading ? null : () => Navigator.pop(context, _resultOk),
           ),
         ],
       ),
@@ -514,8 +532,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                   size: 16, color: Colors.orange[800]),
               const SizedBox(width: 4),
               Text('建议先确认现有照片是否够用',
-                  style: TextStyle(
-                      fontSize: 11, color: Colors.orange[800])),
+                  style: TextStyle(fontSize: 11, color: Colors.orange[800])),
             ],
           ],
         ),
@@ -540,8 +557,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                       width: 70,
                       height: 70,
                       color: Colors.grey[300],
-                      child: const Icon(Icons.broken_image,
-                          color: Colors.grey),
+                      child: const Icon(Icons.broken_image, color: Colors.grey),
                     ),
                   ),
                 );
@@ -560,9 +576,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           border: Border.all(
-            color: _ccChecked
-                ? const Color(0xFF2d7d32)
-                : Colors.grey[400]!,
+            color: _ccChecked ? const Color(0xFF2d7d32) : Colors.grey[400]!,
           ),
           borderRadius: BorderRadius.circular(8),
         ),

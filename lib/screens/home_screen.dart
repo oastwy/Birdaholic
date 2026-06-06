@@ -30,6 +30,7 @@ class HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _packVersion = 0;
   bool _flashcardFocus = false;
+  bool _downloadMiniMinimized = false;
   final _flashcardKey = GlobalKey<FlashcardScreenState>();
   DownloadTaskStatus _lastTaskStatus =
       DownloadTaskService.instance.snapshot.status;
@@ -56,11 +57,11 @@ class HomeScreenState extends State<HomeScreen> {
   void _startSession(String filter, StudyMode mode, PromptMode promptMode) {
     setState(() => _tab = 1);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _flashcardKey.currentState?.enterFocusMode();
       _flashcardKey.currentState?.startSession(
         filter: filter,
         mode: mode,
         promptMode: promptMode,
+        autoFocus: false,
       );
     });
   }
@@ -102,6 +103,10 @@ class HomeScreenState extends State<HomeScreen> {
 
   void _handleDownloadStateChanged() {
     final status = DownloadTaskService.instance.snapshot.status;
+    if (_lastTaskStatus != DownloadTaskStatus.running &&
+        status == DownloadTaskStatus.running) {
+      setState(() => _downloadMiniMinimized = false);
+    }
     if (_lastTaskStatus != DownloadTaskStatus.completed &&
         status == DownloadTaskStatus.completed) {
       _handlePackChanged();
@@ -135,6 +140,43 @@ class HomeScreenState extends State<HomeScreen> {
                 if (task.etaLabel.isNotEmpty) task.etaLabel,
               ].join(' · ')
             : task.currentSpecies;
+
+    if (_downloadMiniMinimized) {
+      return Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(999),
+        color: Colors.white,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => setState(() => _downloadMiniMinimized = false),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: color.withValues(alpha: 0.24)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  task.isFinished ? Icons.task_alt : Icons.cloud_download,
+                  color: color,
+                  size: 18,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  task.isFinished ? title : task.speciesProgressLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Material(
       elevation: 10,
@@ -194,13 +236,27 @@ class HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               if (task.isRunning)
-                InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: DownloadTaskService.instance.cancel,
-                  child: const Padding(
-                    padding: EdgeInsets.all(4),
-                    child: Icon(Icons.close, size: 16),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () =>
+                          setState(() => _downloadMiniMinimized = true),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.remove, size: 16),
+                      ),
+                    ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: DownloadTaskService.instance.cancel,
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.close, size: 16),
+                      ),
+                    ),
+                  ],
                 )
               else if (task.isFinished)
                 InkWell(
@@ -312,7 +368,7 @@ class HomeScreenState extends State<HomeScreen> {
             }
           },
           child: Scaffold(
-            appBar: _tab == 1 && _flashcardFocus
+            appBar: _tab == 0 || (_tab == 1 && _flashcardFocus)
                 ? null
                 : AppBar(
                     title: _tab == 1 ? null : Text(_titles[_tab]),
@@ -366,7 +422,7 @@ class HomeScreenState extends State<HomeScreen> {
                 if (task.isRunning || task.isFinished)
                   Positioned(
                     right: 12,
-                    bottom: 12,
+                    bottom: _tab == 1 && _flashcardFocus ? 12 : 16,
                     child: _buildDownloadMiniStatus(context, task),
                   ),
               ],
@@ -380,11 +436,6 @@ class HomeScreenState extends State<HomeScreen> {
                         _tab = i;
                         if (i != 1) _flashcardFocus = false;
                       });
-                      if (i == 1) {
-                        WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => _flashcardKey.currentState?.enterFocusMode(),
-                        );
-                      }
                     },
                     type: BottomNavigationBarType.fixed,
                     selectedItemColor: const Color(0xFF2d5016),

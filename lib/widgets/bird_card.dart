@@ -23,6 +23,7 @@ class BirdCard extends StatefulWidget {
   final String imageCredit;
   final List<String> audioPaths;
   final List<String> audioLabels;
+  final String audioSpectrogramPath;
   final StudyMode mode;
   final PromptMode promptMode;
   final VoidCallback? onAudioStarted;
@@ -57,6 +58,7 @@ class BirdCard extends StatefulWidget {
     this.imageCredit = '',
     this.audioPaths = const [],
     this.audioLabels = const [],
+    this.audioSpectrogramPath = '',
     this.mode = StudyMode.review,
     this.promptMode = PromptMode.audio,
     this.onAudioStarted,
@@ -262,7 +264,8 @@ class BirdCardState extends State<BirdCard>
         children: [
           if (isImagePrompt) ...[
             if (images.isNotEmpty)
-              _imageCarousel(images: images, height: widget.isFocused ? 320 : 190)
+              _imageCarousel(
+                  images: images, height: widget.isFocused ? 320 : 190)
             else
               _imagePlaceholder(widget.isFocused ? 320 : 190),
           ] else ...[
@@ -272,6 +275,7 @@ class BirdCardState extends State<BirdCard>
               audioLabels: widget.audioLabels,
               onPlayStarted: widget.onAudioStarted,
             ),
+            _spectrogramPreview(),
             const SizedBox(height: 12),
             const Icon(Icons.headphones, size: 38, color: Color(0xFF2d5016)),
           ],
@@ -306,7 +310,8 @@ class BirdCardState extends State<BirdCard>
         children: [
           if (isImagePrompt) ...[
             if (images.isNotEmpty)
-              _imageCarousel(images: images, height: widget.isFocused ? 300 : 170)
+              _imageCarousel(
+                  images: images, height: widget.isFocused ? 300 : 170)
             else
               _imagePlaceholder(widget.isFocused ? 300 : 170),
             const SizedBox(height: 10),
@@ -317,6 +322,7 @@ class BirdCardState extends State<BirdCard>
               audioLabels: widget.audioLabels,
               onPlayStarted: widget.onAudioStarted,
             ),
+            _spectrogramPreview(),
             const SizedBox(height: 10),
             const Icon(Icons.headphones, size: 30, color: Color(0xFF2d5016)),
             const SizedBox(height: 8),
@@ -450,8 +456,7 @@ class BirdCardState extends State<BirdCard>
               const Padding(
                 padding: EdgeInsets.only(right: 6),
                 child: Text('← 上个种',
-                    style: TextStyle(
-                        fontSize: 10, color: Color(0xFF7B9968))),
+                    style: TextStyle(fontSize: 10, color: Color(0xFF7B9968))),
               ),
             ...List.generate(images.length, (i) {
               return AnimatedContainer(
@@ -471,8 +476,7 @@ class BirdCardState extends State<BirdCard>
               const Padding(
                 padding: EdgeInsets.only(left: 6),
                 child: Text('下个种 →',
-                    style: TextStyle(
-                        fontSize: 10, color: Color(0xFF7B9968))),
+                    style: TextStyle(fontSize: 10, color: Color(0xFF7B9968))),
               ),
           ],
         ),
@@ -485,6 +489,65 @@ class BirdCardState extends State<BirdCard>
           ),
         ],
       ],
+    );
+  }
+
+  Widget _spectrogramPreview() {
+    final path = widget.audioSpectrogramPath.trim();
+    if (path.isEmpty) return const SizedBox.shrink();
+    final isNetwork = path.startsWith('http://') || path.startsWith('https://');
+    final image = isNetwork
+        ? Image.network(path, fit: BoxFit.cover)
+        : Image.file(File(path), fit: BoxFit.cover);
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _showSpectrogramPreview(path),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            height: widget.isFocused ? 156 : 128,
+            width: double.infinity,
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: Colors.grey[100]),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  image,
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Padding(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.zoom_out_map,
+                                color: Colors.white, size: 13),
+                            SizedBox(width: 4),
+                            Text(
+                              '放大',
+                              style:
+                                  TextStyle(color: Colors.white, fontSize: 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -732,6 +795,123 @@ class BirdCardState extends State<BirdCard>
               child: IconButton.filled(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSpectrogramPreview(String path) {
+    final isNetwork = path.startsWith('http://') || path.startsWith('https://');
+    final src = isNetwork
+        ? Image.network(path, fit: BoxFit.contain)
+        : Image.file(File(path), fit: BoxFit.contain);
+    final audioLabel =
+        widget.audioLabels.isNotEmpty ? widget.audioLabels.first : '音频频谱';
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(10),
+        backgroundColor: Colors.black,
+        elevation: 0,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.7,
+                maxScale: 8,
+                boundaryMargin: const EdgeInsets.all(120),
+                child: Container(
+                  color: Colors.black,
+                  alignment: Alignment.center,
+                  child: src,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.78),
+                      Colors.black.withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 56, 36),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.species.cn.isEmpty
+                              ? widget.species.en
+                              : widget.species.cn,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${widget.species.sci} · $audioLabel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 18,
+              child: SafeArea(
+                top: false,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.52),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: Text(
+                      '双指缩放，左右拖动查看；轻点右上角关闭',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 10,
+              top: 10,
+              child: SafeArea(
+                child: IconButton.filled(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
               ),
             ),
           ],

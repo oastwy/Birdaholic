@@ -9,6 +9,7 @@ import 'screens/home_screen.dart';
 import 'screens/privacy_policy_screen.dart';
 import 'services/pack_manager.dart';
 import 'services/storage.dart';
+import 'utils/file_picker_guard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,13 +51,51 @@ class BirdFlashcardApp extends StatelessWidget {
       ),
       home: _ConsentGate(
         storage: storage,
-        child: HomeScreen(
-          packManager: packManager,
-          storage: storage,
+        child: _FilePickerLifecycleReset(
+          child: HomeScreen(
+            packManager: packManager,
+            storage: storage,
+          ),
         ),
       ),
     );
   }
+}
+
+class _FilePickerLifecycleReset extends StatefulWidget {
+  final Widget child;
+  const _FilePickerLifecycleReset({required this.child});
+
+  @override
+  State<_FilePickerLifecycleReset> createState() =>
+      _FilePickerLifecycleResetState();
+}
+
+class _FilePickerLifecycleResetState extends State<_FilePickerLifecycleReset>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    FilePickerGuard.forceReset();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive) {
+      FilePickerGuard.forceReset();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _ConsentGate extends StatefulWidget {
@@ -111,8 +150,8 @@ class _ConsentGateState extends State<_ConsentGate> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text('需同意协议后才能使用',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700)),
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 10),
                 const Text(
                   '您已拒绝《用户协议》和《隐私政策》。如需使用本 App，请重新阅读并同意；或直接关闭 App。',

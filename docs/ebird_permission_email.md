@@ -1,59 +1,15 @@
-# eBird 非商用数据报备邮件草稿
+湿地为水鸟提供繁殖、迁徙和越冬所需的生境。长期以来，湿地保护以维持面积为主要目标，但越来越多的证据表明，面积保留并不等于功能完好。当水文、植被和干扰条件改变后，湿地斑块虽然仍在，却未必还能支撑水鸟完成关键生活史过程。van de Pol 等（2024）发现，海平面上升导致巢址水淹频率增加，可在滩涂被淹没之前就使繁殖涉禽种群下降。这说明，湿地的保护价值不能只用面积或是否被水鸟利用来衡量，还要看它能否支撑繁殖成功。因此，全球湿地保护正从关注面积转向同时关注功能完整性（Convention on Wetlands, 2025）。
 
-收件人建议：ebird@cornell.edu（或通过 https://ebird.org/help 提交）
-抄送/留档：自己邮箱
+对迁徙水鸟而言，繁殖是决定种群补充的关键阶段，也是受生境质量影响最直接的阶段。多数水鸟在地面或近水处筑巢，繁殖成效对水位变化、捕食和人为干扰高度敏感，繁殖地质量的下降会直接削弱种群的维持能力。然而，水鸟在繁殖季是否利用某一斑块，并不一定反映该斑块质量的高低。动物对生境的选择依赖于在长期演化中形成的环境线索，当环境被快速改变后，这些线索可能不再准确预测繁殖成效，导致个体集中在看似适宜、实际繁殖成功率却较低的生境（Hale & Swearer, 2016）。这意味着，仅凭分布或数量无法判断一处繁殖地的真实价值，必须同时掌握繁殖成效。
 
----
+东亚-澳大利西亚迁飞通道是全球水鸟多样性最高、受人类活动影响最强的迁飞通道之一。围绕该通道的研究长期集中在越冬地和迁徙停歇地，对滩涂丧失、停歇地退化和种群下降已有较多积累（Murray et al., 2019; Studds et al., 2017）。这些研究阐明了非繁殖期生境对水鸟的重要性，但对繁殖阶段关注不足。由于繁殖决定种群补充，缺乏繁殖端的认识，会限制对水鸟种群动态和全生活史保护需求的理解。粤港澳大湾区的情况尤为典型：该区域主要被作为水鸟越冬地和停歇地来研究，已有工作多关注越冬群落组成和重要湿地识别（Sung et al., 2021; 张敏等, 2020），而对繁殖季有哪些水鸟、繁殖地分布在哪里、种群规模多大，至今缺乏系统调查。
 
-## 英文版（建议正文）
+事实上，华南亚热带沿海的繁殖水鸟群落与温带和北方地区并不相同，且长期被低估。近年记录显示，黑翅长脚鹬已在华南形成稳定繁殖种群（王英勇等, 2017），白额燕鸥、褐翅燕鸥在广东沿海或近岸岛屿繁殖（林少娜等, 2021; 游永明等, 2021），金眶鸻、白脸鸻、普通燕鸻、水雉等也在深圳湾、广州南沙、珠海、江门等地有繁殖记录（图1）。这些记录提示，大湾区湿地在繁殖季承担着尚未被系统认识的功能。但这些记录来源零散、未经统一核实，难以据此判断繁殖地的分布范围和种群规模，更无法评估其在区域和迁飞通道中的地位。
 
-**Subject:** Permission request — non-commercial use of eBird regional checklists in a free birding study app
+与此同时，大湾区是我国城市化和海岸带开发强度最高的区域之一，这为研究城市化对繁殖水鸟的影响提供了条件。城市化通常通过改变土地利用和生境结构来重组鸟类群落，使一部分对干扰敏感、生境需求专一的物种减少，另一部分适应能力较强的物种保留或增多（Andrade et al., 2018）。在大湾区，城市化的影响还有其特殊之处：这里的滨海湿地已成为天然斑块与人工斑块的镶嵌体——既有河口潮间带滩涂、天然红树林和近岸岛屿，也有养殖塘、围垦水面、盐田、城市湿地公园和近年修复的红树林。一方面，天然生境因开发而减少；另一方面，大量人工湿地被建造出来，可能为繁殖水鸟提供新的空间。因此，城市化对大湾区繁殖水鸟的影响是双向的，其净效应取决于这些人工湿地能否真正支撑繁殖。
 
-Dear eBird API Team,
+人工湿地能否支撑繁殖，目前并不清楚。盐田、养殖塘等人工湿地作为水鸟觅食地和高潮停歇地的作用已被广泛记录（Peng et al., 2025），但它们作为繁殖地的作用证据有限且不一致，不同类型人工湿地之间差异很大（Green et al., 2015; Lei et al., 2021）。这种不确定性有其内在原因：人工湿地的水位往往因养殖和管理需要而人为调控，繁殖期的水位骤变可能淹没巢址；围垦和城市湿地的边缘效应可能增加捕食和人为干扰；这些都可能使人工湿地表现为吸引水鸟筑巢、繁殖成效却较低的生境。此外，红树林修复在为鹭类提供巢址的同时，可能占用鸻鹬类和鸥类依赖的开阔滩涂，形成保护目标之间的权衡（Choi et al., 2022; Yang et al., 2021）。要判断各类人工湿地的繁殖支持能力，需要以同区域的天然湿地为参照，比较不同湿地类型上的繁殖分布和繁殖成效。
 
-I am developing a **free, non-commercial** birding study app called "鸟瘾综合征 / Birdaholic" (for personal/educational use, no ads, no in-app purchases, not operated by any for-profit entity).
+缺乏繁殖本底，已经造成实际损失。申请人前期调研中，在江门新会一处待施工地块发现大量水鸟产卵繁殖，施工启动后车辆和人员进入，繁殖地几近毁损，经多方协调，工程才调整至雏鸟离巢后再进行。这类冲突反映出，在没有繁殖调查数据的情况下，繁殖地保护往往只能在冲突发生后被动补救。当前大湾区正推进湿地公园建设、红树林保护修复和海岸带综合治理，《粤港澳大湾区发展规划纲要》《珠三角地区水鸟生态廊道建设规划》等也对水鸟生境节点提出了要求（中共中央和国务院, 2019; 广东省林业局, 2020）。在这一背景下，掌握繁殖地分布、种群规模和影响繁殖的主要因素，才能把繁殖地保护从事后补救转向事前规避。
 
-I would like to confirm permission for the following two uses of the eBird API:
-
-1. **Per-user live queries.** Each user enters their own eBird API key, stored locally on their device, and queries regional species lists (spplist) directly from api.ebird.org. No keys are shared.
-
-2. **Bundled regional checklists.** Using my own API key, I have pre-fetched the species checklists (spplist) for China's 34 provinces / regions and bundled them as static reference data inside the app, so users without an API key can still download media for the birds of their province. This data is used **strictly non-commercially**, and eBird.org is **attributed** wherever the lists are displayed.
-
-Could you please confirm whether use (2) is acceptable under the eBird API Terms of Use for a non-commercial, educational application, or advise the correct procedure?
-
-Attribution shown in the app: "名录数据来源：eBird (Cornell Lab of Ornithology, ebird.org)".
-
-Thank you for the wonderful eBird platform and for supporting the birding community.
-
-Best regards,
-Wu Yang (伍洋)
-Developer, Birdaholic
-Email: birderrrr@gmail.com
-App ICP filing (China): 粤ICP备2026057758号-2A
-
----
-
-## 中文版（备用/自存）
-
-**主题：** 关于在免费观鸟学习 App 中非商业使用 eBird 地区名录的许可咨询
-
-eBird API 团队：
-
-我开发了一款**免费、非商业**的观鸟学习 App「鸟瘾综合征 / Birdaholic」（个人/教育用途，无广告、无内购、非营利主体运营）。
-
-希望就以下两种 eBird API 用法确认许可：
-
-1. **每用户实时查询**：每位用户填写自己的 eBird API Key（仅存本地），直接向 api.ebird.org 查询地区名录（spplist），不分享任何 key。
-
-2. **内置地区名录**：我用自己的 API Key 预先拉取了中国 34 个省/地区的物种名录（spplist），作为静态参考数据打包进 App，让没有 API Key 的用户也能下载本省鸟类的媒体。该数据**严格非商业**使用，并在所有展示名录处**署名 eBird.org**。
-
-请确认用法（2）在非商业教育类应用下是否符合 eBird API 使用条款，或告知正确流程。
-
-App 内署名："名录数据来源：eBird (Cornell Lab of Ornithology, ebird.org)"。
-
-感谢 eBird 平台对观鸟社区的支持。
-
-伍洋
-Birdaholic 开发者
-邮箱：birderrrr@gmail.com
-ICP 备案：粤ICP备2026057758号-2A
+开展这项研究目前已具备条件。一方面，中国观鸟记录中心、eBird 等平台已积累了大量繁殖季观测记录，结合校正观测偏差的分析方法，可以在不依赖大规模卫星追踪的前提下估算分布和种群规模（Horns et al., 2018）；另一方面，申请人长期从事迁徙水鸟繁殖生态研究，在温带人工湿地积累了鸻鹬类繁殖调查和繁殖成效评估经验，并已在大湾区获得初步繁殖记录，具备开展本研究的基础。综上，本项目以大湾区典型海湾湿地为对象，整合多源繁殖记录、野外调查和公民科学数据，查明繁殖水鸟的分布格局和种群规模，分析城市化强度和湿地类型对繁殖分布与繁殖成效的影响，以天然湿地为参照判断各类人工湿地的繁殖支持能力，识别高价值繁殖地及其与开发活动的冲突风险，为大湾区繁殖季湿地保护和精细化管理提供科学依据。

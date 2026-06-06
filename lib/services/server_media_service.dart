@@ -135,13 +135,25 @@ class ServerMediaService {
     final media = await fetchSpeciesMedia(sci);
     if (media == null || (!media.hasImage && !media.hasAudio)) return null;
 
-    final audioEntries = <Map<String, String>>[];
+    final audioEntries = <Map<String, dynamic>>[];
+    final spectrogramsDir =
+        '${Directory(soundsDir).parent.path}/spectrograms';
     for (final audio in media.audio.take(2)) {
       final downloaded = await _downloadFile(
         url: audio.url,
         outputDir: soundsDir,
       );
       if (downloaded == null) continue;
+      String spectrogramRelative = '';
+      if (audio.spectrogramUrl.isNotEmpty) {
+        final spectrogram = await _downloadFile(
+          url: audio.spectrogramUrl,
+          outputDir: spectrogramsDir,
+        );
+        if (spectrogram != null) {
+          spectrogramRelative = 'spectrograms/${spectrogram.filename}';
+        }
+      }
       audioEntries.add({
         'type': audio.type.isEmpty ? 'call' : audio.type,
         'file': 'sounds/${downloaded.filename}',
@@ -149,10 +161,13 @@ class ServerMediaService {
         if (audio.contributorUrl.isNotEmpty)
           'contributor_url': audio.contributorUrl,
         if (audio.license.isNotEmpty) 'license': audio.license,
+        if (spectrogramRelative.isNotEmpty) 'spectrogram': spectrogramRelative,
+        if (audio.spectrogramUrl.isNotEmpty)
+          'spectrogram_url': audio.spectrogramUrl,
       });
     }
 
-    final imageEntries = <Map<String, String>>[];
+    final imageEntries = <Map<String, dynamic>>[];
     for (final image in media.images.take(3)) {
       final downloaded = await _downloadFile(
         url: image.url,
@@ -166,6 +181,7 @@ class ServerMediaService {
           'contributor_url': image.contributorUrl,
         if (image.source.isNotEmpty) 'source': image.source,
         if (image.license.isNotEmpty) 'license': image.license,
+        if (image.difficulty != 1) 'difficulty': image.difficulty,
         'credit':
             image.contributor.isNotEmpty ? image.contributor : image.source,
       });
@@ -271,7 +287,7 @@ class ServerImageMedia {
     required this.contributorUrl,
     required this.source,
     required this.license,
-    this.difficulty = 0,
+    this.difficulty = 1,
   });
 
   factory ServerImageMedia.fromJson(Map<String, dynamic> json) {
@@ -282,7 +298,8 @@ class ServerImageMedia {
       contributorUrl: json['contributor_url'] as String? ?? '',
       source: json['source'] as String? ?? '',
       license: json['license'] as String? ?? '',
-      difficulty: (json['difficulty'] as num?)?.toInt() ?? 0,
+      difficulty:
+          ((json['difficulty'] as num?)?.toInt() ?? 1).clamp(1, 5).toInt(),
     );
   }
 }

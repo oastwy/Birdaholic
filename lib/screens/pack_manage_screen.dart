@@ -13,6 +13,7 @@ import '../services/order_taxonomy.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
+import '../utils/file_picker_guard.dart';
 import 'online_import_screen.dart';
 import 'feedback_review_section.dart';
 import 'audit_history_section.dart';
@@ -26,6 +27,7 @@ enum _PackManageSection {
   localImport,
   onlineImport,
   serverDownload,
+  customDownload,
   installed,
   upload,
   uploadReview,
@@ -61,6 +63,12 @@ class _PackManageScreenState extends State<PackManageScreen> {
   _PackManageSection _section = _PackManageSection.root;
 
   @override
+  void dispose() {
+    FilePickerGuard.forceReset();
+    super.dispose();
+  }
+
+  @override
   void initState() {
     super.initState();
     _bootstrap();
@@ -88,7 +96,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
 
   Future<void> _importPack() async {
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePickerGuard.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['zip'],
       );
@@ -260,12 +268,12 @@ class _PackManageScreenState extends State<PackManageScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '按国家名录逐物种下载',
+                '中国名录服务器下载',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
               Text(
-                '中国完整名录不需要 eBird API；其它国家/地区可用 eBird 代码取得名录，再逐个从服务器下载。',
+                '从内置中国名录选择全国或省份，再逐个从 Birdaholic 服务器下载媒体。无需 eBird API。',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
               const SizedBox(height: 14),
@@ -274,7 +282,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 child: FilledButton.icon(
                   onPressed: () => Navigator.pop(ctx, '__china_full__'),
                   icon: const Icon(Icons.list_alt_outlined),
-                  label: const Text('下载中国完整名录（无需 eBird）'),
+                  label: const Text('中国完整名录逐物种下载（推荐）'),
                 ),
               ),
               const SizedBox(height: 10),
@@ -283,7 +291,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () => Navigator.pop(ctx, '__province_picker__'),
                   icon: const Icon(Icons.map_outlined),
-                  label: const Text('按中国省份下载（内置名录，无需 eBird）'),
+                  label: const Text('中国分省名录逐物种下载'),
                 ),
               ),
               const SizedBox(height: 12),
@@ -291,8 +299,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 controller: controller,
                 textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
-                  labelText: 'eBird 国家/地区代码',
-                  hintText: '例如 CN、AU、US、JP、CN-53',
+                  labelText: '高级：eBird 国家/地区代码',
+                  hintText: '例如 CN、AU、US、JP、CN-53（可选）',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -305,7 +313,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () => Navigator.pop(ctx, '__current_location__'),
                   icon: const Icon(Icons.my_location),
-                  label: const Text('使用当前位置（经纬度）'),
+                  label: const Text('高级：使用当前位置（需 eBird API）'),
                 ),
               ),
               const SizedBox(height: 10),
@@ -376,9 +384,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
   Future<void> _showProvincePicker() async {
     final manifestText =
         await rootBundle.loadString('assets/data/provinces/_manifest.json');
-    final manifest =
-        (jsonDecode(manifestText) as Map<String, dynamic>)['provinces']
-            as List<dynamic>;
+    final manifest = (jsonDecode(manifestText)
+        as Map<String, dynamic>)['provinces'] as List<dynamic>;
     final provinces = manifest
         .whereType<Map<String, dynamic>>()
         .map((m) => (
@@ -427,11 +434,10 @@ class _PackManageScreenState extends State<PackManageScreen> {
                     return ListTile(
                       dense: true,
                       title: Text(p.name,
-                          style:
-                              const TextStyle(fontWeight: FontWeight.w600)),
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
                       subtitle: Text('${p.count} 种',
-                          style:
-                              const TextStyle(fontSize: 12, color: Colors.grey)),
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.grey)),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.pop(ctx, p.code),
                     );
@@ -453,18 +459,22 @@ class _PackManageScreenState extends State<PackManageScreen> {
           .loadString('assets/data/provinces/$provinceCode.json');
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final list = data['species'] as List<dynamic>;
-      final entries = list.whereType<Map<String, dynamic>>().map((item) {
-        final sci = (item['sci'] as String? ?? '').trim();
-        final en = (item['en'] as String? ?? '').trim();
-        final cn = (item['zh'] as String? ?? '').trim();
-        return SpeciesEntry(
-          cn: cn.isNotEmpty ? cn : en,
-          en: en.isNotEmpty ? en : sci,
-          sci: sci,
-          cons: '',
-          habitat: 'ebird:$provinceCode',
-        );
-      }).where((e) => e.sci.isNotEmpty).toList();
+      final entries = list
+          .whereType<Map<String, dynamic>>()
+          .map((item) {
+            final sci = (item['sci'] as String? ?? '').trim();
+            final en = (item['en'] as String? ?? '').trim();
+            final cn = (item['zh'] as String? ?? '').trim();
+            return SpeciesEntry(
+              cn: cn.isNotEmpty ? cn : en,
+              en: en.isNotEmpty ? en : sci,
+              sci: sci,
+              cons: '',
+              habitat: 'ebird:$provinceCode',
+            );
+          })
+          .where((e) => e.sci.isNotEmpty)
+          .toList();
       await _downloadChinaSpecies(entries);
     } catch (e) {
       if (!mounted) return;
@@ -1082,11 +1092,13 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _PackManageSection.localImport => _buildLocalImportSection(),
         _PackManageSection.onlineImport => _buildOnlineImportSection(),
         _PackManageSection.serverDownload => _buildServerDownloadSection(),
+        _PackManageSection.customDownload => _buildCustomDownloadSection(),
         _PackManageSection.installed => _buildInstalledSection(),
         _PackManageSection.upload => _buildUploadSection(),
         _PackManageSection.uploadReview => _buildUploadReviewSection(),
         _PackManageSection.uploadHistory => _buildUploadHistorySection(),
-        _PackManageSection.serverMediaManager => _buildServerMediaManagerSection(),
+        _PackManageSection.serverMediaManager =>
+          _buildServerMediaManagerSection(),
         _PackManageSection.userManagement => _buildUserManagementSection(),
         _PackManageSection.feedbackReview => _buildFeedbackReviewSection(),
       },
@@ -1105,7 +1117,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          '本地包、在线下载和已安装数据包分开管理，学习页只保留学习本身。',
+          '本地包、在线下载和已安装数据包分开管理，学习页只保留预习和打卡。',
           style: TextStyle(fontSize: 13, color: Colors.grey[600]),
         ),
         const SizedBox(height: 16),
@@ -1118,8 +1130,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
         ),
         _PackModuleCard(
           icon: Icons.cloud_download_outlined,
-          title: '在线导入',
-          subtitle: '按中国名录、地点或自定义批量下载',
+          title: '在线下载',
+          subtitle: '服务器名录下载，或用 API 自定义下载',
           onTap: () =>
               setState(() => _section = _PackManageSection.onlineImport),
         ),
@@ -1194,7 +1206,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
         ),
         const SizedBox(height: 12),
         Text(
-          '如果是分包，请一次选择或导入完整分包后再合并。弱网下载建议用“在线导入 > 服务器下载 > 逐物种下载中国名录”。',
+          '如果是分包，请一次选择或导入完整分包后再合并。弱网下载建议用“在线下载 > 中国名录服务器下载（无需 API）”。',
           style: TextStyle(fontSize: 13, color: Colors.grey[600]),
         ),
       ],
@@ -1205,24 +1217,62 @@ class _PackManageScreenState extends State<PackManageScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        _buildSectionHeader('在线导入', '推荐逐物种下载，网络中断后可继续补缺失物种。'),
+        _buildSectionHeader('在线下载', '先用无需 API 的服务器名录下载；进阶筛选再使用 API。'),
         _PackModuleCard(
           icon: Icons.cloud_queue,
-          title: '服务器下载',
-          subtitle: '逐物种下载中国名录（推荐）',
+          title: '中国名录服务器下载（无需 API）',
+          subtitle: '中国完整名录或分省名录逐物种下载',
           onTap: () =>
               setState(() => _section = _PackManageSection.serverDownload),
         ),
         _PackModuleCard(
+          icon: Icons.tune_outlined,
+          title: '自定义下载（需 API）',
+          subtitle: '按地点筛选，或用清单批量补充媒体',
+          onTap: () =>
+              setState(() => _section = _PackManageSection.customDownload),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServerDownloadSection() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        _buildSectionHeader(
+            '中国名录服务器下载（无需 API）', '媒体逐物种从 Birdaholic 服务器下载，网络中断后可继续补缺。'),
+        _PackModuleCard(
+          icon: Icons.list_alt_outlined,
+          title: '中国完整名录逐物种下载（推荐）',
+          subtitle: '下载中国名录中服务器已有媒体的物种',
+          onTap: _loading ? null : _downloadFullChinaCatalog,
+        ),
+        _PackModuleCard(
+          icon: Icons.map_outlined,
+          title: '中国分省名录逐物种下载',
+          subtitle: '按省份选择物种，仍然不需要 eBird API',
+          onTap: _loading ? null : _showCountrySpeciesDownloadSheet,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCustomDownloadSection() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        _buildSectionHeader('自定义下载（需 API）', '用外部 API 生成物种清单，再逐物种从服务器或公开来源补媒体。'),
+        _PackModuleCard(
           icon: Icons.place_outlined,
-          title: '按地点逐物种下载（eBird API）',
-          subtitle: '用地区、热点或经纬度筛选附近鸟种',
+          title: '按地点逐物种下载（需 eBird API）',
+          subtitle: '地区、热点或经纬度用于获取附近鸟种；媒体优先从服务器下载',
           onTap: _loading ? null : _showLocationSpeciesDownloadSheet,
         ),
         _PackModuleCard(
           icon: Icons.graphic_eq,
-          title: '自定义批量下载（Xeno API）',
-          subtitle: '旧版在线导入：按清单补充鸟鸣和图片',
+          title: '自定义批量下载（需 xeno-canto API）',
+          subtitle: '按清单补充鸟鸣和图片，适合进阶整理数据包',
           onTap: _loading
               ? null
               : () {
@@ -1241,30 +1291,10 @@ class _PackManageScreenState extends State<PackManageScreen> {
     );
   }
 
-  Widget _buildServerDownloadSection() {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        _buildSectionHeader('服务器下载', '整包下载已移除，避免弱网下反复失败。'),
-        _PackModuleCard(
-          icon: Icons.list_alt_outlined,
-          title: '逐物种下载中国名录（推荐）',
-          subtitle: '按物种从服务器补媒体，失败后下次可继续',
-          onTap: _loading ? null : _downloadFullChinaCatalog,
-        ),
-        _PackModuleCard(
-          icon: Icons.public,
-          title: '按国家/地区名录逐物种下载',
-          subtitle: '中国名录无需 eBird；其它地区需要 eBird API',
-          onTap: _loading ? null : _showCountrySpeciesDownloadSheet,
-        ),
-      ],
-    );
-  }
-
   Widget _buildUploadSection() {
     return UploadSection(
       storage: widget.storage,
+      packManager: widget.packManager,
       onBackToRoot: () => setState(() => _section = _PackManageSection.root),
       onOpenReview: () =>
           setState(() => _section = _PackManageSection.uploadReview),
@@ -1283,7 +1313,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => setState(() => _section = _PackManageSection.upload),
+            onPressed: () =>
+                setState(() => _section = _PackManageSection.upload),
           ),
           title: const Text('纠错审核'),
         ),
@@ -1302,7 +1333,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => setState(() => _section = _PackManageSection.upload),
+            onPressed: () =>
+                setState(() => _section = _PackManageSection.upload),
           ),
           title: const Text('用户管理'),
         ),
@@ -1701,10 +1733,24 @@ class _ServerDownloadSheetState extends State<_ServerDownloadSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              '整包适合网络稳定时；如果网络容易中断，建议返回上一层使用逐物种下载。',
+              '中国全鸟种整包已下线，避免弱网大文件下载失败。请返回上一层使用逐物种下载，可中断后继续补缺。',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
+            if (PackManager.remotePacks.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F8EF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFDCE8D2)),
+                ),
+                child: const Text(
+                  '推荐使用“中国完整名录逐物种下载”或“中国分省名录逐物种下载”。App 会按物种保存进度，网络断开后可继续。',
+                  style: TextStyle(height: 1.5),
+                ),
+              ),
             ...PackManager.remotePacks.map((info) {
               final task = DownloadTaskService.instance.snapshot;
               final isDownloading = task.isRunning &&
