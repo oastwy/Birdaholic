@@ -8,12 +8,14 @@ class AudioPlayerWidget extends StatefulWidget {
   final List<String> audioPaths; // 音频文件绝对路径列表
   final List<String> audioLabels; // 标签列表，如 ["鸣叫 call", "鸣唱 song"]
   final VoidCallback? onPlayStarted;
+  final ValueChanged<int>? onAudioIndexChanged; // 当前播放音频索引变化
 
   const AudioPlayerWidget({
     super.key,
     required this.audioPaths,
     required this.audioLabels,
     this.onPlayStarted,
+    this.onAudioIndexChanged,
   });
 
   @override
@@ -77,18 +79,23 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       _duration = Duration.zero;
       _position = Duration.zero;
       _error = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onAudioIndexChanged?.call(0);
+      });
     }
   }
 
   Future<void> _play(int index) async {
     final paths = _paths;
     if (index < 0 || index >= paths.length) return;
+    final indexChanged = _currentIndex != index;
     setState(() {
       _currentIndex = index;
       _isPlaying = true;
       _position = Duration.zero;
       _error = null;
     });
+    if (indexChanged) widget.onAudioIndexChanged?.call(index);
     try {
       final path = paths[index];
       final uri = Uri.tryParse(path);

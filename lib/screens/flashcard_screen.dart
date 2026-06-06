@@ -84,7 +84,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   List<String> _extraImagePaths = [];
   List<String> _extraImageCredits = [];
   String? _extraImagesForSci;
-  final Map<String, String> _serverSpectrogramCache = {};
+  final Map<String, List<String>> _serverSpectrogramCache = {};
 
   final _cardKey = GlobalKey<BirdCardState>();
   final _audioKey = GlobalKey<AudioPlayerWidgetState>();
@@ -491,48 +491,59 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     return paths;
   }
 
-  Future<String> _getAudioSpectrogramPath() async {
+  /// 返回与可播放音频列表（[_getAudioPaths]）一一对应的频谱图路径列表。
+  /// 每个音频先取本地频谱图，再取内嵌 URL，最后按文件名匹配服务器频谱图兜底。
+  /// 没有频谱图的位置返回空串，以保持索引对齐。
+  Future<List<String>> _getAudioSpectrogramPaths() async {
     final bird = _currentBird;
-    if (bird == null) return '';
+    if (bird == null) return [];
+    final cached = _serverSpectrogramCache[bird.sci];
+    if (cached != null) return cached;
+
+    ServerSpeciesMedia? media;
+    var mediaFetched = false;
+    final result = <String>[];
     for (final audio in bird.audios) {
+      // 与 _getAudioPaths 对齐：无法解析音频文件的项不计入
+      final audioPath = await widget.packManager.getResourcePath(audio.file);
+      if (audioPath == null) continue;
+
+      var spec = '';
       if (audio.spectrogram.isNotEmpty) {
         final local =
             await widget.packManager.getResourcePath(audio.spectrogram);
-        if (local != null) return local;
+        if (local != null) spec = local;
       }
-      if (audio.spectrogramUrl.isNotEmpty) return audio.spectrogramUrl;
-    }
-    final cached = _serverSpectrogramCache[bird.sci];
-    if (cached != null) return cached;
-    try {
-      final media = await ServerMediaService().fetchSpeciesMedia(bird.sci);
-      if (media == null) {
-        _serverSpectrogramCache[bird.sci] = '';
-        return '';
+      if (spec.isEmpty && audio.spectrogramUrl.isNotEmpty) {
+        spec = audio.spectrogramUrl;
       }
-      final localAudioNames = bird.audios
-          .map((audio) => audio.file.split('/').last.trim())
-          .where((name) => name.isNotEmpty)
-          .toSet();
-      for (final audio in media.audio) {
-        final remoteName = audio.file.split('/').last.trim();
-        if (audio.spectrogramUrl.isNotEmpty &&
-            localAudioNames.contains(remoteName)) {
-          _serverSpectrogramCache[bird.sci] = audio.spectrogramUrl;
-          return audio.spectrogramUrl;
+      if (spec.isEmpty) {
+        if (!mediaFetched) {
+          mediaFetched = true;
+          try {
+            media = await ServerMediaService().fetchSpeciesMedia(bird.sci);
+          } catch (_) {
+            // 网络兜底尽力而为，音频闪卡仍可用
+          }
+        }
+        if (media != null) {
+          final localName = audio.file.split('/').last.trim();
+          for (final m in media.audio) {
+            if (m.spectrogramUrl.isNotEmpty &&
+                m.file.split('/').last.trim() == localName) {
+              spec = m.spectrogramUrl;
+              break;
+            }
+          }
         }
       }
-      for (final audio in media.audio) {
-        if (audio.spectrogramUrl.isNotEmpty) {
-          _serverSpectrogramCache[bird.sci] = audio.spectrogramUrl;
-          return audio.spectrogramUrl;
-        }
-      }
-    } catch (_) {
-      // Network fallback is best-effort; audio flashcards should remain usable.
+      result.add(spec);
     }
-    _serverSpectrogramCache[bird.sci] = '';
-    return '';
+    // 仅当至少解析出一张频谱图时才缓存，避免把网络抖动导致的空结果钉死
+    if (result.any((s) => s.isNotEmpty)) {
+      _serverSpectrogramCache[bird.sci] = result;
+    }
+    return result;
   }
 
   void _jumpToSpecies(Species target) {
@@ -1421,8 +1432,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                       _resetCardFace();
                     }),
                   ),
-                  const SizedBox(height: 12),
-                  _difficultySelector(sheetSetState),
+                  // 难度按图片评分，只在图片模式下生效；音频模式隐藏以免误以为无效
+                  if (_promptMode == PromptMode.image) ...[
+                    const SizedBox(height: 12),
+                    _difficultySelector(sheetSetState),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1667,7 +1681,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                   _mediaFutureIdx = _idx;
                                   _mediaFuture = Future.wait<Object?>([
                                     _getAudioPaths(),
-                                    _getAudioSpectrogramPath(),
+                                    _getAudioSpectrogramPaths(),
                                     _getStudyImages(),
                                   ]);
                                 }
@@ -1680,8 +1694,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 }
                                 final audioPaths =
                                     snapshot.data![0] as List<String>;
-                                final spectrogramPath =
-                                    snapshot.data![1] as String;
+                                final spectrogramPaths =
+                                    snapshot.data![1] as List<String>;
                                 final studyImage = snapshot.data![2] as ({
                                   String? path,
                                   String? file,
@@ -1724,8 +1738,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                             imageCredit: studyImage.credit,
                                             audioPaths: audioPaths,
                                             labels: labels,
-                                            audioSpectrogramPath:
-                                                spectrogramPath,
+                                            audioSpectrogramPaths:
+                                                spectrogramPaths,
                                             extraImagePaths: extraImagePaths,
                                             extraImageSourceFiles:
                                                 extraImageSourceFiles,
@@ -1739,8 +1753,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                             imageCredit: studyImage.credit,
                                             audioPaths: audioPaths,
                                             labels: labels,
-                                            audioSpectrogramPath:
-                                                spectrogramPath,
+                                            audioSpectrogramPaths:
+                                                spectrogramPaths,
                                             extraImagePaths: extraImagePaths,
                                             extraImageSourceFiles:
                                                 extraImageSourceFiles,
@@ -1860,8 +1874,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 10),
+            // 选项用可滚动列表 + 固定行高，避免在非全屏（空间被压缩）时
+            // 每个选项被 Expanded 压成极矮、文字看不见的“空框”。
             Expanded(
-              child: Column(
+              child: ListView(
+                padding: EdgeInsets.zero,
                 children: _quizChoices.map((choice) {
                   final selected = _selectedChoiceSci == choice.sci;
                   final correct = choice.sci == bird.sci;
@@ -1872,9 +1889,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                           : selected
                               ? Colors.red
                               : null;
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 7),
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: SizedBox(
+                      height: 50,
                       child: OutlinedButton(
                         onPressed:
                             _answered ? null : () => _answerQuizChoice(choice),
@@ -1884,49 +1902,42 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                           side: color == null ? null : BorderSide(color: color),
                           backgroundColor: color?.withValues(alpha: 0.08),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
+                            horizontal: 14,
+                            vertical: 6,
                           ),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  flex: 4,
-                                  child: Text(
-                                    choice.cn.isNotEmpty
-                                        ? choice.cn
-                                        : choice.en,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18,
-                                      height: 1.1,
-                                    ),
+                            // 中文名优先占主空间，整名尽量完整显示
+                            Flexible(
+                              flex: 5,
+                              child: Text(
+                                choice.cn.isNotEmpty ? choice.cn : choice.en,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                  height: 1.1,
+                                ),
+                              ),
+                            ),
+                            if (choice.en.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Flexible(
+                                flex: 4,
+                                child: Text(
+                                  choice.en,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.1,
+                                    color: color ?? Colors.grey[700],
                                   ),
                                 ),
-                                if (choice.en.isNotEmpty) ...[
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    flex: 5,
-                                    child: Text(
-                                      choice.en,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        height: 1.1,
-                                        color: color ?? Colors.grey[700],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -2068,7 +2079,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
-    required String audioSpectrogramPath,
+    required List<String> audioSpectrogramPaths,
     required List<String> extraImagePaths,
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
@@ -2087,7 +2098,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   imageCredit: imageCredit,
                   audioPaths: audioPaths,
                   labels: labels,
-                  audioSpectrogramPath: audioSpectrogramPath,
+                  audioSpectrogramPaths: audioSpectrogramPaths,
                   extraImagePaths: extraImagePaths,
                   extraImageSourceFiles: extraImageSourceFiles,
                   extraImageCredits: extraImageCredits,
@@ -2109,7 +2120,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
-    required String audioSpectrogramPath,
+    required List<String> audioSpectrogramPaths,
     required List<String> extraImagePaths,
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
@@ -2140,7 +2151,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         imageCredit: imageCredit,
                         audioPaths: audioPaths,
                         labels: labels,
-                        audioSpectrogramPath: audioSpectrogramPath,
+                        audioSpectrogramPaths: audioSpectrogramPaths,
                         extraImagePaths: extraImagePaths,
                         extraImageSourceFiles: extraImageSourceFiles,
                         extraImageCredits: extraImageCredits,
@@ -2185,7 +2196,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               imageCredit: imageCredit,
               audioPaths: audioPaths,
               labels: labels,
-              audioSpectrogramPath: audioSpectrogramPath,
+              audioSpectrogramPaths: audioSpectrogramPaths,
               extraImagePaths: extraImagePaths,
               extraImageSourceFiles: extraImageSourceFiles,
               extraImageCredits: extraImageCredits,
@@ -2203,7 +2214,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required String imageCredit,
     required List<String> audioPaths,
     required List<String> labels,
-    required String audioSpectrogramPath,
+    required List<String> audioSpectrogramPaths,
     required List<String> extraImagePaths,
     required List<String> extraImageSourceFiles,
     required List<String> extraImageCredits,
@@ -2218,7 +2229,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           imageCredit: imageCredit,
           audioPaths: audioPaths,
           audioLabels: labels,
-          audioSpectrogramPath: audioSpectrogramPath,
+          audioSpectrogramPaths: audioSpectrogramPaths,
           audioPlayerKey: _audioKey,
           onPreviousSpecies: _mode == StudyMode.quiz ? null : _previousCard,
           onNextSpecies: _mode == StudyMode.quiz ? null : _nextCard,

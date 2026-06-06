@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,6 +13,7 @@ import '../services/server_media_service.dart';
 import '../services/storage.dart';
 import '../utils/file_picker_guard.dart';
 import '../widgets/audio_player_widget.dart';
+import 'in_flashcard_upload_modal.dart';
 
 class BirdPreviewScreen extends StatefulWidget {
   final List<Species> speciesList;
@@ -57,6 +57,19 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
   // eBird filter
   Set<String> _ebirdFilterSci = const {};
   String _ebirdFilterLabel = '';
+
+  // 音频互斥：每个播放器一个稳定 key，开始播放时停掉其他播放器
+  final Map<String, GlobalKey<AudioPlayerWidgetState>> _audioKeys = {};
+
+  GlobalKey<AudioPlayerWidgetState> _audioKeyFor(String id) =>
+      _audioKeys.putIfAbsent(id, () => GlobalKey<AudioPlayerWidgetState>());
+
+  void _stopOtherAudios(String activeId) {
+    for (final entry in _audioKeys.entries) {
+      if (entry.key == activeId) continue;
+      entry.value.currentState?.stop();
+    }
+  }
 
   // Photo page index per species sci
   final Map<String, int> _photoPageIndex = {};
@@ -267,105 +280,35 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
         .toSet();
   }
 
+  // 与闪卡页统一使用 InFlashcardUploadModal（含署名/描述/难度/CC 协议/无 Token 提示）
   Future<void> _uploadImage() async {
     final sp = _current;
-    FilePickerResult? result;
-    try {
-      result = await FilePickerGuard.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('选择图片失败: $e'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-    final path = result?.files.single.path;
-    if (path == null || path.isEmpty) return;
-    try {
-      await widget.packManager.replaceSpeciesImageFromFile(sp, path);
-      if (widget.storage.isAdminMode) {
-        await AdminUploadService().uploadMedia(
-          species: sp,
-          filePath: path,
-          token: widget.storage.getAdminUploadToken(),
-        );
-      }
-      _serverCache.remove(sp.sci);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text(widget.storage.isAdminMode ? '鸟图已保存并推送服务器' : '鸟图已保存到当前数据包'),
-      ));
-      setState(() {});
-      _loadServerMedia();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传失败: $e'), backgroundColor: Colors.red),
-      );
-    }
+    final ok = await InFlashcardUploadModal.show(
+      context: context,
+      currentBird: sp,
+      storage: widget.storage,
+      packManager: widget.packManager,
+      kind: UploadKind.image,
+    );
+    if (!ok || !mounted) return;
+    _serverCache.remove(sp.sci);
+    setState(() {});
+    _loadServerMedia();
   }
 
   Future<void> _uploadAudio() async {
     final sp = _current;
-    FilePickerResult? result;
-    try {
-      result = await FilePickerGuard.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg'],
-        allowMultiple: false,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('选择音频失败: $e'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-    final path = result?.files.single.path;
-    if (path == null || path.isEmpty) return;
-    try {
-      if (widget.storage.isAdminMode) {
-        final resp = await AdminUploadService().uploadFile(
-          sci: sp.sci,
-          contributor: '管理员上传',
-          filePath: path,
-          token: widget.storage.getAdminUploadToken(),
-          mediaType: 'audio',
-          audioType: 'call',
-          license: 'CC BY-NC 4.0',
-        );
-        final saved = (resp['saved'] as List?) ?? const [];
-        final first = saved.isNotEmpty ? saved.first : null;
-        final entry = first is Map && first['entry'] is Map
-            ? Map<String, dynamic>.from(first['entry'] as Map)
-            : <String, dynamic>{};
-        await widget.packManager.addUploadedSpeciesAudioFromFile(
-          sci: sp.sci,
-          sourcePath: path,
-          serverEntry: entry,
-          audioType: 'call',
-        );
-      } else {
-        await widget.packManager.addSpeciesAudioFromFile(sp, path);
-      }
-      _serverCache.remove(sp.sci);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text(widget.storage.isAdminMode ? '音频已保存并推送服务器' : '音频已保存到当前数据包'),
-      ));
-      setState(() {});
-      _loadServerMedia();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传失败: $e'), backgroundColor: Colors.red),
-      );
-    }
+    final ok = await InFlashcardUploadModal.show(
+      context: context,
+      currentBird: sp,
+      storage: widget.storage,
+      packManager: widget.packManager,
+      kind: UploadKind.audio,
+    );
+    if (!ok || !mounted) return;
+    _serverCache.remove(sp.sci);
+    setState(() {});
+    _loadServerMedia();
   }
 
   @override
@@ -961,9 +904,11 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     AudioPlayerWidget(
+                      key: _audioKeyFor('local:${sp.sci}'),
                       audioPaths: paths,
                       audioLabels:
                           localAudios.map((a) => a.displayLabel).toList(),
+                      onPlayStarted: () => _stopOtherAudios('local:${sp.sci}'),
                     ),
                     if (sp.audioCredit.isNotEmpty)
                       Padding(
@@ -990,8 +935,11 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
                     children: [
                       Expanded(
                         child: AudioPlayerWidget(
+                          key: _audioKeyFor('server:${audio.url}'),
                           audioPaths: [audio.url],
                           audioLabels: [label],
+                          onPlayStarted: () =>
+                              _stopOtherAudios('server:${audio.url}'),
                         ),
                       ),
                       if (audio.contributor.isNotEmpty) ...[

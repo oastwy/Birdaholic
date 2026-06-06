@@ -16,6 +16,8 @@ import re
 import shutil
 import subprocess
 import time
+import secrets
+import threading
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -31,8 +33,19 @@ INDEX_DIR = DATA_DIR / "indexes"
 WORLD_BIRDS_PATH = Path(
     os.environ.get("BIRDAHOLIC_WORLD_BIRDS", str(SERVER_DIR / "world_birds.json"))
 )
+try:
+    from PIL import Image, ImageOps
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    _PIL_OK = True
+except Exception:
+    _PIL_OK = False
+
+
 UPLOAD_TOKEN = os.environ.get("BIRDAHOLIC_UPLOAD_TOKEN", "")
 USERS_FILE = Path("/data/server/users.json")
+FEEDBACK_FILE = Path("/data/server/feedback.json")
+_feedback_lock = threading.Lock()
 
 
 def load_users() -> dict:
@@ -212,7 +225,7 @@ def try_generate_spectrogram(sci: str, audio_file: Path) -> dict[str, str]:
     key = species_key(sci)
     out_dir = SPECIES_DIR / key / "audio_spectrograms"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{audio_file.stem}.png"
+    out_name = f"{audio_file.stem}.jpg"
     out_path = out_dir / out_name
     # The first pass removes common low-frequency rumble and high-frequency hiss
     # before showspectrumpic renders the FFT image.  Some ffmpeg builds lack
@@ -223,9 +236,9 @@ def try_generate_spectrogram(sci: str, audio_file: Path) -> dict[str, str]:
             "highpass=f=120,"
             "lowpass=f=12000,"
             "afftdn=nf=-25,"
-            "showspectrumpic=s=1400x520:legend=disabled"
+            "showspectrumpic=s=900x334:legend=disabled"
         ),
-        "showspectrumpic=s=1400x520:legend=disabled",
+        "showspectrumpic=s=900x334:legend=disabled",
     ]
     generated = False
     for filter_chain in filter_chains:
@@ -238,6 +251,8 @@ def try_generate_spectrogram(sci: str, audio_file: Path) -> dict[str, str]:
                     str(audio_file),
                     "-lavfi",
                     filter_chain,
+                    "-q:v",
+                    "5",
                     str(out_path),
                 ],
                 stdout=subprocess.DEVNULL,
@@ -604,6 +619,11 @@ async def upload(
         with target.open("wb") as handle:
             shutil.copyfileobj(upload_file.file, handle)
 
+        if kind == "images":
+            final_path = _compress_image(target)
+            filename = final_path.name
+            target = final_path
+
         manifest = load_manifest(target_sci, item)
         # Note: per-photo difficulty is recorded on the entry below.
         # We intentionally do NOT touch manifest["difficulty"] here —
@@ -782,6 +802,103 @@ def _require_admin(authorization, token):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+
+# ── 用户反馈 / 纠错 ───────────────────────────────────────────
+def _resolve_user_soft(authorization, token) -> dict:
+    """解析用户身份；token 无效或缺失时按匿名处理（反馈仍可提交）。"""
+    try:
+        return authenticate(authorization, token)
+    except HTTPException:
+        return {"id": "anon", "role": "anon", "name": "匿名用户", "token": ""}
+
+
+def _load_feedback() -> list[dict]:
+    if FEEDBACK_FILE.exists():
+        try:
+            data = json.loads(FEEDBACK_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return []
+
+
+def _save_feedback(items: list[dict]) -> None:
+    FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    FEEDBACK_FILE.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        FEEDBACK_FILE.chmod(0o600)
+    except Exception:
+        pass
+
+
+@app.post("/api/feedback")
+async def submit_feedback(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    user = _resolve_user_soft(authorization, token)
+    message = str(payload.get("message", "")).strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Empty feedback")
+    entry = {
+        "id": secrets.token_urlsafe(9),
+        "uploader_id": user.get("id", "anon"),
+        "uploader_name": user.get("name", ""),
+        "role": user.get("role", "anon"),
+        "message": message[:4000],
+        "page": str(payload.get("page", ""))[:200],
+        "species_cn": str(payload.get("species_cn", ""))[:200],
+        "species_sci": str(payload.get("species_sci", ""))[:200],
+        "created_at": int(time.time()),
+        "status": "open",
+    }
+    with _feedback_lock:
+        items = _load_feedback()
+        items.append(entry)
+        _save_feedback(items)
+    return {"ok": True, "id": entry["id"]}
+
+
+@app.get("/api/admin/feedback")
+def admin_feedback(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_admin(authorization, token)
+    items = _load_feedback()
+    items.sort(key=lambda x: x.get("created_at", 0), reverse=True)
+    return items
+
+
+@app.post("/api/admin/feedback/resolve")
+async def admin_feedback_resolve(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    fid = str(payload.get("id", "")).strip()
+    if not fid:
+        raise HTTPException(status_code=400, detail="Missing id")
+    with _feedback_lock:
+        items = _load_feedback()
+        found = False
+        for it in items:
+            if it.get("id") == fid:
+                it["status"] = "resolved"
+                it["resolved_at"] = int(time.time())
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=404, detail="Feedback not found")
+        _save_feedback(items)
+    return {"ok": True, "id": fid}
 
 
 @app.get("/api/admin/pending")
@@ -1165,3 +1282,45 @@ async def admin_backfill_spectrograms(
         "force": force,
         "items": items[:50],
     }
+
+
+def _compress_image(file_path: Path, *, max_side: int = 1600, quality: int = 82, target_kb: int = 600) -> Path:
+    """Re-encode image as JPEG (long side <= max_side, ~target_kb). HEIC/PNG/WebP -> JPEG (renamed).
+    Returns final path (extension may change to .jpg). Fail-open: returns original on error."""
+    if not _PIL_OK:
+        return file_path
+    try:
+        with Image.open(file_path) as im:
+            im = ImageOps.exif_transpose(im)
+            if im.mode in ("RGBA", "LA", "P"):
+                bg = Image.new("RGB", im.size, (255, 255, 255))
+                if im.mode == "P":
+                    im = im.convert("RGBA")
+                bg.paste(im, mask=im.split()[-1] if im.mode in ("RGBA", "LA") else None)
+                im = bg
+            elif im.mode != "RGB":
+                im = im.convert("RGB")
+            w, h = im.size
+            scale = min(1.0, max_side / max(w, h))
+            if scale < 1.0:
+                im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            q = quality
+            tmp = file_path.with_suffix(file_path.suffix + ".tmp.jpg")
+            for _ in range(4):
+                im.save(tmp, format="JPEG", quality=q, optimize=True, progressive=True)
+                if tmp.stat().st_size <= target_kb * 1024 or q <= 60:
+                    break
+                q -= 8
+            ext = file_path.suffix.lower()
+            if ext in (".jpg", ".jpeg"):
+                tmp.replace(file_path)
+                return file_path
+            new_path = file_path.with_suffix(".jpg")
+            tmp.replace(new_path)
+            if new_path != file_path and file_path.exists():
+                file_path.unlink()
+            return new_path
+    except Exception as e:
+        print(f"compress failed for {file_path}: {e}")
+    return file_path
+

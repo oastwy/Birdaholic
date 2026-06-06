@@ -44,6 +44,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
   bool _updateLoading = true;
   int _homeBannerPage = 0;
   bool _guideDismissed = false;
+  // 打卡日历当前显示的月份（取该月第一天）
+  DateTime _calendarMonth =
+      DateTime(DateTime.now().year, DateTime.now().month);
 
   @override
   void initState() {
@@ -118,6 +121,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final currentPackProgress =
         _species.isEmpty ? 0.0 : currentPackStudied / _species.length;
     final unfamiliarNames = widget.storage.getUnfamiliarSpecies();
+    final mastered = masteryMap.values.where((m) => m.knownStreak >= 3).length;
     final weakSpecies = _buildWeakSpecies(masteryMap);
     final checkInDates = widget.storage.getCheckInDates();
 
@@ -227,24 +231,28 @@ class _ProgressScreenState extends State<ProgressScreen> {
             Row(
               children: [
                 Expanded(
-                    child: _compactStatCard('已学习', '$studied', Colors.blue)),
+                    child: _compactStatCard('已学习', '$studied', Colors.blue,
+                        onTap: () => _openStatSpeciesList('studied'))),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _compactStatCard(
-                    '正确率',
-                    '${(stats.accuracy * 100).round()}%',
+                    '已掌握',
+                    '$mastered',
                     Colors.green,
+                    onTap: () => _openStatSpeciesList('mastered'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _compactStatCard(
-                      '不熟悉', '${unfamiliarNames.length}', Colors.red),
+                      '不熟悉', '${unfamiliarNames.length}', Colors.red,
+                      onTap: () => _openStatSpeciesList('unfamiliar')),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                     child: _compactStatCard(
-                        '累计答题', '${stats.total}', Colors.amber)),
+                        '累计答题', '${stats.total}', Colors.amber,
+                        onTap: () => _openStatSpeciesList('answered'))),
               ],
             ),
             const SizedBox(height: 10),
@@ -304,13 +312,50 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }
 
   Widget _checkInCalendar(Set<String> dates) {
-    final today = DateTime.now();
-    final days = List.generate(14, (index) {
-      final date = today.subtract(Duration(days: 13 - index));
-      final key = date.toIso8601String().substring(0, 10);
-      return (date, dates.contains(key));
-    });
     final streak = _currentStreak(dates);
+    final today = DateTime.now();
+    final todayKey = today.toIso8601String().substring(0, 10);
+    final month = _calendarMonth;
+    final firstOfMonth = DateTime(month.year, month.month, 1);
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    // weekday: Mon=1..Sun=7；本日历以周日为第一列
+    final leadingBlanks = firstOfMonth.weekday % 7;
+    final thisMonth = DateTime(today.year, today.month);
+    final canGoNext = month.isBefore(thisMonth);
+
+    const weekHeaders = ['日', '一', '二', '三', '四', '五', '六'];
+
+    // 构建格子：前导空白 + 当月各天
+    final cells = <Widget?>[
+      ...List<Widget?>.filled(leadingBlanks, null),
+      ...List.generate(daysInMonth, (i) {
+        final day = i + 1;
+        final date = DateTime(month.year, month.month, day);
+        final key = date.toIso8601String().substring(0, 10);
+        final checked = dates.contains(key);
+        final isToday = key == todayKey;
+        return _calendarDayCell(day: day, checked: checked, isToday: isToday);
+      }),
+    ];
+    // 补齐到 7 的倍数
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+
+    final rows = <Widget>[];
+    for (var i = 0; i < cells.length; i += 7) {
+      rows.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: List.generate(7, (j) {
+            final cell = cells[i + j];
+            return Expanded(
+              child: Center(child: cell ?? const SizedBox(height: 34)),
+            );
+          }),
+        ),
+      ));
+    }
 
     return Card(
       child: Padding(
@@ -334,39 +379,94 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            // 月份切换条
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: days.map((item) {
-                final date = item.$1;
-                final checked = item.$2;
-                return Column(
-                  children: [
-                    Text(
-                      '${date.day}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 5),
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      width: 18,
-                      height: 18,
-                      decoration: BoxDecoration(
-                        color: checked
-                            ? const Color(0xFF2d5016)
-                            : Colors.grey[200],
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: checked
-                          ? const Icon(Icons.check,
-                              color: Colors.white, size: 13)
-                          : null,
-                    ),
-                  ],
-                );
-              }).toList(),
+              children: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.chevron_left, size: 22),
+                  onPressed: () => setState(() {
+                    _calendarMonth =
+                        DateTime(month.year, month.month - 1, 1);
+                  }),
+                ),
+                Expanded(
+                  child: Text(
+                    '${month.year} 年 ${month.month} 月',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.chevron_right,
+                      size: 22,
+                      color: canGoNext ? null : Colors.grey[300]),
+                  onPressed: canGoNext
+                      ? () => setState(() {
+                            _calendarMonth =
+                                DateTime(month.year, month.month + 1, 1);
+                          })
+                      : null,
+                ),
+              ],
             ),
+            const SizedBox(height: 4),
+            Row(
+              children: weekHeaders
+                  .map((h) => Expanded(
+                        child: Center(
+                          child: Text(
+                            h,
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey[500]),
+                          ),
+                        ),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 4),
+            ...rows,
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _calendarDayCell({
+    required int day,
+    required bool checked,
+    required bool isToday,
+  }) {
+    return SizedBox(
+      height: 34,
+      child: Center(
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: checked ? const Color(0xFF2d5016) : Colors.transparent,
+            shape: BoxShape.circle,
+            border: isToday && !checked
+                ? Border.all(color: const Color(0xFF2d5016), width: 1.4)
+                : null,
+          ),
+          child: Center(
+            child: checked
+                ? const Icon(Icons.check, color: Colors.white, size: 16)
+                : Text(
+                    '$day',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isToday
+                          ? const Color(0xFF2d5016)
+                          : Colors.grey[700],
+                      fontWeight:
+                          isToday ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+          ),
         ),
       ),
     );
@@ -398,6 +498,60 @@ class _ProgressScreenState extends State<ProgressScreen> {
       return scoreB.compareTo(scoreA);
     });
     return mapped;
+  }
+
+  /// 点击统计卡片：打开对应鸟种清单（已学习/已掌握/不熟悉/累计答题）。
+  void _openStatSpeciesList(String which) {
+    final masteryMap = widget.storage.getAllMastery();
+    final unfamiliar = widget.storage.getUnfamiliarSpecies().toSet();
+    String title;
+    late bool Function(Species) test;
+    int Function(SpeciesMastery)? sortKey;
+    switch (which) {
+      case 'mastered':
+        title = '已掌握';
+        test = (s) {
+          final m = masteryMap[s.cn];
+          return m != null && m.knownStreak >= 3;
+        };
+        break;
+      case 'unfamiliar':
+        title = '不熟悉';
+        test = (s) => unfamiliar.contains(s.cn);
+        break;
+      case 'answered':
+        title = '累计答题';
+        test = (s) {
+          final m = masteryMap[s.cn];
+          return m != null && (m.knownCount + m.unknownCount) > 0;
+        };
+        sortKey = (m) => -(m.knownCount + m.unknownCount);
+        break;
+      case 'studied':
+      default:
+        title = '已学习';
+        test = (s) {
+          final m = masteryMap[s.cn];
+          return m != null && (m.knownCount > 0 || m.unknownCount > 0);
+        };
+    }
+    final list = _species.where(test).toList();
+    if (sortKey != null) {
+      final key = sortKey;
+      list.sort((a, b) =>
+          key(masteryMap[a.cn]!).compareTo(key(masteryMap[b.cn]!)));
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _StatSpeciesListScreen(
+          title: title,
+          species: list,
+          storage: widget.storage,
+          onJumpToFlashcard: widget.onJumpToFlashcard,
+        ),
+      ),
+    );
   }
 
   Widget _newUserGuideCard() {
@@ -736,8 +890,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  Widget _compactStatCard(String title, String value, Color color) {
-    return Container(
+  Widget _compactStatCard(String title, String value, Color color,
+      {VoidCallback? onTap}) {
+    final card = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
@@ -747,7 +902,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontSize: 12, color: color)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(title, style: TextStyle(fontSize: 12, color: color)),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right, size: 14, color: color),
+            ],
+          ),
           const SizedBox(height: 6),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -761,6 +924,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ),
           ),
         ],
+      ),
+    );
+    if (onTap == null) return card;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: card,
       ),
     );
   }
@@ -859,6 +1031,78 @@ class _ProgressScreenState extends State<ProgressScreen> {
         ),
         isThreeLine: true,
       ),
+    );
+  }
+}
+
+/// 统计卡片点击后展示的鸟种清单（已学习/已掌握/不熟悉/累计答题）。
+class _StatSpeciesListScreen extends StatelessWidget {
+  final String title;
+  final List<Species> species;
+  final StorageService storage;
+  final void Function(Species species) onJumpToFlashcard;
+
+  const _StatSpeciesListScreen({
+    required this.title,
+    required this.species,
+    required this.storage,
+    required this.onJumpToFlashcard,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('$title（${species.length}）')),
+      body: species.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '这里还没有鸟种',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+              itemCount: species.length,
+              itemBuilder: (context, index) {
+                final s = species[index];
+                final m = storage.getMastery(s.cn);
+                final total = m.knownCount + m.unknownCount;
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    title: Text(s.cn,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text.rich(
+                      TextSpan(
+                        style: TextStyle(color: Colors.grey[700], height: 1.35),
+                        children: [
+                          TextSpan(
+                            text: s.sci,
+                            style:
+                                const TextStyle(fontStyle: FontStyle.italic),
+                          ),
+                          TextSpan(
+                            text:
+                                '\n答对 ${m.knownCount} · 答错 ${m.unknownCount} · 共 $total 次 · 连续认识 ${m.knownStreak}',
+                          ),
+                        ],
+                      ),
+                    ),
+                    isThreeLine: true,
+                    trailing: FilledButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onJumpToFlashcard(s);
+                      },
+                      child: const Text('去打卡'),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

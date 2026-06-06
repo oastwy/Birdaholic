@@ -291,6 +291,10 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSpeciesRow(),
+                    if (widget.storage.getAdminUploadToken().isEmpty) ...[
+                      const SizedBox(height: 12),
+                      _buildNoTokenBanner(),
+                    ],
                     if (widget.kind == UploadKind.image && _existingLoaded) ...[
                       const SizedBox(height: 14),
                       _buildExistingImagesStrip(),
@@ -446,6 +450,35 @@ class _UploadModalContentState extends State<_UploadModalContent> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildNoTokenBanner() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFFE082)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, size: 18, color: Color(0xFFB28704)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '未设置上传 Token：图片/音频只会保存到本机数据包，不会上传到服务器，'
+              '也不会分享给其它用户。如需上传分享，请在「设置 → 上传 Token」中填入 Token。',
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.45,
+                color: Colors.brown[800],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

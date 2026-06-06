@@ -23,7 +23,7 @@ class BirdCard extends StatefulWidget {
   final String imageCredit;
   final List<String> audioPaths;
   final List<String> audioLabels;
-  final String audioSpectrogramPath;
+  final List<String> audioSpectrogramPaths;
   final StudyMode mode;
   final PromptMode promptMode;
   final VoidCallback? onAudioStarted;
@@ -58,7 +58,7 @@ class BirdCard extends StatefulWidget {
     this.imageCredit = '',
     this.audioPaths = const [],
     this.audioLabels = const [],
-    this.audioSpectrogramPath = '',
+    this.audioSpectrogramPaths = const [],
     this.mode = StudyMode.review,
     this.promptMode = PromptMode.audio,
     this.onAudioStarted,
@@ -91,6 +91,7 @@ class BirdCardState extends State<BirdCard>
   Offset? _imagePointerStart;
   Offset? _imagePointerLatest;
   int? _difficultyOverride;
+  int _currentAudioIndex = 0;
   final Map<String, int> _imageDifficultyOverrides = {};
 
   List<_ImageEntry> get _allImages {
@@ -167,6 +168,9 @@ class BirdCardState extends State<BirdCard>
         oldWidget.promptMode != widget.promptMode ||
         oldWidget.mode != widget.mode ||
         oldWidget.initiallyShowAnswer != widget.initiallyShowAnswer;
+    if (oldWidget.audioPaths.join('|') != widget.audioPaths.join('|')) {
+      _currentAudioIndex = 0;
+    }
     if (!shouldResetFace) return;
 
     _showFront = !widget.initiallyShowAnswer;
@@ -274,6 +278,9 @@ class BirdCardState extends State<BirdCard>
               audioPaths: widget.audioPaths,
               audioLabels: widget.audioLabels,
               onPlayStarted: widget.onAudioStarted,
+              onAudioIndexChanged: (i) {
+                if (mounted) setState(() => _currentAudioIndex = i);
+              },
             ),
             _spectrogramPreview(),
             const SizedBox(height: 12),
@@ -321,6 +328,9 @@ class BirdCardState extends State<BirdCard>
               audioPaths: widget.audioPaths,
               audioLabels: widget.audioLabels,
               onPlayStarted: widget.onAudioStarted,
+              onAudioIndexChanged: (i) {
+                if (mounted) setState(() => _currentAudioIndex = i);
+              },
             ),
             _spectrogramPreview(),
             const SizedBox(height: 10),
@@ -493,7 +503,11 @@ class BirdCardState extends State<BirdCard>
   }
 
   Widget _spectrogramPreview() {
-    final path = widget.audioSpectrogramPath.trim();
+    final paths = widget.audioSpectrogramPaths;
+    final idx = (_currentAudioIndex >= 0 && _currentAudioIndex < paths.length)
+        ? _currentAudioIndex
+        : 0;
+    final path = idx < paths.length ? paths[idx].trim() : '';
     if (path.isEmpty) return const SizedBox.shrink();
     final isNetwork = path.startsWith('http://') || path.startsWith('https://');
     final image = isNetwork
