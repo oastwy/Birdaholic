@@ -147,7 +147,7 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 音频类型标签切换
+        // 音频类型标签切换（多条音频时可切换；单条时只显示类型）
         if (paths.length > 1)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -167,6 +167,22 @@ class AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                   ),
                 );
               }),
+            ),
+          )
+        else if (labels.isNotEmpty && labels.first.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Text(
+                labels.first,
+                style: TextStyle(fontSize: 12, color: Colors.green[800]),
+              ),
             ),
           ),
         // 播放控制

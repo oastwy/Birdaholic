@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../models/audio_info.dart';
 import '../models/species.dart';
 import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
@@ -21,6 +22,17 @@ import 'in_flashcard_upload_modal.dart';
 enum AnswerMode {
   learning,
   review,
+}
+
+/// 牌组里的一张卡。audioIdx >= 0 表示这张卡只对应该物种的某一条音频
+/// （听声模式下 call / song 各自成卡）；audioIdx == -1 表示不限定（图片模式
+/// 或该物种只有一条音频时显示全部）。
+class _DeckCard {
+  final Species species;
+  final int audioIdx;
+  const _DeckCard(this.species, [this.audioIdx = -1]);
+
+  _DeckCard withSpecies(Species s) => _DeckCard(s, audioIdx);
 }
 
 /// 闪卡模式页面
@@ -46,7 +58,7 @@ class FlashcardScreen extends StatefulWidget {
 
 class FlashcardScreenState extends State<FlashcardScreen> {
   List<Species> _allSpecies = [];
-  List<Species> _deck = [];
+  List<_DeckCard> _deck = [];
   Set<String> _speciesWithAudioFiles = const {};
   Set<String> _speciesWithImageFiles = const {};
   int _idx = 0;
@@ -78,7 +90,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   bool _showGroupComplete = false;
   int _groupCorrect = 0;
   int _groupWrong = 0;
-  final List<Species> _groupWrongSpecies = [];
+  final List<_DeckCard> _groupWrongSpecies = [];
 
   // Extra images from server for current bird
   List<String> _extraImagePaths = [];
@@ -332,7 +344,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     setState(() {
-      _deck = list;
+      _deck = _expandToCards(list);
       _idx = 0;
       _groupOffset = 0;
       _groupCorrect = 0;
@@ -352,7 +364,39 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
   }
 
-  Species? get _currentBird => _deck.isEmpty ? null : _deck[_idx];
+  /// 把物种列表展开成牌组卡片。听声模式下，有多条音频的物种按 call/song
+  /// 拆成多张卡（每张一条音频、一张频谱图）；其余情况一物种一张卡。
+  List<_DeckCard> _expandToCards(List<Species> list) {
+    if (_effectivePromptMode != PromptMode.audio) {
+      return list.map((s) => _DeckCard(s)).toList();
+    }
+    final cards = <_DeckCard>[];
+    for (final s in list) {
+      final n = s.audios.length;
+      if (n <= 1) {
+        cards.add(_DeckCard(s));
+      } else {
+        for (var i = 0; i < n; i++) {
+          cards.add(_DeckCard(s, i));
+        }
+      }
+    }
+    return cards;
+  }
+
+  Species? get _currentBird =>
+      _deck.isEmpty ? null : _deck[_idx.clamp(0, _deck.length - 1)].species;
+
+  /// 当前卡指定的音频索引（-1 表示不限定，显示该物种全部音频）。
+  int get _currentCardAudioIdx =>
+      _deck.isEmpty ? -1 : _deck[_idx.clamp(0, _deck.length - 1)].audioIdx;
+
+  /// 当前卡要展示的音频列表：听声拆卡时只含一条，否则全部。
+  List<AudioInfo> _cardAudios(Species bird) {
+    final idx = _currentCardAudioIdx;
+    if (idx >= 0 && idx < bird.audios.length) return [bird.audios[idx]];
+    return bird.audios;
+  }
 
   bool get _isFinished => _isGroupFinished;
 
@@ -484,7 +528,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     final bird = _currentBird;
     if (bird == null) return [];
     final paths = <String>[];
-    for (final a in bird.audios) {
+    for (final a in _cardAudios(bird)) {
       final p = await widget.packManager.getResourcePath(a.file);
       if (p != null) paths.add(p);
     }
@@ -497,13 +541,15 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   Future<List<String>> _getAudioSpectrogramPaths() async {
     final bird = _currentBird;
     if (bird == null) return [];
-    final cached = _serverSpectrogramCache[bird.sci];
+    // 缓存键含当前卡音频索引，避免同物种 call/song 拆卡时互相串图
+    final cacheKey = '${bird.sci}|$_currentCardAudioIdx';
+    final cached = _serverSpectrogramCache[cacheKey];
     if (cached != null) return cached;
 
     ServerSpeciesMedia? media;
     var mediaFetched = false;
     final result = <String>[];
-    for (final audio in bird.audios) {
+    for (final audio in _cardAudios(bird)) {
       // 与 _getAudioPaths 对齐：无法解析音频文件的项不计入
       final audioPath = await widget.packManager.getResourcePath(audio.file);
       if (audioPath == null) continue;
@@ -541,13 +587,13 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
     // 仅当至少解析出一张频谱图时才缓存，避免把网络抖动导致的空结果钉死
     if (result.any((s) => s.isNotEmpty)) {
-      _serverSpectrogramCache[bird.sci] = result;
+      _serverSpectrogramCache[cacheKey] = result;
     }
     return result;
   }
 
   void _jumpToSpecies(Species target) {
-    final di = _deck.indexWhere((s) => s.sci == target.sci);
+    final di = _deck.indexWhere((c) => c.species.sci == target.sci);
     if (di >= 0) {
       setState(() {
         _idx = di;
@@ -617,8 +663,13 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     } else {
       _wrongCount++;
       _groupWrong++;
-      if (!_groupWrongSpecies.any((item) => item.sci == bird.sci)) {
-        _groupWrongSpecies.add(bird);
+      final wrongCard = _deck.isEmpty
+          ? _DeckCard(bird)
+          : _deck[_idx.clamp(0, _deck.length - 1)];
+      if (!_groupWrongSpecies.any((c) =>
+          c.species.sci == wrongCard.species.sci &&
+          c.audioIdx == wrongCard.audioIdx)) {
+        _groupWrongSpecies.add(wrongCard);
       }
       widget.storage.markWrong();
       widget.storage.markSpeciesUnknown(bird.cn);
@@ -1720,7 +1771,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                   if (_imageDifficultyFilter == 0)
                                     ..._extraImageCredits,
                                 ];
-                                final labels = bird.audios
+                                final labels = _cardAudios(bird)
                                     .map((a) => a.displayLabel)
                                     .toList();
                                 _scheduleAutoPlay(audioPaths: audioPaths);
@@ -2265,8 +2316,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               if (i >= 0) {
                 _allSpecies[i] = _allSpecies[i].copyWith(difficulty: diff);
               }
-              final j = _deck.indexWhere((s) => s.sci == bird.sci);
-              if (j >= 0) _deck[j] = _deck[j].copyWith(difficulty: diff);
+              for (var j = 0; j < _deck.length; j++) {
+                if (_deck[j].species.sci == bird.sci) {
+                  _deck[j] = _deck[j]
+                      .withSpecies(_deck[j].species.copyWith(difficulty: diff));
+                }
+              }
             });
           },
           onImageDifficultyChanged: (imageFile, diff) async {
@@ -2308,9 +2363,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                 }).toList();
                 _allSpecies[i] = _allSpecies[i].copyWith(images: updatedImages);
               }
-              final j = _deck.indexWhere((s) => s.sci == bird.sci);
+              final j = _deck.indexWhere((c) => c.species.sci == bird.sci);
               if (j >= 0) {
-                final updatedImages = _deck[j].images.map((img) {
+                final updatedImages = _deck[j].species.images.map((img) {
                   return img.file == imageFile
                       ? SpeciesImageInfo(
                           file: img.file,
@@ -2323,7 +2378,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         )
                       : img;
                 }).toList();
-                _deck[j] = _deck[j].copyWith(images: updatedImages);
+                _deck[j] = _deck[j]
+                    .withSpecies(_deck[j].species.copyWith(images: updatedImages));
               }
             });
           },
