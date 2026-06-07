@@ -535,72 +535,130 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
             size: 22, color: Colors.green[200]),
       );
 
-  /// 合并顶栏：第一行 数量 + 搜索/排序/收藏 图标；第二行 类群 chips。
+  /// 合并顶栏（单行）：类群下拉 + 数量 + 搜索/排序/收藏 图标。
   Widget _buildMergedBar(List<Species> filtered) {
+    final isAll = _groupFilter == 'all';
+    final groupLabel = isAll
+        ? '全部'
+        : EcologicalGroups.all
+            .firstWhere((g) => g.code == _groupFilter,
+                orElse: () => EcologicalGroups.all.first)
+            .label;
+    const green = Color(0xFF2d5016);
     return Container(
       color: Theme.of(context).colorScheme.surface,
-      padding: const EdgeInsets.only(top: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 4, 0),
-            child: Row(
-              children: [
-                Text(
-                  '${filtered.length} 种',
-                  style:
-                      const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: Icon(
-                    _showSearchBar ? Icons.search_off : Icons.search,
-                    size: 20,
-                    color: _search.isNotEmpty
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                  ),
-                  tooltip: '搜索',
-                  onPressed: () =>
-                      setState(() => _showSearchBar = !_showSearchBar),
-                ),
-                if (_availableOrders.isNotEmpty)
-                  PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.sort,
-                      size: 20,
-                      color: _orderFilter != 'all'
-                          ? Theme.of(context).colorScheme.primary
-                          : null,
+          // 类群下拉（收起 7 个 chips）
+          PopupMenuButton<String>(
+            initialValue: _groupFilter,
+            tooltip: '按类群筛选',
+            onSelected: (code) {
+              setState(() => _groupFilter = code);
+              if (_chinaScrollController.hasClients) {
+                _chinaScrollController.jumpTo(0);
+              }
+            },
+            itemBuilder: (_) => [
+              _groupMenuItem('all', '全部'),
+              ...EcologicalGroups.all.map((g) => _groupMenuItem(g.code, g.label)),
+            ],
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+              decoration: BoxDecoration(
+                color: isAll ? Colors.grey[100] : green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(_groupIcon(_groupFilter),
+                      size: 16, color: isAll ? Colors.grey[700] : green),
+                  const SizedBox(width: 5),
+                  Text(
+                    groupLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isAll ? Colors.grey[800] : green,
                     ),
-                    tooltip: '按目筛选',
-                    initialValue: _orderFilter,
-                    onSelected: (value) => setState(() => _orderFilter = value),
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'all', child: Text('全部目')),
-                      ..._availableOrders.map(
-                        (o) =>
-                            PopupMenuItem(value: o, child: Text(_orderLabel(o))),
-                      ),
-                    ],
                   ),
-                IconButton(
-                  icon: Icon(
-                    _showFavOnly
-                        ? Icons.star_rounded
-                        : Icons.star_outline_rounded,
-                    size: 20,
-                    color: _showFavOnly ? Colors.amber : null,
-                  ),
-                  tooltip: _showFavOnly ? '显示全部' : '只看收藏',
-                  onPressed: () =>
-                      setState(() => _showFavOnly = !_showFavOnly),
+                  Icon(Icons.arrow_drop_down,
+                      size: 18, color: isAll ? Colors.grey[600] : green),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text('${filtered.length} 种',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey[600])),
+          const Spacer(),
+          IconButton(
+            icon: Icon(
+              _showSearchBar ? Icons.search_off : Icons.search,
+              size: 20,
+              color: _search.isNotEmpty
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            tooltip: '搜索',
+            onPressed: () => setState(() => _showSearchBar = !_showSearchBar),
+          ),
+          if (_availableOrders.isNotEmpty)
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.sort,
+                size: 20,
+                color: _orderFilter != 'all'
+                    ? Theme.of(context).colorScheme.primary
+                    : null,
+              ),
+              tooltip: '按目筛选',
+              initialValue: _orderFilter,
+              onSelected: (value) => setState(() => _orderFilter = value),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'all', child: Text('全部目')),
+                ..._availableOrders.map(
+                  (o) => PopupMenuItem(value: o, child: Text(_orderLabel(o))),
                 ),
               ],
             ),
+          IconButton(
+            icon: Icon(
+              _showFavOnly ? Icons.star_rounded : Icons.star_outline_rounded,
+              size: 20,
+              color: _showFavOnly ? Colors.amber : null,
+            ),
+            tooltip: _showFavOnly ? '显示全部' : '只看收藏',
+            onPressed: () => setState(() => _showFavOnly = !_showFavOnly),
           ),
-          _buildGroupBar(),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _groupMenuItem(String code, String label) {
+    final selected = _groupFilter == code;
+    const green = Color(0xFF2d5016);
+    return PopupMenuItem<String>(
+      value: code,
+      child: Row(
+        children: [
+          Icon(_groupIcon(code),
+              size: 18, color: selected ? green : Colors.grey[600]),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
+              color: selected ? green : null,
+            ),
+          ),
+          if (selected) ...[
+            const Spacer(),
+            const Icon(Icons.check, size: 16, color: green),
+          ],
         ],
       ),
     );
