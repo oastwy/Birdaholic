@@ -12,9 +12,7 @@ import '../services/order_taxonomy.dart';
 import '../services/pinyin.dart';
 import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
-import '../services/server_media_service.dart';
 import '../services/storage.dart';
-import '../widgets/audio_player_widget.dart';
 import '../widgets/species_tile.dart';
 import 'bird_preview_screen.dart';
 
@@ -59,11 +57,10 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   String? _chinaRailOrder;
 
   // Pack preview mode
-  final _packPageController = PageController();
-  int _packPageIndex = 0;
   bool _showSearchBar = false;
   bool _showFavOnly = false;
   Map<String, int> _aviIndex = const {};
+  String? _activePackDir; // 用于列表缩略图路径
 
   @override
   void initState() {
@@ -73,6 +70,9 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     AviListService().getSciIndexMap().then((idx) {
       if (mounted) setState(() => _aviIndex = idx);
     });
+    widget.packManager.getActivePackDir().then((dir) {
+      if (mounted) setState(() => _activePackDir = dir);
+    });
   }
 
   @override
@@ -80,7 +80,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     _chinaScrollController.removeListener(_updateChinaRailOrder);
     _searchController.dispose();
     _chinaScrollController.dispose();
-    _packPageController.dispose();
     super.dispose();
   }
 
@@ -176,31 +175,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     if (value.contains('一级')) return '1';
     if (value.contains('二级')) return '2';
     return value;
-  }
-
-  Future<void> _deleteSpecies(Species species) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除鸟种数据'),
-        content: Text('确定删除「${species.cn}」吗？这会同时移除它的音频和图片文件。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    await widget.packManager.deleteSpeciesFromActivePack(species);
-    await _loadSpecies();
-    widget.onPackChanged?.call();
   }
 
   Future<void> _downloadSelected() async {
@@ -412,8 +386,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   Widget _buildPackPreviewView(List<Species> filtered) {
     return Column(
       children: [
-        _buildGroupBar(),
-        _buildPreviewHeader(filtered),
+        _buildMergedBar(filtered),
         if (_showSearchBar)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -429,8 +402,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                         onPressed: () {
                           _searchController.clear();
                           setState(() => _search = '');
-                          _packPageController.jumpToPage(0);
-                          setState(() => _packPageIndex = 0);
                         },
                       )
                     : null,
@@ -440,47 +411,198 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 isDense: true,
               ),
-              onChanged: (value) {
-                setState(() => _search = value);
-                _packPageController.jumpToPage(0);
-                setState(() => _packPageIndex = 0);
-              },
+              onChanged: (value) => setState(() => _search = value),
             ),
           ),
         Expanded(
-          child: Stack(
-            children: [
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : filtered.isEmpty
-                      ? Center(
-                          child: Text(
-                            _search.isNotEmpty ? '没有匹配的鸟种' : '当前数据包暂无鸟种',
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        )
-                      : PageView.builder(
-                          scrollDirection: Axis.vertical,
-                          controller: _packPageController,
-                          onPageChanged: (i) =>
-                              setState(() => _packPageIndex = i),
-                          itemCount: filtered.length,
-                          itemBuilder: (ctx, i) => _BirdInlinePage(
-                            key: ValueKey(filtered[i].sci),
-                            species: filtered[i],
-                            packManager: widget.packManager,
-                            storage: widget.storage,
-                            onDeleted: () async {
-                              await _deleteSpecies(filtered[i]);
-                            },
-                            onDownload: () =>
-                                _downloadOneFromServer(filtered[i]),
-                          ),
-                        ),
-            ],
-          ),
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        _search.isNotEmpty ? '没有匹配的鸟种' : '当前数据包暂无鸟种',
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : ListView.separated(
+                      controller: _chinaScrollController,
+                      padding: const EdgeInsets.only(bottom: 16),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        thickness: 0.5,
+                        indent: 80,
+                        color: Colors.grey[200],
+                      ),
+                      itemBuilder: (ctx, i) => _speciesListRow(filtered[i]),
+                    ),
         ),
       ],
+    );
+  }
+
+  /// Merlin 风格紧凑行：缩略图 + 中文名 + 英文 + 学名，点整行进简介。
+  Widget _speciesListRow(Species sp) {
+    final isFav = widget.storage.isFavorite(sp.cn);
+    final img = sp.image;
+    final thumbPath = (_activePackDir != null && img != null && img.isNotEmpty)
+        ? '$_activePackDir/$img'
+        : null;
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BirdPreviewScreen(
+            species: sp,
+            packManager: widget.packManager,
+            storage: widget.storage,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 56,
+                height: 56,
+                child: thumbPath != null
+                    ? Image.file(
+                        File(thumbPath),
+                        fit: BoxFit.cover,
+                        cacheWidth: 160,
+                        errorBuilder: (_, __, ___) => _thumbPlaceholder(),
+                      )
+                    : _thumbPlaceholder(),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    sp.cn.isNotEmpty ? sp.cn : sp.en,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (sp.en.isNotEmpty)
+                    Text(
+                      sp.en,
+                      style: TextStyle(fontSize: 12.5, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  Text(
+                    sp.sci,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey[500],
+                      fontStyle: FontStyle.italic,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (sp.hasAudio)
+              Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: Icon(Icons.graphic_eq,
+                    size: 16, color: Colors.green[400]),
+              ),
+            if (isFav)
+              const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: Icon(Icons.star_rounded, size: 16, color: Colors.amber),
+              ),
+            Icon(Icons.chevron_right, size: 20, color: Colors.grey[350]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _thumbPlaceholder() => Container(
+        color: const Color(0xFFEAF1E6),
+        child: Icon(Icons.photo_outlined,
+            size: 22, color: Colors.green[200]),
+      );
+
+  /// 合并顶栏：第一行 数量 + 搜索/排序/收藏 图标；第二行 类群 chips。
+  Widget _buildMergedBar(List<Species> filtered) {
+    return Container(
+      color: Theme.of(context).colorScheme.surface,
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 4, 0),
+            child: Row(
+              children: [
+                Text(
+                  '${filtered.length} 种',
+                  style:
+                      const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: Icon(
+                    _showSearchBar ? Icons.search_off : Icons.search,
+                    size: 20,
+                    color: _search.isNotEmpty
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                  ),
+                  tooltip: '搜索',
+                  onPressed: () =>
+                      setState(() => _showSearchBar = !_showSearchBar),
+                ),
+                if (_availableOrders.isNotEmpty)
+                  PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.sort,
+                      size: 20,
+                      color: _orderFilter != 'all'
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                    tooltip: '按目筛选',
+                    initialValue: _orderFilter,
+                    onSelected: (value) => setState(() => _orderFilter = value),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'all', child: Text('全部目')),
+                      ..._availableOrders.map(
+                        (o) =>
+                            PopupMenuItem(value: o, child: Text(_orderLabel(o))),
+                      ),
+                    ],
+                  ),
+                IconButton(
+                  icon: Icon(
+                    _showFavOnly
+                        ? Icons.star_rounded
+                        : Icons.star_outline_rounded,
+                    size: 20,
+                    color: _showFavOnly ? Colors.amber : null,
+                  ),
+                  tooltip: _showFavOnly ? '显示全部' : '只看收藏',
+                  onPressed: () =>
+                      setState(() => _showFavOnly = !_showFavOnly),
+                ),
+              ],
+            ),
+          ),
+          _buildGroupBar(),
+        ],
+      ),
     );
   }
 
@@ -530,13 +652,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         ),
         selected: selected,
         onSelected: (_) {
-          setState(() {
-            _groupFilter = code;
-            _packPageIndex = 0;
-          });
-          if (_packPageController.hasClients) {
-            _packPageController.jumpToPage(0);
-          }
+          setState(() => _groupFilter = code);
           if (_chinaScrollController.hasClients) {
             _chinaScrollController.jumpTo(0);
           }
@@ -567,81 +683,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       default:
         return Icons.eco_outlined;
     }
-  }
-
-  Widget _buildPreviewHeader(List<Species> filtered) {
-    return Container(
-      color: Theme.of(context).colorScheme.surface,
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      child: Row(
-        children: [
-          Text(
-            '当前数据包 ${filtered.length} 种',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-          ),
-          const Spacer(),
-          // Filter/sort
-          if (_availableOrders.isNotEmpty)
-            PopupMenuButton<String>(
-              icon: Icon(
-                Icons.sort,
-                size: 20,
-                color: _orderFilter != 'all'
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
-              ),
-              tooltip: '按目筛选',
-              initialValue: _orderFilter,
-              onSelected: (value) {
-                setState(() => _orderFilter = value);
-                _packPageController.jumpToPage(0);
-                setState(() => _packPageIndex = 0);
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'all', child: Text('全部目')),
-                ..._availableOrders.map(
-                  (o) => PopupMenuItem(value: o, child: Text(_orderLabel(o))),
-                ),
-              ],
-            ),
-          // Favorites filter
-          IconButton(
-            icon: Icon(
-              _showFavOnly ? Icons.star_rounded : Icons.star_outline_rounded,
-              size: 20,
-              color: _showFavOnly ? Colors.amber : null,
-            ),
-            tooltip: _showFavOnly ? '显示全部' : '只看收藏',
-            onPressed: () {
-              setState(() {
-                _showFavOnly = !_showFavOnly;
-                _packPageIndex = 0;
-              });
-              _packPageController.jumpToPage(0);
-            },
-          ),
-          // Search toggle
-          IconButton(
-            icon: Icon(
-              _showSearchBar ? Icons.search_off : Icons.search,
-              size: 20,
-              color: _search.isNotEmpty
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-            ),
-            tooltip: '搜索',
-            onPressed: () => setState(() => _showSearchBar = !_showSearchBar),
-          ),
-          // Counter
-          if (filtered.isNotEmpty)
-            Text(
-              '${_packPageIndex + 1} / ${filtered.length}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-          const SizedBox(width: 4),
-        ],
-      ),
-    );
   }
 
   // ─── China list view (unchanged) ─────────────────────────────────────────
@@ -867,345 +908,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
       label: Text(label, style: const TextStyle(fontSize: 13)),
       selected: active,
       onSelected: (_) => setState(() => _filter = value),
-    );
-  }
-}
-
-// ─── Inline bird preview page ───────────────────────────────────────────────
-
-class _BirdInlinePage extends StatefulWidget {
-  final Species species;
-  final PackManager packManager;
-  final StorageService storage;
-  final VoidCallback? onDeleted;
-  final VoidCallback? onDownload;
-
-  const _BirdInlinePage({
-    super.key,
-    required this.species,
-    required this.packManager,
-    required this.storage,
-    this.onDeleted,
-    this.onDownload,
-  });
-
-  @override
-  State<_BirdInlinePage> createState() => _BirdInlinePageState();
-}
-
-class _BirdInlinePageState extends State<_BirdInlinePage> {
-  String? _localImagePath;
-  String? _packDir;
-  ServerSpeciesMedia? _serverMedia;
-  final _photoController = PageController();
-  int _photoIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  @override
-  void dispose() {
-    _photoController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadData() async {
-    final packDir = await widget.packManager.getActivePackDir();
-    if (packDir != null && mounted) {
-      setState(() => _packDir = packDir);
-      final img = widget.species.image;
-      if (img != null && img.isNotEmpty) {
-        final path = '$packDir/$img';
-        if (await File(path).exists()) {
-          if (mounted) setState(() => _localImagePath = path);
-        }
-      }
-    }
-    try {
-      final media =
-          await ServerMediaService().fetchSpeciesMedia(widget.species.sci);
-      if (mounted) setState(() => _serverMedia = media);
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sp = widget.species;
-    final isFav = widget.storage.isFavorite(sp.cn);
-
-    final images = <({String path, bool isNetwork, String credit})>[];
-    if (_localImagePath != null) {
-      images.add((
-        path: _localImagePath!,
-        isNetwork: false,
-        credit: sp.imageCredit,
-      ));
-    }
-    for (final img in (_serverMedia?.images ?? [])) {
-      images.add((
-        path: img.url,
-        isNetwork: true,
-        credit: img.contributor.isNotEmpty ? img.contributor : img.source,
-      ));
-    }
-
-    // Audio absolute paths (need packDir prefix)
-    final pd = _packDir;
-    final localAudioPaths = pd == null
-        ? <String>[]
-        : sp.audios
-            .map((a) => '$pd/${a.file}')
-            .where((p) => p.isNotEmpty)
-            .toList();
-    final localAudioLabels = sp.audios.map((a) => a.displayLabel).toList();
-
-    final features = sp.identificationFeatures;
-
-    return Container(
-      color: const Color(0xFF0D1B0A),
-      child: Column(
-        children: [
-          // Photo section
-          Expanded(
-            flex: 5,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                images.isEmpty
-                    ? Container(
-                        color: const Color(0xFF1A2B17),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.image_not_supported_outlined,
-                                  size: 56, color: Colors.white24),
-                              const SizedBox(height: 8),
-                              TextButton.icon(
-                                onPressed: widget.onDownload,
-                                icon: const Icon(Icons.download,
-                                    color: Colors.white54),
-                                label: const Text('从服务器补充',
-                                    style: TextStyle(color: Colors.white54)),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : images.length == 1
-                        ? _imageWidget(images.first)
-                        : PageView.builder(
-                            controller: _photoController,
-                            itemCount: images.length,
-                            onPageChanged: (i) =>
-                                setState(() => _photoIndex = i),
-                            itemBuilder: (_, i) => _imageWidget(images[i]),
-                          ),
-                // Dot indicator
-                if (images.length > 1)
-                  Positioned(
-                    bottom: 8,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(images.length, (i) {
-                        return AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          width: _photoIndex == i ? 14 : 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: _photoIndex == i
-                                ? Colors.greenAccent
-                                : Colors.white38,
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-                // Credit
-                if (images.isNotEmpty &&
-                    _photoIndex < images.length &&
-                    images[_photoIndex].credit.isNotEmpty)
-                  Positioned(
-                    bottom: images.length > 1 ? 22 : 6,
-                    left: 0,
-                    right: 0,
-                    child: Text(
-                      '© ${images[_photoIndex].credit}',
-                      textAlign: TextAlign.center,
-                      style:
-                          const TextStyle(fontSize: 11, color: Colors.white38),
-                    ),
-                  ),
-                // Favorite + open-full buttons
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Row(
-                    children: [
-                      _iconOverlay(
-                        isFav ? Icons.star_rounded : Icons.star_outline_rounded,
-                        isFav ? Colors.amber : Colors.white70,
-                        () {
-                          widget.storage.toggleFavorite(sp.cn);
-                          setState(() {});
-                        },
-                      ),
-                      const SizedBox(width: 4),
-                      _iconOverlay(
-                        Icons.open_in_full,
-                        Colors.white70,
-                        _openCurrentDetail,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Info section
-          Expanded(
-            flex: 4,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    sp.cn.isNotEmpty ? sp.cn : sp.sci,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    [if (sp.en.isNotEmpty) sp.en, sp.sci].join('  ·  '),
-                    style: const TextStyle(
-                        color: Colors.white60,
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic),
-                  ),
-                  if (sp.consText.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: sp.isGrade1
-                            ? Colors.red.withValues(alpha: 0.25)
-                            : Colors.orange.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: sp.isGrade1
-                              ? Colors.red[300]!
-                              : Colors.orange[300]!,
-                        ),
-                      ),
-                      child: Text(
-                        sp.consText,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: sp.isGrade1
-                              ? Colors.red[200]
-                              : Colors.orange[200],
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (localAudioPaths.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    AudioPlayerWidget(
-                      audioPaths: localAudioPaths,
-                      audioLabels: localAudioLabels,
-                    ),
-                  ],
-                  if (sp.description.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      sp.description,
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 13, height: 1.45),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                  if (features.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      features,
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 13, height: 1.5),
-                      maxLines: 4,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _openCurrentDetail() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => BirdPreviewScreen(
-          species: widget.species,
-          packManager: widget.packManager,
-          storage: widget.storage,
-        ),
-      ),
-    );
-  }
-
-  Widget _imageWidget(({String path, bool isNetwork, String credit}) img) {
-    final image = img.isNetwork
-        ? Image.network(
-            img.path,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Center(
-              child: Icon(Icons.broken_image_outlined,
-                  color: Colors.white24, size: 40),
-            ),
-          )
-        : Image.file(
-            File(img.path),
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Center(
-              child: Icon(Icons.broken_image_outlined,
-                  color: Colors.white24, size: 40),
-            ),
-          );
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _openCurrentDetail,
-      child: image,
-    );
-  }
-
-  Widget _iconOverlay(IconData icon, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: Colors.black45,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Icon(icon, color: color, size: 20),
-      ),
     );
   }
 }
