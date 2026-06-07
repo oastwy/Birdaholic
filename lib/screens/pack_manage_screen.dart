@@ -27,7 +27,6 @@ enum _PackManageSection {
   root,
   localImport,
   onlineImport,
-  serverDownload,
   customDownload,
   installed,
   upload,
@@ -489,7 +488,11 @@ class _PackManageScreenState extends State<PackManageScreen> {
           })
           .where((e) => e.sci.isNotEmpty)
           .toList();
-      await _downloadChinaSpecies(entries);
+      final provinceName = (data['name'] as String? ?? '').trim();
+      await _downloadChinaSpecies(
+        entries,
+        regionLabel: provinceName.isNotEmpty ? provinceName : provinceCode,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -561,10 +564,15 @@ class _PackManageScreenState extends State<PackManageScreen> {
       region = country.provinces.firstWhere((r) => r.code == regionCode);
     }
 
-    await _downloadWorldRegion(region);
+    // 包名用地名：国家级用国名，省级用「国家·省」
+    final label = region.code == country.code
+        ? country.display
+        : '${country.display} · ${region.display}';
+    await _downloadWorldRegion(region, label: label);
   }
 
-  Future<void> _downloadWorldRegion(ChecklistRegion region) async {
+  Future<void> _downloadWorldRegion(ChecklistRegion region,
+      {String? label}) async {
     try {
       final codes = await _withBlockingProgress(
         '正在获取「${region.display}」名录…',
@@ -595,7 +603,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
         );
         return;
       }
-      await _downloadChinaSpecies(entries);
+      await _downloadChinaSpecies(entries,
+          regionLabel: label ?? region.display);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1003,11 +1012,16 @@ class _PackManageScreenState extends State<PackManageScreen> {
     return (lat, lng);
   }
 
-  Future<void> _downloadChinaSpecies(List<SpeciesEntry> speciesList) async {
+  /// 按名录逐物种下载。[regionLabel] 为地区名（中国 / 云南 / 新加坡 …），
+  /// 用作生成的数据包名与提示文案，避免世界名录复用时出现"中国"字样。
+  Future<void> _downloadChinaSpecies(
+    List<SpeciesEntry> speciesList, {
+    String regionLabel = '名录',
+  }) async {
     final started = DownloadTaskService.instance.start(
       speciesList: speciesList,
-      packName: '我的中国鸟种下载',
-      region: '中国名录',
+      packName: regionLabel,
+      region: regionLabel,
       packManager: widget.packManager,
       storage: widget.storage,
       allowApiFallback: false,
@@ -1023,13 +1037,15 @@ class _PackManageScreenState extends State<PackManageScreen> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已开始按中国名录下载 ${speciesList.length} 种')),
+      SnackBar(
+        content: Text('已开始下载「$regionLabel」${speciesList.length} 种'),
+      ),
     );
   }
 
   Future<void> _downloadFullChinaCatalog() async {
     final speciesList = await _speciesEntriesFromChinaCatalog();
-    await _downloadChinaSpecies(speciesList);
+    await _downloadChinaSpecies(speciesList, regionLabel: '中国');
   }
 
   Future<List<SpeciesEntry>> _speciesEntriesFromChinaCatalog() async {
@@ -1336,7 +1352,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _PackManageSection.root => _buildRootSection(),
         _PackManageSection.localImport => _buildLocalImportSection(),
         _PackManageSection.onlineImport => _buildOnlineImportSection(),
-        _PackManageSection.serverDownload => _buildServerDownloadSection(),
         _PackManageSection.customDownload => _buildCustomDownloadSection(),
         _PackManageSection.installed => _buildInstalledSection(),
         _PackManageSection.upload => _buildUploadSection(),
@@ -1451,7 +1466,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
         ),
         const SizedBox(height: 12),
         Text(
-          '如果是分包，请一次选择或导入完整分包后再合并。弱网下载建议用“在线下载 > 中国名录服务器下载（无需 API）”。',
+          '如果是分包，请一次选择或导入完整分包后再合并。弱网下载建议用“在线下载 > 名录服务器下载（无需 API）”。',
           style: TextStyle(fontSize: 13, color: Colors.grey[600]),
         ),
       ],
@@ -1465,10 +1480,9 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _buildSectionHeader('在线下载', '先用无需 API 的服务器名录下载；进阶筛选再使用 API。'),
         _PackModuleCard(
           icon: Icons.cloud_queue,
-          title: '中国名录服务器下载（无需 API）',
-          subtitle: '中国完整名录或分省名录逐物种下载',
-          onTap: () =>
-              setState(() => _section = _PackManageSection.serverDownload),
+          title: '名录服务器下载（无需 API）',
+          subtitle: '中国完整 / 分省 / 世界名录逐物种下载',
+          onTap: _loading ? null : _showCountrySpeciesDownloadSheet,
         ),
         _PackModuleCard(
           icon: Icons.tune_outlined,
@@ -1476,28 +1490,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
           subtitle: '按地点筛选，或用清单批量补充媒体',
           onTap: () =>
               setState(() => _section = _PackManageSection.customDownload),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildServerDownloadSection() {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        _buildSectionHeader(
-            '中国名录服务器下载（无需 API）', '媒体逐物种从 Birdaholic 服务器下载，网络中断后可继续补缺。'),
-        _PackModuleCard(
-          icon: Icons.list_alt_outlined,
-          title: '中国完整名录逐物种下载（推荐）',
-          subtitle: '下载中国名录中服务器已有媒体的物种',
-          onTap: _loading ? null : _downloadFullChinaCatalog,
-        ),
-        _PackModuleCard(
-          icon: Icons.map_outlined,
-          title: '中国分省名录逐物种下载',
-          subtitle: '按省份选择物种，仍然不需要 eBird API',
-          onTap: _loading ? null : _showCountrySpeciesDownloadSheet,
         ),
       ],
     );
