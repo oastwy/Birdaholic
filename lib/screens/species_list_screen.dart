@@ -302,11 +302,16 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     }
 
     list.sort((a, b) {
+      // 第一键：生态类群（游禽→涉禽→陆禽→猛禽→攀禽→鸣禽），把同类群聚在一起
+      final ga = EcologicalGroups.resolve(order: a.order, family: a.family)?.order ?? 99;
+      final gb = EcologicalGroups.resolve(order: b.order, family: b.family)?.order ?? 99;
+      if (ga != gb) return ga.compareTo(gb);
+      // 第二键：分类顺序（目）
       final orderA = BirdOrderTaxonomy.info(a.order);
       final orderB = BirdOrderTaxonomy.info(b.order);
       final byOrder = orderA.sortWeight.compareTo(orderB.sortWeight);
       if (byOrder != 0) return byOrder;
-      // Within same order: sort by AviList index if available
+      // 第三键：组内 AviList 分类序号
       final idxA = _aviIndex[a.sci.trim().toLowerCase()] ?? 999999;
       final idxB = _aviIndex[b.sci.trim().toLowerCase()] ?? 999999;
       if (idxA != idxB) return idxA.compareTo(idxB);
