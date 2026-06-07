@@ -42,6 +42,10 @@ android {
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        // 只保留真机架构（去掉模拟器才用的 x86/x86_64，APK 直接小一截）
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
     }
 
     signingConfigs {
