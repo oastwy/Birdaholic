@@ -4,6 +4,42 @@
 
 ---
 
+## 0. 当前状态（2026-06-07 更新，**先读这段**）
+
+### 版本与发布
+- **线上 = `1.6.12+68`**：Android APK 已部署（服务器 `/data/download/` + GitHub Release v1.6.12，均为干净 75MB）。
+- **本地已提交未发布 = `1.6.13+69`**：在分支 `feature/v1.6.12-bugfixes-ui` 上，2 个 commit（`02a1620` v1.6.12、`c4b89a8` v1.6.13 的 call/song 拆卡）。
+  - `02a1620` **已 push** 到 origin；`c4b89a8`（1.6.13）**仅本地，未 push、未部署**。
+  - 干净已签名 APK 在 `~/Desktop/Birdaholic_v1.6.13_android.apk`（75MB，versionCode 69）。
+- **下一步等用户拍板**：是否把 v1.6.13 推生产（服务器 + download.html + GitHub Release）。用户说"还有新需求"，先别自作主张部署。
+
+### 本次会话已完成（客户端，分支上）
+- 闪卡：频谱图随 call/song 切换更新；预习页多音频互斥；选择题选项在非全屏被压缩时消失 → 改可滚动 ListView+固定行高；中文鸟名截断 → 中文名优先；难度筛选只在图片模式显示。
+- **call/song 拆卡（1.6.13）**：听声模式下多音频物种拆成多张卡，一卡一音频一频谱图。核心是新类型 `_DeckCard(species, audioIdx)`（见 `flashcard_screen.dart`），音频索引随洗牌/错题流转；频谱图缓存键含 audioIdx。
+- 总览页：「正确率」→「已掌握」；四个统计卡片可点击跳转鸟种清单（`_StatSpeciesListScreen`）；打卡日历改按月排版。"总览"标题在 1.6.11 的 commit 已去掉（用户旧截图是更早的安装包）。
+- 上传：鸟种/预习页上传改用与闪卡一致的 `InFlashcardUploadModal`；无 Token 时显示"仅本地不上传"黄条。
+
+### 本次会话已部署（服务器，**已上线生效**）
+- **反馈/纠错 API**：`POST /api/feedback`、`GET /api/admin/feedback`、`POST /api/admin/feedback/resolve`（修复纠错审核 404）。
+- **APK 国内直连**：`/data/download/` + nginx `location /download/`（443 vhost）+ download.html 主按钮指向 `https://birding.today/download/Birdaholic_vX_android.apk`。
+- 服务器部署细节与回滚方式见 `docs/deploy_v1.6.12.md`。**仓库的 `server/upload_server.py` 已与线上同步**（含 `_compress_image` + 反馈端点），不再是旧版。
+
+### 仍待办
+- [ ] 用户的"新需求"（未知，等用户说）。
+- [ ] v1.6.13 是否推生产（等用户 OK）。
+- [ ] **iOS Archive**：`flutter run`/`flutter build ios --simulator` 当前**报 CodeSign 失败**，`xattr -cr build/ ios/Pods ~/.pub-cache` 没解决，需进一步排查签名配置后用户本人在 Xcode Archive。
+- [ ] eBird 邮件授权存档；清理 `android/app/build.gradle.kts`。
+
+### 关键环境/凭据（本次验证可用）
+- SSH：`ssh root@124.223.101.188` 用本机 `~/.ssh/id_rsa`（已在 known_hosts，连通正常）。
+- `gh` 已登录 `oastwy`，可发 Release。Android 签名 keystore + `android/local.properties` 就位，release 构建出 `CN=Birdaholic` 证书。
+
+### ⚠️ 本次踩的新坑（务必注意）
+- **`" 2"` 重复垃圾文件会让 APK 翻倍**：构建出 130MB（正常 75MB），查出 build 缓存里有 160 个 `china_common_100_..._opt 2.zip` / `libapp 2.so` 之类重复文件（macOS/iCloud 同步或并行构建产生）。**打包前先 `find . -name "* 2.*"` 检查，或直接 `flutter clean` 再构建**。还删了个 `ios/Podfile 2.lock` 垃圾。
+- **难度筛选"无效"是数据问题**：数据包 108 张图几乎全是难度 1，需在服务器给图片打难度分才有区分（代码没问题）。
+
+---
+
 ## 1. 这是什么
 
 - **产品名**：鸟瘾综合征（英文 Birdaholic）
@@ -12,7 +48,7 @@
 - **法律主体**：伍洋（个人 ICP 备案，**非商业**）
 - **备案号**：粤ICP备2026057758号-2A
 - **仓库**：`/Users/wuyang/Documents/bird_flashcard_repo`，GitHub `github.com/oastwy/Birdaholic`
-- **当前版本**：`1.6.11+67`（`pubspec.yaml` 与 `lib/app_version.dart` 两处都要同步改）
+- **当前版本**：线上 `1.6.12+68`，本地分支已到 `1.6.13+69`（详见第 0 节）。改版本号 `pubspec.yaml` 与 `lib/app_version.dart` 两处都要同步改
 
 ---
 
@@ -158,8 +194,10 @@ cd /Users/wuyang/Documents/bird_flashcard_repo
 
 ## 11. 给接手者的注意事项
 
+- **接手第一件事：读第 0 节**（当前版本/分支/部署状态/待办/新坑）。
 - flutter 用全路径 `/Users/wuyang/.flutter-sdk/bin/flutter`
 - 改完 `flutter analyze --no-pub` 必须 0 issue
-- **提交/推送前问用户**；不要生成 `" 2"` `" 3"` 之类重复垃圾文件
-- 改 `upload_server.py` 或 settings 合规入口前，先确认现有功能没被覆盖
-- 改隐私政策内容 → 同步 bump `kPrivacyPolicyVersion`
+- **提交/推送/部署前问用户**；不要生成 `" 2"` `" 3"` 之类重复垃圾文件。
+  **打 APK 前先 `find . -name "* 2.*" | grep -v build` 或 `flutter clean`**——本次就因 build 缓存里的 `" 2"` 重复文件把包从 75MB 撑到 130MB。
+- 改 `upload_server.py` 前先确认 `_compress_image` 和合规入口没被覆盖；仓库副本现已与线上同步，但部署仍优先"往线上文件插入"而非整文件覆盖（见 `docs/deploy_v1.6.12.md`）。
+- 改隐私政策内容 → 同步 bump `kPrivacyPolicyVersion`。
