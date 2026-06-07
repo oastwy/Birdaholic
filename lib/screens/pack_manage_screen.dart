@@ -566,20 +566,28 @@ class _PackManageScreenState extends State<PackManageScreen> {
 
   Future<void> _downloadWorldRegion(ChecklistRegion region) async {
     try {
-      final species = await _withBlockingProgress(
+      final codes = await _withBlockingProgress(
         '正在获取「${region.display}」名录…',
-        ChecklistService().fetchRegion(region.code),
+        ChecklistService().fetchRegionCodes(region.code),
       );
-      final entries = species
-          .map((s) => SpeciesEntry(
-                cn: s.zh.isNotEmpty ? s.zh : s.en,
-                en: s.en.isNotEmpty ? s.en : s.sci,
-                sci: s.sci,
-                cons: '',
-                habitat: 'ebird:${region.code}',
-              ))
-          .where((e) => e.sci.isNotEmpty)
-          .toList();
+      final byCode = await _loadWorldBirdsByCode();
+      final entries = <SpeciesEntry>[];
+      final seen = <String>{};
+      for (final code in codes) {
+        final item = byCode[code.toLowerCase()];
+        if (item == null) continue;
+        final sci = (item['sci'] as String? ?? '').trim();
+        if (sci.isEmpty || !seen.add(sci.toLowerCase())) continue;
+        final en = (item['en'] as String? ?? '').trim();
+        final cn = (item['zh'] as String? ?? '').trim();
+        entries.add(SpeciesEntry(
+          cn: cn.isNotEmpty ? cn : en,
+          en: en.isNotEmpty ? en : sci,
+          sci: sci,
+          cons: _normalizeProtection((item['protection'] as String? ?? '').trim()),
+          habitat: 'ebird:${region.code}',
+        ));
+      }
       if (!mounted) return;
       if (entries.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -594,6 +602,25 @@ class _PackManageScreenState extends State<PackManageScreen> {
         SnackBar(content: Text('加载名录失败：$e')),
       );
     }
+  }
+
+  /// 内置 world_birds.json 的 code → 物种 映射（懒加载缓存）。
+  Map<String, Map<String, dynamic>>? _worldBirdsByCodeCache;
+
+  Future<Map<String, Map<String, dynamic>>> _loadWorldBirdsByCode() async {
+    final cached = _worldBirdsByCodeCache;
+    if (cached != null) return cached;
+    final raw = await rootBundle.loadString('assets/data/world_birds.json');
+    final data = jsonDecode(raw) as List<dynamic>;
+    final byCode = <String, Map<String, dynamic>>{};
+    for (final value in data) {
+      if (value is Map<String, dynamic>) {
+        final code = (value['code'] as String? ?? '').trim().toLowerCase();
+        if (code.isNotEmpty) byCode[code] = value;
+      }
+    }
+    _worldBirdsByCodeCache = byCode;
+    return byCode;
   }
 
   /// 通用：带搜索的列表选择 sheet，返回所选 code（取消返回 null）。

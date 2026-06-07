@@ -60,27 +60,6 @@ class ChecklistCountry {
   }
 }
 
-class ChecklistSpecies {
-  final String code;
-  final String sci;
-  final String en;
-  final String zh;
-
-  const ChecklistSpecies({
-    required this.code,
-    required this.sci,
-    required this.en,
-    required this.zh,
-  });
-
-  factory ChecklistSpecies.fromJson(Map<String, dynamic> j) => ChecklistSpecies(
-        code: (j['code'] as String? ?? '').trim(),
-        sci: (j['sci'] as String? ?? '').trim(),
-        en: (j['en'] as String? ?? '').trim(),
-        zh: (j['zh'] as String? ?? '').trim(),
-      );
-}
-
 class ChecklistService {
   static const String defaultBaseUrl = 'https://birding.today';
 
@@ -107,8 +86,9 @@ class ChecklistService {
     return countries;
   }
 
-  /// 某个地区（国家或省）的物种名录。
-  Future<List<ChecklistSpecies>> fetchRegion(String regionCode) async {
+  /// 某个地区（国家或省）名录里的 eBird 物种代码列表。
+  /// 精简格式直接读 `codes`；兼容旧"胖"格式时从 `species[].code` 取。
+  Future<List<String>> fetchRegionCodes(String regionCode) async {
     final resp = await _client
         .get(Uri.parse('$baseUrl/checklists/$regionCode.json'))
         .timeout(const Duration(seconds: 25));
@@ -116,10 +96,15 @@ class ChecklistService {
       throw Exception('获取名录失败（$regionCode）：${resp.statusCode}');
     }
     final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    final codes = data['codes'];
+    if (codes is List) {
+      return codes.map((e) => '$e'.trim()).where((e) => e.isNotEmpty).toList();
+    }
+    // 兼容旧格式
     return (data['species'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
-        .map(ChecklistSpecies.fromJson)
-        .where((s) => s.sci.isNotEmpty)
+        .map((s) => (s['code'] as String? ?? '').trim())
+        .where((e) => e.isNotEmpty)
         .toList();
   }
 }

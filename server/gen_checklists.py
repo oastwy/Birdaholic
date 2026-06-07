@@ -4,11 +4,12 @@ eBird, joined with world_birds.json, for Birdaholic's worldwide checklist
 feature ("像懂鸟一样，精确到省").
 
 Output (under /data/checklists/):
-  {regionCode}.json     一个地区一份名录：{code,name,name_zh,country,count,missing,species:[{code,sci,en,zh}]}
+  {regionCode}.json     一个地区一份名录（精简）：{code,name,name_zh,country,count,missing,codes:[eBird code...]}
   _index.json           国家→省 目录树：{generated, countries:[{code,name,name_zh,province_count,provinces:[{code,name,name_zh,count}]}]}
 
+精简格式：地区文件只存 eBird code 列表，客户端用内置 world_birds.json 还原
+学名/英文/中文（避免在几千个地区里重复存物种文字，体积砍 ~10 倍）。
 地区中文名：优先查 region_names_zh.json（国家 ISO2 + 中国省 CN-XX），查不到用 eBird 英文名兜底。
-物种中文名：来自 world_birds.json（按 eBird code 关联）。
 
 用法：
   python3 gen_checklists.py --key <EBIRD_KEY>                # 全量 subnational1
@@ -122,23 +123,14 @@ def main() -> int:
                     pass
             codes = ebird_get(f"/product/spplist/{rcode}", args.key) or []
             time.sleep(args.delay)
-            species = []
-            missing = 0
-            for code in codes:
-                hit = by_code.get(code)
-                if hit:
-                    species.append({
-                        "code": code,
-                        "sci": hit.get("sci", ""),
-                        "en": hit.get("en", ""),
-                        "zh": hit.get("zh", ""),
-                    })
-                else:
-                    missing += 1
+            # 精简格式：只存能在 world_birds 里解析到的 eBird code，
+            # 客户端用内置 world_birds.json 把 code 还原成 学名/英文/中文。
+            kept = [c for c in codes if c in by_code]
+            missing = len(codes) - len(kept)
             payload = {
                 "code": rcode, "name": rname, "name_zh": rname_zh,
-                "country": ccode, "count": len(species), "missing": missing,
-                "species": species,
+                "country": ccode, "count": len(kept), "missing": missing,
+                "codes": kept,
             }
             out_path.write_text(
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8"
