@@ -18,6 +18,7 @@ class StorageService {
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
   static const _flashcardGroupSizeKey = 'flashcard_group_size';
+  static const _quizNameModesKey = 'quiz_name_modes';
   static const _newUserGuideDismissedKey = 'new_user_guide_dismissed';
 
   final SharedPreferences _prefs;
@@ -134,6 +135,24 @@ class StorageService {
 
   Future<void> setFlashcardGroupSize(int value) async {
     await _prefs.setInt(_flashcardGroupSizeKey, value.clamp(1, 100));
+  }
+
+  // ============ 选择题鸟名显示（cn / en / sci 任意组合，至少一项）============
+
+  /// 选择题选项里显示哪些名字：'cn'(中文) / 'en'(英文) / 'sci'(拉丁名)。
+  List<String> get quizNameModes {
+    final v = _prefs.getStringList(_quizNameModesKey);
+    if (v == null || v.isEmpty) return const ['cn', 'en'];
+    final cleaned =
+        v.where((m) => m == 'cn' || m == 'en' || m == 'sci').toList();
+    return cleaned.isEmpty ? const ['cn'] : cleaned;
+  }
+
+  Future<void> setQuizNameModes(List<String> modes) async {
+    final cleaned =
+        modes.where((m) => m == 'cn' || m == 'en' || m == 'sci').toList();
+    await _prefs.setStringList(
+        _quizNameModesKey, cleaned.isEmpty ? const ['cn'] : cleaned);
   }
 
   // ============ 纠错日记 ============

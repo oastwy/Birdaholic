@@ -410,12 +410,28 @@ class _FlashcardSettingsScreen extends StatefulWidget {
 class _FlashcardSettingsScreenState extends State<_FlashcardSettingsScreen> {
   late final TextEditingController _groupController;
   late int _groupSize;
+  late List<String> _quizNameModes;
 
   @override
   void initState() {
     super.initState();
     _groupSize = widget.storage.flashcardGroupSize;
     _groupController = TextEditingController(text: '$_groupSize');
+    _quizNameModes = List.of(widget.storage.quizNameModes);
+  }
+
+  Future<void> _toggleQuizMode(String mode) async {
+    final next = List<String>.from(_quizNameModes);
+    if (next.contains(mode)) {
+      if (next.length <= 1) return; // 至少保留一项
+      next.remove(mode);
+    } else {
+      next.add(mode);
+    }
+    await widget.storage.setQuizNameModes(next);
+    if (!mounted) return;
+    setState(() => _quizNameModes = next);
+    widget.onSettingsChanged?.call();
   }
 
   @override
@@ -513,6 +529,45 @@ class _FlashcardSettingsScreenState extends State<_FlashcardSettingsScreen> {
                   Text(
                     '当前每组 $_groupSize 张。修改后重新进入或刷新闪卡会按新组数推进。',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('选择题鸟名显示'),
+                  const SizedBox(height: 4),
+                  Text(
+                    '选项里显示哪些名字，可多选，至少保留一项。',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilterChip(
+                        label: const Text('中文'),
+                        selected: _quizNameModes.contains('cn'),
+                        onSelected: (_) => _toggleQuizMode('cn'),
+                      ),
+                      FilterChip(
+                        label: const Text('英文'),
+                        selected: _quizNameModes.contains('en'),
+                        onSelected: (_) => _toggleQuizMode('en'),
+                      ),
+                      FilterChip(
+                        label: const Text('拉丁名'),
+                        selected: _quizNameModes.contains('sci'),
+                        onSelected: (_) => _toggleQuizMode('sci'),
+                      ),
+                    ],
                   ),
                 ],
               ),

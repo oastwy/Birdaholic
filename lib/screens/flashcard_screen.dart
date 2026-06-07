@@ -1901,6 +1901,48 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     );
   }
 
+  /// 选择题选项里居中显示的鸟名行，按设置选中的形式（中文/英文/拉丁名）。
+  List<Widget> _quizChoiceNameLines(Species choice, Color? color) {
+    final modes = widget.storage.quizNameModes;
+    final lines = <Widget>[];
+    void add(String text, TextStyle style) {
+      if (text.trim().isEmpty) return;
+      lines.add(Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: style,
+      ));
+    }
+
+    if (modes.contains('cn')) {
+      add(choice.cn,
+          TextStyle(fontWeight: FontWeight.w800, fontSize: 16, height: 1.15, color: color));
+    }
+    if (modes.contains('en')) {
+      add(choice.en,
+          TextStyle(fontSize: 13, height: 1.15, color: color ?? Colors.grey[700]));
+    }
+    if (modes.contains('sci')) {
+      add(
+          choice.sci,
+          TextStyle(
+              fontSize: 12,
+              height: 1.15,
+              fontStyle: FontStyle.italic,
+              color: color ?? Colors.grey[600]));
+    }
+    if (lines.isEmpty) {
+      final fallback = choice.cn.isNotEmpty
+          ? choice.cn
+          : (choice.en.isNotEmpty ? choice.en : choice.sci);
+      add(fallback,
+          TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: color));
+    }
+    return lines;
+  }
+
   Widget _buildQuizChoices(Species bird) {
     if (_quizChoices.length < 2) {
       return Padding(
@@ -1942,55 +1984,24 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                               : null;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: SizedBox(
-                      height: 50,
-                      child: OutlinedButton(
-                        onPressed:
-                            _answered ? null : () => _answerQuizChoice(choice),
-                        style: OutlinedButton.styleFrom(
-                          alignment: Alignment.centerLeft,
-                          foregroundColor: color,
-                          side: color == null ? null : BorderSide(color: color),
-                          backgroundColor: color?.withValues(alpha: 0.08),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 6,
-                          ),
+                    child: OutlinedButton(
+                      onPressed:
+                          _answered ? null : () => _answerQuizChoice(choice),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        foregroundColor: color,
+                        side: color == null ? null : BorderSide(color: color),
+                        backgroundColor: color?.withValues(alpha: 0.08),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
                         ),
-                        child: Row(
-                          children: [
-                            // 中文名优先占主空间，整名尽量完整显示
-                            Flexible(
-                              flex: 5,
-                              child: Text(
-                                choice.cn.isNotEmpty ? choice.cn : choice.en,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
-                                  height: 1.1,
-                                ),
-                              ),
-                            ),
-                            if (choice.en.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Flexible(
-                                flex: 4,
-                                child: Text(
-                                  choice.en,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    height: 1.1,
-                                    color: color ?? Colors.grey[700],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                      ),
+                      // 居中显示，名字形式由设置决定（中文/英文/拉丁名可多选）
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: _quizChoiceNameLines(choice, color),
                       ),
                     ),
                   );
