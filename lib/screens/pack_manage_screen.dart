@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../models/data_pack.dart';
+import '../services/checklist_service.dart';
 import '../services/download_task_service.dart';
 import '../services/ebird_service.dart';
 import '../services/order_taxonomy.dart';
@@ -268,12 +269,12 @@ class _PackManageScreenState extends State<PackManageScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '中国名录服务器下载',
+                '名录服务器下载',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
               Text(
-                '从内置中国名录选择全国或省份，再逐个从 Birdaholic 服务器下载媒体。无需 eBird API。',
+                '选择地区名录，再逐个从 Birdaholic 服务器下载媒体。无需 eBird API。',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
               const SizedBox(height: 14),
@@ -292,6 +293,15 @@ class _PackManageScreenState extends State<PackManageScreen> {
                   onPressed: () => Navigator.pop(ctx, '__province_picker__'),
                   icon: const Icon(Icons.map_outlined),
                   label: const Text('中国分省名录逐物种下载'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(ctx, '__world_picker__'),
+                  icon: const Icon(Icons.public),
+                  label: const Text('世界名录（按国家 / 省）'),
                 ),
               ),
               const SizedBox(height: 12),
@@ -376,6 +386,10 @@ class _PackManageScreenState extends State<PackManageScreen> {
     }
     if (countryCode == '__province_picker__') {
       await _showProvincePicker();
+      return;
+    }
+    if (countryCode == '__world_picker__') {
+      await _showWorldPicker();
       return;
     }
     await _downloadCountrySpecies(countryCode);
@@ -481,6 +495,210 @@ class _PackManageScreenState extends State<PackManageScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('加载省份名录失败：$e')),
       );
+    }
+  }
+
+  /// 世界名录：世界 → 国家 → 省/州，逐级选择后从服务器拉名录并下载媒体。
+  Future<void> _showWorldPicker() async {
+    List<ChecklistCountry> countries;
+    try {
+      countries = await _withBlockingProgress(
+        '正在获取世界名录目录…',
+        ChecklistService().fetchIndex(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('获取世界名录失败：$e（确认服务器名录已生成）')),
+      );
+      return;
+    }
+    if (!mounted || countries.isEmpty) return;
+
+    // 选国家
+    final countryCode = await _pickFromSearchableSheet(
+      title: '选择国家 / 地区',
+      hint: '搜索国家（中文 / 英文 / 代码）',
+      items: [
+        for (final c in countries)
+          (
+            code: c.code,
+            title: c.display,
+            subtitle: '${c.provinceCount} 个地区',
+            search: '${c.display} ${c.name} ${c.code}'.toLowerCase(),
+          ),
+      ],
+    );
+    if (countryCode == null || !mounted) return;
+    final country = countries.firstWhere((c) => c.code == countryCode);
+
+    // 选省（地区只有一个时直接用）
+    ChecklistRegion region;
+    if (country.provinces.length <= 1) {
+      region = country.provinces.isNotEmpty
+          ? country.provinces.first
+          : ChecklistRegion(
+              code: country.code,
+              name: country.name,
+              nameZh: country.nameZh,
+              count: 0,
+            );
+    } else {
+      final regionCode = await _pickFromSearchableSheet(
+        title: '${country.display} · 选择省 / 州',
+        hint: '搜索省 / 州',
+        items: [
+          for (final r in country.provinces)
+            (
+              code: r.code,
+              title: r.display,
+              subtitle: '${r.count} 种',
+              search: '${r.display} ${r.name} ${r.code}'.toLowerCase(),
+            ),
+        ],
+      );
+      if (regionCode == null || !mounted) return;
+      region = country.provinces.firstWhere((r) => r.code == regionCode);
+    }
+
+    await _downloadWorldRegion(region);
+  }
+
+  Future<void> _downloadWorldRegion(ChecklistRegion region) async {
+    try {
+      final species = await _withBlockingProgress(
+        '正在获取「${region.display}」名录…',
+        ChecklistService().fetchRegion(region.code),
+      );
+      final entries = species
+          .map((s) => SpeciesEntry(
+                cn: s.zh.isNotEmpty ? s.zh : s.en,
+                en: s.en.isNotEmpty ? s.en : s.sci,
+                sci: s.sci,
+                cons: '',
+                habitat: 'ebird:${region.code}',
+              ))
+          .where((e) => e.sci.isNotEmpty)
+          .toList();
+      if (!mounted) return;
+      if (entries.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('该地区名录为空')),
+        );
+        return;
+      }
+      await _downloadChinaSpecies(entries);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载名录失败：$e')),
+      );
+    }
+  }
+
+  /// 通用：带搜索的列表选择 sheet，返回所选 code（取消返回 null）。
+  Future<String?> _pickFromSearchableSheet({
+    required String title,
+    required String hint,
+    required List<({String code, String title, String subtitle, String search})>
+        items,
+  }) async {
+    var query = '';
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final filtered = query.isEmpty
+              ? items
+              : items.where((it) => it.search.contains(query)).toList();
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.82,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(title,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: TextField(
+                      autofocus: false,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: hint,
+                        isDense: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onChanged: (v) =>
+                          setSheet(() => query = v.trim().toLowerCase()),
+                    ),
+                  ),
+                  const Divider(height: 10),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(child: Text('没有匹配项'))
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (ctx, i) {
+                              final it = filtered[i];
+                              return ListTile(
+                                dense: true,
+                                title: Text(it.title,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600)),
+                                subtitle: Text(it.subtitle,
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.grey)),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => Navigator.pop(ctx, it.code),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 通用：执行一个 Future 期间显示阻塞式进度圈，完成后自动关闭。
+  Future<T> _withBlockingProgress<T>(String message, Future<T> future) async {
+    if (!mounted) return future;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Text(message)),
+          ],
+        ),
+      ),
+    );
+    try {
+      return await future;
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
     }
   }
 
