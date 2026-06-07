@@ -1,2 +1,2 @@
-const appVersionName = '1.6.14.1';
+const appVersionName = '1.6.15';
 const appBuildNumber = 71;
