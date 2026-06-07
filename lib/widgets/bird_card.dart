@@ -845,7 +845,9 @@ class BirdCardState extends State<BirdCard>
                 ),
               ),
             ),
-            Positioned(
+            // 答案未揭晓时不显示鸟名/学名，避免放大频谱图泄露答案（做题作弊）
+            if (!_showFront)
+              Positioned(
               left: 0,
               right: 0,
               top: 0,
