@@ -27,6 +27,7 @@
 ### 仍待办
 - [ ] 用户的"新需求"（未知，等用户说）。
 - [ ] v1.6.13 是否推生产（等用户 OK）。
+- [ ] 后续 UI：频谱图白底绿色样式、左侧频率坐标、深色模式双版资源；本轮 UI 收口先不动频谱生成与服务器回填。
 - [ ] **iOS Archive**：`flutter run`/`flutter build ios --simulator` 当前**报 CodeSign 失败**，`xattr -cr build/ ios/Pods ~/.pub-cache` 没解决，需进一步排查签名配置后用户本人在 Xcode Archive。
 - [ ] eBird 邮件授权存档；清理 `android/app/build.gradle.kts`。
 

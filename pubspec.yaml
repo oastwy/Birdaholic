@@ -35,5 +35,6 @@ flutter:
     - assets/data/world_birds.json
     - assets/data/provinces/
     - assets/brand/birdaholic_logo.png
+    - assets/brand/wechat_group_qr_20260614.jpg
     - assets/sounds/complete.m4a
     - data_packs/china_common_100_v1.2_opt.zip

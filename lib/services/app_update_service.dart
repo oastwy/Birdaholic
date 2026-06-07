@@ -46,10 +46,14 @@ class AppUpdateService {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final tag = (data['tag_name'] as String? ?? '').trim();
         if (tag.isNotEmpty) {
-          version = tag.replaceFirst(RegExp(r'^[vV]'), '');
-          title = 'Birdaholic v$version';
+          final parsedVersion = tag.replaceFirst(RegExp(r'^[vV]'), '');
+          if (_compareVersions(parsedVersion, appVersionName) >= 0) {
+            version = parsedVersion;
+            title = 'Birdaholic v$version';
+            date =
+                _formatIsoDate((data['published_at'] as String? ?? '').trim());
+          }
         }
-        date = _formatIsoDate((data['published_at'] as String? ?? '').trim());
       }
     } catch (_) {}
 
@@ -64,9 +68,12 @@ class AppUpdateService {
           if (parsedVersion != null &&
               _compareVersions(parsedVersion, version) >= 0) {
             version = parsedVersion;
+            date = _parseDate(html) ?? date;
+            title = 'Birdaholic v$version';
+          } else if (parsedVersion == null) {
+            date = _parseDate(html) ?? date;
+            title = 'Birdaholic v$version';
           }
-          date = _parseDate(html) ?? date;
-          title = 'Birdaholic v$version';
         }
       } catch (_) {}
     }

@@ -2231,6 +2231,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 132),
       child: Column(
         children: [
@@ -2378,8 +2379,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         )
                       : img;
                 }).toList();
-                _deck[j] = _deck[j]
-                    .withSpecies(_deck[j].species.copyWith(images: updatedImages));
+                _deck[j] = _deck[j].withSpecies(
+                    _deck[j].species.copyWith(images: updatedImages));
               }
             });
           },

@@ -322,8 +322,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                 species.sci.toLowerCase().contains(query) ||
                 species.habitat.toLowerCase().contains(query) ||
                 species.enAlt.any((alt) => alt.toLowerCase().contains(query)) ||
-                (isPinyinQuery &&
-                    Pinyin.initials(species.cn).contains(query)),
+                (isPinyinQuery && Pinyin.initials(species.cn).contains(query)),
           )
           .toList();
     }
@@ -497,7 +496,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
             return _groupChip(
               code: 'all',
               label: '全部',
-              emoji: '🪶',
               selected: _groupFilter == 'all',
             );
           }
@@ -505,7 +503,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
           return _groupChip(
             code: g.code,
             label: g.label,
-            emoji: g.emoji,
             selected: _groupFilter == g.code,
           );
         },
@@ -516,7 +513,6 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
   Widget _groupChip({
     required String code,
     required String label,
-    required String emoji,
     required bool selected,
   }) {
     return Padding(
@@ -525,11 +521,11 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(emoji, style: const TextStyle(fontSize: 14)),
+            Icon(_groupIcon(code), size: 15),
             const SizedBox(width: 4),
             Text(label,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600)),
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
           ],
         ),
         selected: selected,
@@ -551,6 +547,26 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
         ),
       ),
     );
+  }
+
+  IconData _groupIcon(String code) {
+    switch (code) {
+      case 'swimming':
+        return Icons.water;
+      case 'wading':
+        return Icons.waves_outlined;
+      case 'ground':
+        return Icons.grass_outlined;
+      case 'raptor':
+        return Icons.visibility_outlined;
+      case 'climbing':
+        return Icons.park_outlined;
+      case 'singing':
+        return Icons.music_note_outlined;
+      case 'all':
+      default:
+        return Icons.eco_outlined;
+    }
   }
 
   Widget _buildPreviewHeader(List<Species> filtered) {
@@ -649,191 +665,194 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
           child: Stack(
             children: [
               CustomScrollView(
-          controller: _chinaScrollController,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          slivers: [
-            SliverToBoxAdapter(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: '搜索当前数据包、中英文名或学名...',
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 16),
-                        isDense: true,
-                      ),
-                      onChanged: (value) => setState(() => _search = value),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                controller: _chinaScrollController,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
                       children: [
-                        _filterChip('全部', 'all'),
-                        _filterChip('已下载', 'audio'),
-                        if (_availableOrders.isNotEmpty)
-                          SizedBox(
-                            width: 180,
-                            child: DropdownButtonFormField<String>(
-                              value: _orderFilter,
-                              isDense: true,
-                              decoration: const InputDecoration(
-                                labelText: '按目筛选',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
-                                ),
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: '搜索当前数据包、中英文名或学名...',
+                              prefixIcon: const Icon(Icons.search),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                              items: [
-                                const DropdownMenuItem(
-                                    value: 'all', child: Text('全部目')),
-                                ..._availableOrders.map(
-                                  (order) => DropdownMenuItem(
-                                    value: order,
-                                    child: Text(
-                                      _orderLabel(order),
-                                      overflow: TextOverflow.ellipsis,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              isDense: true,
+                            ),
+                            onChanged: (value) =>
+                                setState(() => _search = value),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              _filterChip('全部', 'all'),
+                              _filterChip('已下载', 'audio'),
+                              if (_availableOrders.isNotEmpty)
+                                SizedBox(
+                                  width: 180,
+                                  child: DropdownButtonFormField<String>(
+                                    value: _orderFilter,
+                                    isDense: true,
+                                    decoration: const InputDecoration(
+                                      labelText: '按目筛选',
+                                      border: OutlineInputBorder(),
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
                                     ),
+                                    items: [
+                                      const DropdownMenuItem(
+                                          value: 'all', child: Text('全部目')),
+                                      ..._availableOrders.map(
+                                        (order) => DropdownMenuItem(
+                                          value: order,
+                                          child: Text(
+                                            _orderLabel(order),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      if (value == null) return;
+                                      setState(() => _orderFilter = value);
+                                    },
                                   ),
                                 ),
-                              ],
-                              onChanged: (value) {
-                                if (value == null) return;
-                                setState(() => _orderFilter = value);
-                              },
-                            ),
+                            ],
                           ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                          child: Row(
+                            children: [
+                              Text(
+                                '当前数据包 ${filtered.length} 种',
+                                style: TextStyle(
+                                    fontSize: 13, color: Colors.grey[600]),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '已选 ${_selectedSci.length} 种',
+                                style: TextStyle(
+                                    fontSize: 13, color: Colors.grey[700]),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          child: Row(
+                            children: [
+                              TextButton(
+                                onPressed: filtered.isEmpty
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          for (final species in filtered) {
+                                            _selectedSci.add(species.sci);
+                                          }
+                                        });
+                                      },
+                                child: const Text('勾选当前结果'),
+                              ),
+                              TextButton(
+                                onPressed: _selectedSci.isEmpty
+                                    ? null
+                                    : () => setState(_selectedSci.clear),
+                                child: const Text('清空勾选'),
+                              ),
+                              const Spacer(),
+                              FilledButton.icon(
+                                onPressed: _selectedSci.isEmpty
+                                    ? null
+                                    : _downloadSelected,
+                                icon: const Icon(Icons.download),
+                                label: const Text('补充选中鸟种'),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                    child: Row(
-                      children: [
-                        Text(
-                          '当前数据包 ${filtered.length} 种',
-                          style:
-                              TextStyle(fontSize: 13, color: Colors.grey[600]),
-                        ),
-                        const Spacer(),
-                        Text(
-                          '已选 ${_selectedSci.length} 种',
-                          style:
-                              TextStyle(fontSize: 13, color: Colors.grey[700]),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                    child: Row(
-                      children: [
-                        TextButton(
-                          onPressed: filtered.isEmpty
-                              ? null
-                              : () {
-                                  setState(() {
-                                    for (final species in filtered) {
-                                      _selectedSci.add(species.sci);
-                                    }
-                                  });
-                                },
-                          child: const Text('勾选当前结果'),
-                        ),
-                        TextButton(
-                          onPressed: _selectedSci.isEmpty
-                              ? null
-                              : () => setState(_selectedSci.clear),
-                          child: const Text('清空勾选'),
-                        ),
-                        const Spacer(),
-                        FilledButton.icon(
-                          onPressed:
-                              _selectedSci.isEmpty ? null : _downloadSelected,
-                          icon: const Icon(Icons.download),
-                          label: const Text('补充选中鸟种'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_loading)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (filtered.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: Text(
-                    _search.isNotEmpty ? '没有匹配的鸟种' : '鸟种名录加载为空',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ),
-              )
-            else
-              SliverList.builder(
-                itemCount: rows.length,
-                itemBuilder: (context, index) {
-                  final row = rows[index];
-                  final order = row.order;
-                  if (order != null) {
-                    final key = _orderHeaderKeys.putIfAbsent(
-                      order,
-                      GlobalKey.new,
-                    );
-                    return Container(
-                      key: key,
-                      padding: const EdgeInsets.fromLTRB(18, 14, 54, 4),
-                      child: Text(
-                        _orderLabel(order),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF2d5016),
+                  if (_loading)
+                    const SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (filtered.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Text(
+                          _search.isNotEmpty ? '没有匹配的鸟种' : '鸟种名录加载为空',
+                          style: const TextStyle(color: Colors.grey),
                         ),
                       ),
-                    );
-                  }
-                  final species = row.species!;
-                  return SpeciesTile(
-                    species: species,
-                    onTap: () => _openSpeciesPreview(filtered, row.index),
-                    isFavorite: false,
-                    onFavoriteToggle: () {},
-                    showFavorite: false,
-                    showDelete: false,
-                    showDownload: true,
-                    onDownload: () => _downloadOneFromServer(species),
-                    selected: _selectedSci.contains(species.sci),
-                    onSelectedChanged: (selected) {
-                      setState(() {
-                        if (selected) {
-                          _selectedSci.add(species.sci);
-                        } else {
-                          _selectedSci.remove(species.sci);
+                    )
+                  else
+                    SliverList.builder(
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final row = rows[index];
+                        final order = row.order;
+                        if (order != null) {
+                          final key = _orderHeaderKeys.putIfAbsent(
+                            order,
+                            GlobalKey.new,
+                          );
+                          return Container(
+                            key: key,
+                            padding: const EdgeInsets.fromLTRB(18, 14, 54, 4),
+                            child: Text(
+                              _orderLabel(order),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF2d5016),
+                              ),
+                            ),
+                          );
                         }
-                      });
-                    },
-                  );
-                },
-              ),
-            const SliverToBoxAdapter(child: SizedBox(height: 96)),
-          ],
+                        final species = row.species!;
+                        return SpeciesTile(
+                          species: species,
+                          onTap: () => _openSpeciesPreview(filtered, row.index),
+                          isFavorite: false,
+                          onFavoriteToggle: () {},
+                          showFavorite: false,
+                          showDelete: false,
+                          showDownload: true,
+                          onDownload: () => _downloadOneFromServer(species),
+                          selected: _selectedSci.contains(species.sci),
+                          onSelectedChanged: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedSci.add(species.sci);
+                              } else {
+                                _selectedSci.remove(species.sci);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 96)),
+                ],
               ),
             ],
           ),
@@ -1042,16 +1061,7 @@ class _BirdInlinePageState extends State<_BirdInlinePage> {
                       _iconOverlay(
                         Icons.open_in_full,
                         Colors.white70,
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => BirdPreviewScreen(
-                              species: sp,
-                              packManager: widget.packManager,
-                              storage: widget.storage,
-                            ),
-                          ),
-                        ),
+                        _openCurrentDetail,
                       ),
                     ],
                   ),
@@ -1146,8 +1156,21 @@ class _BirdInlinePageState extends State<_BirdInlinePage> {
     );
   }
 
+  void _openCurrentDetail() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BirdPreviewScreen(
+          species: widget.species,
+          packManager: widget.packManager,
+          storage: widget.storage,
+        ),
+      ),
+    );
+  }
+
   Widget _imageWidget(({String path, bool isNetwork, String credit}) img) {
-    return img.isNetwork
+    final image = img.isNetwork
         ? Image.network(
             img.path,
             fit: BoxFit.cover,
@@ -1164,6 +1187,11 @@ class _BirdInlinePageState extends State<_BirdInlinePage> {
                   color: Colors.white24, size: 40),
             ),
           );
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _openCurrentDetail,
+      child: image,
+    );
   }
 
   Widget _iconOverlay(IconData icon, Color color, VoidCallback onTap) {
