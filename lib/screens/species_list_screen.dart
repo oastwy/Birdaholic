@@ -70,9 +70,7 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     AviListService().getSciIndexMap().then((idx) {
       if (mounted) setState(() => _aviIndex = idx);
     });
-    widget.packManager.getActivePackDir().then((dir) {
-      if (mounted) setState(() => _activePackDir = dir);
-    });
+    // _activePackDir 由 _loadSpecies() 设置（初始 + 切包刷新）
   }
 
   @override
@@ -95,9 +93,11 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
     setState(() => _loading = true);
     try {
       final activeList = await widget.packManager.loadSpecies();
+      final packDir = await widget.packManager.getActivePackDir();
       final chinaList = await _loadChinaSpecies(activeList);
       if (mounted) {
         setState(() {
+          _activePackDir = packDir; // 切包后刷新，缩略图路径不至于过期
           _activeSpecies = activeList;
           _chinaSpecies = chinaList;
           _selectedSci.removeWhere(
@@ -429,20 +429,55 @@ class _SpeciesListScreenState extends State<SpeciesListScreen> {
                         style: const TextStyle(color: Colors.grey),
                       ),
                     )
-                  : ListView.separated(
-                      controller: _chinaScrollController,
-                      padding: const EdgeInsets.only(bottom: 16),
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, __) => Divider(
-                        height: 1,
-                        thickness: 0.5,
-                        indent: 80,
-                        color: Colors.grey[200],
-                      ),
-                      itemBuilder: (ctx, i) => _speciesListRow(filtered[i]),
-                    ),
+                  : Builder(builder: (_) {
+                      final items = _withGroupHeaders(filtered);
+                      return ListView.builder(
+                        controller: _chinaScrollController,
+                        padding: const EdgeInsets.only(bottom: 16),
+                        itemCount: items.length,
+                        itemBuilder: (ctx, i) {
+                          final item = items[i];
+                          return item is String
+                              ? _groupHeaderTile(item)
+                              : _speciesListRow(item as Species);
+                        },
+                      );
+                    }),
         ),
       ],
+    );
+  }
+
+  /// 在按类群排序的列表里插入类群分节标题（仅"全部"时插入；筛选到某类群时不重复）。
+  List<Object> _withGroupHeaders(List<Species> sorted) {
+    if (_groupFilter != 'all') return List<Object>.from(sorted);
+    final items = <Object>[];
+    String? lastLabel;
+    for (final sp in sorted) {
+      final label =
+          EcologicalGroups.resolve(order: sp.order, family: sp.family)?.label ??
+              '其他';
+      if (label != lastLabel) {
+        items.add(label);
+        lastLabel = label;
+      }
+      items.add(sp);
+    }
+    return items;
+  }
+
+  Widget _groupHeaderTile(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: Colors.green[800],
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 
