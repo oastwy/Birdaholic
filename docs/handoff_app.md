@@ -4,14 +4,16 @@
 
 ---
 
-## 0. 当前状态（2026-06-07 更新，**先读这段**）
+## 0. 当前状态（2026-06-08 更新，**先读这段**）
 
 ### 版本与发布
-- **线上 = `1.6.12+68`**：Android APK 已部署（服务器 `/data/download/` + GitHub Release v1.6.12，均为干净 75MB）。
-- **本地已提交未发布 = `1.6.13+69`**：在分支 `feature/v1.6.12-bugfixes-ui` 上，2 个 commit（`02a1620` v1.6.12、`c4b89a8` v1.6.13 的 call/song 拆卡）。
-  - `02a1620` **已 push** 到 origin；`c4b89a8`（1.6.13）**仅本地，未 push、未部署**。
-  - 干净已签名 APK 在 `~/Desktop/Birdaholic_v1.6.13_android.apk`（75MB，versionCode 69）。
-- **下一步等用户拍板**：是否把 v1.6.13 推生产（服务器 + download.html + GitHub Release）。用户说"还有新需求"，先别自作主张部署。
+- **线上 = `1.6.15+71`（Android 已发布）**：分支 `feature/v1.6.12-bugfixes-ui`（已 push）。
+  - GitHub Release `v1.6.15`（Latest，带 APK）；国内直连 `https://birding.today/download/Birdaholic_v1.6.15_android.apk`，download.html 已指向它。
+  - 干净签名 APK 在 `~/Desktop/Birdaholic_v1.6.15_android.apk`（**63.9MB**，arm64+armv7，无 x86_64）。
+  - 服务器 `/data/download/` 只留 1.6.15 + `Birdaholic_latest_android.apk` 软链（旧版已删）。
+- **iOS 尚未上架**：版本号已对（`ios/Flutter/Generated.xcconfig` = 1.6.15+71，Info.plist 用 `$(FLUTTER_BUILD_NAME)`，pbxproj 无硬编码）。`flutter build ios --release --no-codesign` 的 Xcode 编译能过，但 CLI 末尾 ad-hoc 签 Flutter.framework 失败（`identity -`，是 --no-codesign 自身怪癖，不影响 Xcode 真机 Archive）。用户本人在 Xcode `Runner.xcworkspace` → Clean Build Folder → Any iOS Device → Archive；遇 resource-fork 报错先 `xattr -cr build/ ios/Pods ~/.pub-cache`。
+- 提交信息：包名 `com.birdflash.bird_flashcard`；ICP 粤ICP备2026057758号-2A；隐私 `https://birding.today/privacy.html`、支持 `https://birding.today/support.html`。App Store 6.5吋截图（1242×2688，无 alpha）在 `~/Downloads/预览/AppStore_6.5/`。
+- 1.6.13~1.6.15 期间用户(oastwy)与接手者在同一分支交替提交（如 `60b5e1b ui: polish home/news`），**先 `git pull`/看 log 再动手**。
 
 ### 本次会话已完成（客户端，分支上）
 - 闪卡：频谱图随 call/song 切换更新；预习页多音频互斥；选择题选项在非全屏被压缩时消失 → 改可滚动 ListView+固定行高；中文鸟名截断 → 中文名优先；难度筛选只在图片模式显示。
@@ -23,13 +25,17 @@
 - **反馈/纠错 API**：`POST /api/feedback`、`GET /api/admin/feedback`、`POST /api/admin/feedback/resolve`（修复纠错审核 404）。
 - **APK 国内直连**：`/data/download/` + nginx `location /download/`（443 vhost）+ download.html 主按钮指向 `https://birding.today/download/Birdaholic_vX_android.apk`。
 - 服务器部署细节与回滚方式见 `docs/deploy_v1.6.12.md`。**仓库的 `server/upload_server.py` 已与线上同步**（含 `_compress_image` + 反馈端点），不再是旧版。
+- **世界名录（1.6.15）**：`server/gen_checklists.py` 用 eBird（国家→省 subnational1→spplist）+ `world_birds.json` 生成 `/data/checklists/{地区}.json`（**精简格式：只存 eBird code 数组**，客户端用内置 world_birds.json 还原名字）+ `_index.json` 目录树。已全量跑完 **251 国 / 3442 地区 / 18MB**，nginx `location /checklists/` 服务。地区中文名表 `server/region_names_zh.json`（250 国 + 34 中国省，中文优先英文兜底）。客户端 `checklist_service.dart` + 数据包页「名录服务器下载」弹窗（中国完整/分省/**世界**）。重跑/补：`python3 /data/server/gen_checklists.py --key <eBird key>`（断点续传），再 `compact_checklists.py` 瘦身。
+- **访问统计 GoAccess**：`https://birding.today/_stats/`（basic auth，账号 `birdadmin`，密码找用户/在服务器 `/etc/nginx/.htpasswd_stats`）。中文界面、`--ignore-crawlers` 去爬虫。`/usr/local/bin/refresh_goaccess.sh` + `/etc/cron.d/goaccess_refresh` 每小时刷新。
+- 国内下载 `/download/`、世界名录 `/checklists/`、统计 `/_stats/` 三个 location 都加在 **443 vhost `birding.today.conf`**；改 nginx 用"备份+`nginx -t`+失败回滚"的小 python patcher（参考本次做法）。
 
 ### 仍待办
-- [ ] 用户的"新需求"（未知，等用户说）。
-- [ ] v1.6.13 是否推生产（等用户 OK）。
-- [ ] 后续 UI：频谱图白底绿色样式、左侧频率坐标、深色模式双版资源；本轮 UI 收口先不动频谱生成与服务器回填。
-- [ ] **iOS Archive**：`flutter run`/`flutter build ios --simulator` 当前**报 CodeSign 失败**，`xattr -cr build/ ios/Pods ~/.pub-cache` 没解决，需进一步排查签名配置后用户本人在 Xcode Archive。
-- [ ] eBird 邮件授权存档；清理 `android/app/build.gradle.kts`。
+- [ ] **鸟种详情/预习页加「编辑识别特征」入口**（下一版做）：现在编辑入口只在闪卡页底部 `?`(help_outline) 按钮 → `_editIdentificationNote`（`flashcard_screen.dart:972`，存 `storage.setSpeciesNote(sci,...)`，管理员另有「保存并推送」走 `_pushIdentificationFeatures` → 服务器 `/api/features`）。用户想浏览鸟种时直接改，需在 `bird_preview_screen.dart`（现仅显示 `getSpeciesNote`/`identificationFeatures`，1061 行附近）复用同一套逻辑加编辑按钮。
+- [ ] iOS Xcode Archive 上传 App Store（用户本人，见上版本块）。
+- [ ] 国内安卓商店逐家上架（华为/小米/OPPO/vivo/应用宝）——无官方批量；注意多数要**软著**；个人 ICP 非商业，官网下载可作主渠道。
+- [ ] 频谱图美化（已和用户讨论，**结论：不做 app 选样式的着色器**，第一性原理上只需"高对比+干净坐标轴"一张好图；服务器侧重生成尚未做）。
+- [ ] eBird 邮件授权存档。
+- ✅ 已完成（勿重复）：build.gradle.kts 已删；APK 去 x86_64（abiFilters）；世界名录 + GoAccess 已上线（见下）。
 
 ### 关键环境/凭据（本次验证可用）
 - SSH：`ssh root@124.223.101.188` 用本机 `~/.ssh/id_rsa`（已在 known_hosts，连通正常）。
