@@ -128,6 +128,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   @override
   void initState() {
     super.initState();
+    _ebirdFilterLabel = widget.storage.getEbirdFilterLabel();
+    _ebirdFilterSci = widget.storage.getEbirdFilterSci();
     _loadSpecies();
   }
 
@@ -1088,86 +1090,225 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       return;
     }
 
+    final regionNames = await EBirdService.loadRegionNames();
+    if (!mounted) return;
     final controller = TextEditingController(text: _ebirdFilterLabel);
+    // 时间范围：full=完整名录 / recent=近 N 天 / date=指定历史日期
+    var timeMode = 'full';
+    var backDays = 14;
+    DateTime? histDate;
+    var suggestions = <MapEntry<String, String>>[];
+
     final query = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            8,
-            16,
-            MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'eBird 地点筛选',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) {
+          final history = widget.storage.getEbirdLocationHistory();
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                MediaQuery.of(ctx).viewInsets.bottom + 24,
               ),
-              const SizedBox(height: 6),
-              Text(
-                '输入国家/地区/热点代码，或经纬度，把当前闪卡范围收窄到这个地点出现过的鸟种。',
-                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                decoration: InputDecoration(
-                  hintText: '例如 云南、那邦、CN-53、L3124991、24.7,97.6',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'eBird 地点筛选',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '输入国家/地区/热点代码，或经纬度，把当前闪卡范围收窄到这个地点出现过的鸟种。',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      decoration: InputDecoration(
+                        hintText: '搜地名如 湖北、云南、日本，或代码 CN-42、热点 L3124991',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onChanged: (value) => setModal(() {
+                        suggestions =
+                            EBirdService.searchRegions(value, regionNames);
+                      }),
+                      onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+                    ),
+                    if (suggestions.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            for (final s in suggestions)
+                              ListTile(
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                title: Text(s.value),
+                                trailing: Text(s.key,
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[500])),
+                                onTap: () => setModal(() {
+                                  controller.text = s.value;
+                                  suggestions = [];
+                                }),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            Navigator.pop(ctx, '__current_location__'),
+                        icon: const Icon(Icons.my_location),
+                        label: const Text('使用当前位置'),
+                      ),
+                    ),
+                    if (history.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text('最近用过',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[700])),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: history.map((loc) {
+                          return InputChip(
+                            label: Text(loc),
+                            onPressed: () =>
+                                setModal(() => controller.text = loc),
+                            onDeleted: () async {
+                              await widget.storage
+                                  .removeEbirdLocationHistory(loc);
+                              setModal(() {});
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Text('常用地点',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700])),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: EBirdService.presets.take(8).map((preset) {
+                        return ActionChip(
+                          label: Text(preset.label),
+                          onPressed: () =>
+                              setModal(() => controller.text = preset.code),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('时间范围',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700])),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('完整名录'),
+                          selected: timeMode == 'full',
+                          onSelected: (_) => setModal(() => timeMode = 'full'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('近期记录'),
+                          selected: timeMode == 'recent',
+                          onSelected: (_) => setModal(() => timeMode = 'recent'),
+                        ),
+                        ChoiceChip(
+                          label: Text(histDate == null
+                              ? '指定日期'
+                              : '${histDate!.year}-${histDate!.month.toString().padLeft(2, '0')}-${histDate!.day.toString().padLeft(2, '0')}'),
+                          selected: timeMode == 'date',
+                          onSelected: (_) async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: histDate ??
+                                  DateTime.now()
+                                      .subtract(const Duration(days: 1)),
+                              firstDate: DateTime(1900),
+                              lastDate: DateTime.now(),
+                            );
+                            if (picked != null) {
+                              setModal(() {
+                                histDate = picked;
+                                timeMode = 'date';
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    if (timeMode == 'recent') ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [7, 14, 30].map((d) {
+                          return ChoiceChip(
+                            label: Text('近 $d 天'),
+                            selected: backDays == d,
+                            onSelected: (_) => setModal(() => backDays = d),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, '__clear__'),
+                          child: const Text('清除地点'),
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: () =>
+                              Navigator.pop(ctx, controller.text.trim()),
+                          child: const Text('应用'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
               ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(ctx, '__current_location__'),
-                  icon: const Icon(Icons.my_location),
-                  label: const Text('使用当前位置'),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: EBirdService.presets.take(8).map((preset) {
-                  return ActionChip(
-                    label: Text(preset.label),
-                    onPressed: () => Navigator.pop(ctx, preset.code),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, '__clear__'),
-                    child: const Text('清除地点'),
-                  ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-                    child: const Text('应用'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
     controller.dispose();
     if (query == null) return;
     if (query == '__clear__') {
+      await widget.storage.clearEbirdFilter();
       setState(() {
         _ebirdFilterSci = const {};
         _ebirdFilterLabel = '';
@@ -1176,31 +1317,71 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       return;
     }
     if (query.trim().isEmpty) return;
+    if (timeMode == 'date' && histDate == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请选择历史日期')),
+      );
+      return;
+    }
+
+    // 中文地名 → eBird 代码（如「湖北」→ CN-42）；代码/坐标原样。
+    final loc = query == '__current_location__'
+        ? query
+        : EBirdService.resolveToRegionCode(query, regionNames);
 
     try {
       setState(() => _loading = true);
       final service = EBirdService(apiKey: apiKey);
-      final coords = query == '__current_location__'
+      final coords = loc == '__current_location__'
           ? await _getCurrentCoordinates()
-          : _parseCoordinates(query);
-      final matches = coords == null
-          ? await service.fetchSpeciesMatches(query)
-          : await service.fetchNearbySpeciesMatches(
-              latitude: coords.$1,
-              longitude: coords.$2,
-              distanceKm: coords.$3,
-            );
+          : _parseCoordinates(loc);
+      final Set<EbirdSpeciesMatch> matches;
+      if (coords != null) {
+        // 经纬度只支持近期；完整名录/指定日期时退化为近 backDays 天。
+        matches = await service.fetchNearbySpeciesMatches(
+          latitude: coords.$1,
+          longitude: coords.$2,
+          distanceKm: coords.$3,
+          backDays: timeMode == 'recent' ? backDays : 30,
+        );
+      } else if (timeMode == 'recent') {
+        matches = await service.fetchRecentSpeciesMatches(loc,
+            backDays: backDays);
+      } else if (timeMode == 'date') {
+        matches = await service.fetchHistoricSpeciesMatches(
+          loc,
+          year: histDate!.year,
+          month: histDate!.month,
+          day: histDate!.day,
+        );
+      } else {
+        matches = await service.fetchSpeciesMatches(loc);
+      }
       final sciSet = await _matchEBirdToScientificNames(matches);
+      if (!mounted) return;
+      final placeLabel = coords == null
+          ? EBirdService.regionDisplayName(
+              EBirdService.normalizeLocationCode(loc), regionNames)
+          : '${coords.$1.toStringAsFixed(3)},${coords.$2.toStringAsFixed(3)}';
+      final timeSuffix = timeMode == 'recent'
+          ? ' · 近$backDays天'
+          : timeMode == 'date'
+              ? ' · ${histDate!.year}-${histDate!.month.toString().padLeft(2, '0')}-${histDate!.day.toString().padLeft(2, '0')}'
+              : '';
+      final label = '$placeLabel$timeSuffix';
+      await widget.storage.saveEbirdFilter(label, sciSet);
+      if (coords == null) {
+        await widget.storage.addEbirdLocationHistory(placeLabel);
+      }
       if (!mounted) return;
       setState(() {
         _ebirdFilterSci = sciSet;
-        _ebirdFilterLabel = coords == null
-            ? EBirdService.normalizeLocationCode(query)
-            : '${coords.$1.toStringAsFixed(3)},${coords.$2.toStringAsFixed(3)}';
+        _ebirdFilterLabel = label;
       });
       _buildDeck();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已按 $_ebirdFilterLabel 匹配 ${sciSet.length} 种')),
+        SnackBar(content: Text('已按 $label 匹配 ${sciSet.length} 种')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -1410,11 +1591,13 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         ActionChip(
                           avatar: const Icon(Icons.clear, size: 18),
                           label: const Text('清除地点'),
-                          onPressed: () {
+                          onPressed: () async {
+                            await widget.storage.clearEbirdFilter();
                             refresh(() {
                               _ebirdFilterSci = const {};
                               _ebirdFilterLabel = '';
                             });
+                            _buildDeck();
                           },
                         ),
                     ],

@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态（2026-06-08 更新，**先读这段**）
+## 0. 当前状态（2026-06-13 更新，**先读这段**）
 
 ### 版本与发布
 - **线上 = `1.6.15+71`（Android 已发布）**：分支 `feature/v1.6.12-bugfixes-ui`（已 push）。
@@ -20,6 +20,7 @@
 - **call/song 拆卡（1.6.13）**：听声模式下多音频物种拆成多张卡，一卡一音频一频谱图。核心是新类型 `_DeckCard(species, audioIdx)`（见 `flashcard_screen.dart`），音频索引随洗牌/错题流转；频谱图缓存键含 audioIdx。
 - 总览页：「正确率」→「已掌握」；四个统计卡片可点击跳转鸟种清单（`_StatSpeciesListScreen`）；打卡日历改按月排版。"总览"标题在 1.6.11 的 commit 已去掉（用户旧截图是更早的安装包）。
 - 上传：鸟种/预习页上传改用与闪卡一致的 `InFlashcardUploadModal`；无 Token 时显示"仅本地不上传"黄条。
+- **鸟种详情/预习页「编辑辨识特征」入口（2026-06-13）**：`bird_preview_screen.dart` `_buildFeaturesSection` 标题右侧加「编辑/添加」按钮 → `_editSpeciesFeatures(sp)`，弹框复用闪卡那套（`storage.setSpeciesNote` + 管理员「保存并推送」走 `AdminUploadService().uploadIdentificationFeatures`）；空特征时也显示占位+「添加」入口。
 
 ### 本次会话已部署（服务器，**已上线生效**）
 - **反馈/纠错 API**：`POST /api/feedback`、`GET /api/admin/feedback`、`POST /api/admin/feedback/resolve`（修复纠错审核 404）。
@@ -30,7 +31,9 @@
 - 国内下载 `/download/`、世界名录 `/checklists/`、统计 `/_stats/` 三个 location 都加在 **443 vhost `birding.today.conf`**；改 nginx 用"备份+`nginx -t`+失败回滚"的小 python patcher（参考本次做法）。
 
 ### 仍待办
-- [ ] **鸟种详情/预习页加「编辑识别特征」入口**（下一版做）：现在编辑入口只在闪卡页底部 `?`(help_outline) 按钮 → `_editIdentificationNote`（`flashcard_screen.dart:972`，存 `storage.setSpeciesNote(sci,...)`，管理员另有「保存并推送」走 `_pushIdentificationFeatures` → 服务器 `/api/features`）。用户想浏览鸟种时直接改，需在 `bird_preview_screen.dart`（现仅显示 `getSpeciesNote`/`identificationFeatures`，1061 行附近）复用同一套逻辑加编辑按钮。
+- [ ] **数据包断点续传「继续下载」按钮**（用户报：数据包没下完会停，需手动续）：`DownloadTaskService`（单例 ChangeNotifier，单任务锁 `_runningTask`）已有任务状态；需在数据包管理页（`pack_manage_screen.dart`）对「未完成/中断」的包显示「继续下载」按钮，复用原下载入口、跳过已下文件。
+- [ ] **eBird 打卡筛选加时间筛选**（用户提）：eBird API 支持拉近 1–30 天（`/data/obs/{region}/recent?back=N`）和历史某天（`/data/obs/{region}/historic/{y}/{m}/{d}`）。当前 `_applyEBirdDeckFilter`（`flashcard_screen.dart:1082` 附近）只拉默认近期；加「近 N 天 / 指定日期」选项。
+- [ ] **eBird 地点筛选持久化 + 历史地点**（用户提）：现每次打开重置，按热点筛选要重输 hotspot ID。需把上次选的地区/热点存 SharedPreferences，并维护一个「最近用过的地点」列表供下拉选。
 - [ ] iOS Xcode Archive 上传 App Store（用户本人，见上版本块）。
 - [ ] 国内安卓商店逐家上架（华为/小米/OPPO/vivo/应用宝）——无官方批量；注意多数要**软著**；个人 ICP 非商业，官网下载可作主渠道。
 - [ ] 频谱图美化（已和用户讨论，**结论：不做 app 选样式的着色器**，第一性原理上只需"高对比+干净坐标轴"一张好图；服务器侧重生成尚未做）。

@@ -65,3 +65,12 @@ android/local.properties
 # Duplicate flutter plugin files (with spaces in name)
 .flutter-plugins 2
 .flutter-plugins-dependencies 2
+
+# HarmonyOS(鸿蒙) 工程 + 签名材料：仅本机构建用，绝不提交（含 build-profile 加密密码/密钥）
+/ohos/
+/material/
+*.p12
+*.cer
+*.csr
+*.p7b
+*.keystore

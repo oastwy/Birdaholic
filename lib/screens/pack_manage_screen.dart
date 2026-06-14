@@ -576,7 +576,9 @@ class _PackManageScreenState extends State<PackManageScreen> {
     try {
       final codes = await _withBlockingProgress(
         '正在获取「${region.display}」名录…',
-        ChecklistService().fetchRegionCodes(region.code),
+        region.memberCodes.isNotEmpty
+            ? ChecklistService().fetchRegionCodesUnion(region.memberCodes)
+            : ChecklistService().fetchRegionCodes(region.code),
       );
       final byCode = await _loadWorldBirdsByCode();
       final entries = <SpeciesEntry>[];

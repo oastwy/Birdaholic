@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 
 class EbirdLocationPreset {
@@ -70,6 +71,57 @@ class EBirdService {
     }).toList();
   }
 
+  // ── 地区代码 ↔ 中文名（内置 region_names_zh.json，供按名搜索）──────────
+  static Map<String, String>? _regionNames;
+
+  /// 加载「eBird 地区代码 → 中文名」表（含 250+ 国家 + 中国省级）。
+  static Future<Map<String, String>> loadRegionNames() async {
+    if (_regionNames != null) return _regionNames!;
+    try {
+      final raw =
+          await rootBundle.loadString('assets/data/region_names_zh.json');
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      _regionNames = m.map((k, v) => MapEntry(k, '$v'.trim()));
+    } catch (_) {
+      _regionNames = {};
+    }
+    return _regionNames!;
+  }
+
+  /// 按中文名 / 代码模糊搜索地区，返回 (代码, 中文名)，最多 12 条。
+  static List<MapEntry<String, String>> searchRegions(
+      String query, Map<String, String> names) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return const [];
+    final out = <MapEntry<String, String>>[];
+    names.forEach((code, name) {
+      if (name.toLowerCase().contains(q) || code.toLowerCase().contains(q)) {
+        out.add(MapEntry(code, name));
+      }
+    });
+    // 名字越短越靠前（更可能是精确匹配的省/国家），其次按名字排序。
+    out.sort((a, b) {
+      final byLen = a.value.length.compareTo(b.value.length);
+      return byLen != 0 ? byLen : a.value.compareTo(b.value);
+    });
+    return out.take(12).toList();
+  }
+
+  /// 把输入解析成 eBird 地区代码：若整串等于某个中文地名则换成其代码，否则原样返回。
+  static String resolveToRegionCode(String input, Map<String, String> names) {
+    final t = input.trim();
+    if (t.isEmpty) return t;
+    for (final e in names.entries) {
+      if (e.value == t) return e.key;
+    }
+    return t;
+  }
+
+  /// 代码 → 中文名（查不到返回原代码）。
+  static String regionDisplayName(String code, Map<String, String> names) {
+    return names[code.trim()] ?? code.trim();
+  }
+
   static String normalizeLocationCode(String input) {
     final trimmed = input.trim();
     for (final item in presets) {
@@ -114,6 +166,87 @@ class EBirdService {
     return _fetchTaxonomyMatches(codes);
   }
 
+  Future<Set<EbirdSpeciesMatch>> fetchRecentSpeciesMatches(
+    String locationCode, {
+    int backDays = 30,
+  }) async {
+    final normalizedCode = normalizeLocationCode(locationCode);
+    final uri = Uri.https(
+      'api.ebird.org',
+      '/v2/data/obs/$normalizedCode/recent',
+      {
+        'back': backDays.clamp(1, 30).toString(),
+        'sppLocale': 'en',
+      },
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'X-eBirdApiToken': apiKey},
+    );
+
+    if (response.statusCode == 401) {
+      throw Exception('eBird API key 无效或已失效');
+    }
+    if (response.statusCode != 200) {
+      final detail = response.body.trim();
+      throw Exception(
+        'eBird 最近鸟种请求失败: ${response.statusCode}'
+        '${detail.isEmpty ? '' : ' · $detail'}',
+      );
+    }
+
+    final data = jsonDecode(response.body) as List<dynamic>;
+    final codes = data
+        .whereType<Map<String, dynamic>>()
+        .map((item) =>
+            (item['speciesCode'] as String? ?? '').trim().toLowerCase())
+        .where((code) => code.isNotEmpty)
+        .toSet();
+    return _fetchTaxonomyMatches(codes);
+  }
+
+  /// 指定历史某一天该地点记录到的鸟种（eBird historic 端点）。
+  Future<Set<EbirdSpeciesMatch>> fetchHistoricSpeciesMatches(
+    String locationCode, {
+    required int year,
+    required int month,
+    required int day,
+  }) async {
+    final normalizedCode = normalizeLocationCode(locationCode);
+    final uri = Uri.https(
+      'api.ebird.org',
+      '/v2/data/obs/$normalizedCode/historic/$year/$month/$day',
+      {
+        'sppLocale': 'en',
+        'rank': 'mrec',
+      },
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'X-eBirdApiToken': apiKey},
+    );
+
+    if (response.statusCode == 401) {
+      throw Exception('eBird API key 无效或已失效');
+    }
+    if (response.statusCode != 200) {
+      final detail = response.body.trim();
+      throw Exception(
+        'eBird 历史鸟种请求失败: ${response.statusCode}'
+        '${detail.isEmpty ? '' : ' · $detail'}',
+      );
+    }
+
+    final data = jsonDecode(response.body) as List<dynamic>;
+    final codes = data
+        .whereType<Map<String, dynamic>>()
+        .map((item) =>
+            (item['speciesCode'] as String? ?? '').trim().toLowerCase())
+        .where((code) => code.isNotEmpty)
+        .toSet();
+    return _fetchTaxonomyMatches(codes);
+  }
+
   Future<Set<String>> fetchNearbySpeciesCodes({
     required double latitude,
     required double longitude,
@@ -134,12 +267,13 @@ class EBirdService {
     required double latitude,
     required double longitude,
     int distanceKm = 25,
+    int backDays = 30,
   }) async {
     final uri = Uri.https('api.ebird.org', '/v2/data/obs/geo/recent', {
       'lat': latitude.toStringAsFixed(6),
       'lng': longitude.toStringAsFixed(6),
       'dist': distanceKm.clamp(1, 50).toString(),
-      'back': '30',
+      'back': backDays.clamp(1, 30).toString(),
       'sppLocale': 'en',
     });
     final response = await _client.get(

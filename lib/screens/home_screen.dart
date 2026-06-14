@@ -35,7 +35,7 @@ class HomeScreenState extends State<HomeScreen> {
   DownloadTaskStatus _lastTaskStatus =
       DownloadTaskService.instance.snapshot.status;
 
-  static const _titles = ['总览', '闪卡学习', '鸟种', '资讯', '设置'];
+  static const _titles = ['总览', '闪卡学习', '鸟种', '发现', '设置'];
 
   void jumpToPreview() {
     setState(() {
@@ -454,8 +454,8 @@ class HomeScreenState extends State<HomeScreen> {
                         label: '鸟种',
                       ),
                       BottomNavigationBarItem(
-                        icon: Icon(Icons.newspaper_outlined),
-                        label: '资讯',
+                        icon: Icon(Icons.explore_outlined),
+                        label: '发现',
                       ),
                       BottomNavigationBarItem(
                         icon: Icon(Icons.settings_outlined),

@@ -10,11 +10,15 @@ class ChecklistRegion {
   final String nameZh; // 中文名（查不到时等于英文名）
   final int count;
 
+  /// 无国家级合集文件的地区（如台湾），下载时把这些子区代码合并去重。
+  final List<String> memberCodes;
+
   const ChecklistRegion({
     required this.code,
     required this.name,
     required this.nameZh,
     required this.count,
+    this.memberCodes = const [],
   });
 
   /// 展示名：中文优先，英文兜底。
@@ -83,7 +87,81 @@ class ChecklistService {
         .map(ChecklistCountry.fromJson)
         .where((c) => c.code.isNotEmpty)
         .toList();
-    return countries;
+    return _foldGreaterChinaIntoCN(countries);
+  }
+
+  /// 港澳台并入中国：从国家列表移除独立的 HK / MO / TW，作为省加到中国下面。
+  /// 香港 / 澳门有国家级名录文件（HK.json / MO.json）直接用；
+  /// 台湾无国家级合集文件，记录其各县市代码，下载时客户端合并去重。
+  List<ChecklistCountry> _foldGreaterChinaIntoCN(
+      List<ChecklistCountry> countries) {
+    const zhNames = {'HK': '香港', 'MO': '澳门', 'TW': '台湾'};
+    final extras = <ChecklistRegion>[];
+    for (final c in countries) {
+      if (!zhNames.containsKey(c.code)) continue;
+      if (c.code == 'TW') {
+        final members = c.provinces
+            .map((p) => p.code)
+            .where((e) => e.isNotEmpty)
+            .toList();
+        final maxCount = c.provinces.isEmpty
+            ? 0
+            : c.provinces.map((p) => p.count).reduce((a, b) => a > b ? a : b);
+        extras.add(ChecklistRegion(
+          code: 'TW',
+          name: 'Taiwan',
+          nameZh: '台湾',
+          count: maxCount,
+          memberCodes: members,
+        ));
+      } else {
+        extras.add(ChecklistRegion(
+          code: c.code,
+          name: c.name,
+          nameZh: zhNames[c.code]!,
+          count: c.provinces.isNotEmpty ? c.provinces.first.count : 0,
+        ));
+      }
+    }
+    if (extras.isEmpty) return countries;
+
+    final result = <ChecklistCountry>[];
+    for (final c in countries) {
+      if (zhNames.containsKey(c.code)) continue; // 去掉独立的港澳台
+      if (c.code == 'CN') {
+        final existing = c.provinces.map((p) => p.code).toSet();
+        final merged = [
+          ...c.provinces,
+          ...extras.where((r) => !existing.contains(r.code)),
+        ]..sort((a, b) => a.display.compareTo(b.display));
+        result.add(ChecklistCountry(
+          code: c.code,
+          name: c.name,
+          nameZh: c.nameZh,
+          provinceCount: merged.length,
+          provinces: merged,
+        ));
+      } else {
+        result.add(c);
+      }
+    }
+    return result;
+  }
+
+  /// 合并多个地区名录（去重），用于无国家级文件的地区（如台湾各县市）。
+  Future<List<String>> fetchRegionCodesUnion(List<String> regionCodes) async {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final rc in regionCodes) {
+      try {
+        for (final code in await fetchRegionCodes(rc)) {
+          if (seen.add(code)) out.add(code);
+        }
+      } catch (_) {
+        // 单个县市拉取失败不影响整体
+      }
+    }
+    return out;
   }
 
   /// 某个地区（国家或省）名录里的 eBird 物种代码列表。

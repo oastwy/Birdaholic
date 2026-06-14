@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../app_version.dart';
 import '../models/species.dart';
+import '../services/app_update_service.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import '../widgets/bird_card.dart';
@@ -36,11 +41,84 @@ class _ProgressScreenState extends State<ProgressScreen> {
   List<Species> _species = [];
   String? _loadError;
   bool _guideDismissed = false;
+  AppUpdateInfo? _updateInfo;
+  bool _updateLoading = true;
+
   @override
   void initState() {
     super.initState();
     _load();
     _guideDismissed = widget.storage.isNewUserGuideDismissed;
+    // 更新通知仅 Android 显示（iOS 走 App Store）。
+    if (Platform.isAndroid) _loadUpdateInfo();
+  }
+
+  Future<void> _loadUpdateInfo() async {
+    final info = await AppUpdateService.fetchLatest();
+    if (!mounted) return;
+    setState(() {
+      _updateInfo = info;
+      _updateLoading = false;
+    });
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('无法打开：$url')));
+    }
+  }
+
+  Widget _updateBanner() {
+    final hasNew = !_updateLoading &&
+        _updateInfo != null &&
+        _updateInfo!.version != appVersionName;
+    final bg = hasNew
+        ? const Color(0xFF2d5016)
+        : Colors.grey.withValues(alpha: 0.10);
+    final fg = hasNew ? Colors.white : Colors.grey[700]!;
+    final text = _updateLoading
+        ? '正在检查更新…'
+        : hasNew
+            ? '有新版本 ${_updateInfo!.version} · 点击下载'
+            : '已是最新版本 v$appVersionName';
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openUrl(
+          _updateInfo?.downloadUrl ?? AppUpdateService.downloadUrl,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                hasNew ? Icons.system_update_alt : Icons.check_circle_outline,
+                size: 18,
+                color: fg,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 13,
+                    fontWeight: hasNew ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right,
+                  size: 18, color: fg.withValues(alpha: 0.7)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -127,6 +205,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
+            if (Platform.isAndroid) ...[
+              _updateBanner(),
+              const SizedBox(height: 12),
+            ],
             _todayPracticeCard(currentPackStudied: currentPackStudied),
             const SizedBox(height: 12),
             if (!_guideDismissed) ...[

@@ -20,6 +20,9 @@ class StorageService {
   static const _flashcardGroupSizeKey = 'flashcard_group_size';
   static const _quizNameModesKey = 'quiz_name_modes';
   static const _newUserGuideDismissedKey = 'new_user_guide_dismissed';
+  static const _ebirdFilterLabelKey = 'ebird_filter_label';
+  static const _ebirdFilterSciKey = 'ebird_filter_sci';
+  static const _ebirdLocationHistoryKey = 'ebird_location_history';
 
   final SharedPreferences _prefs;
 
@@ -153,6 +156,50 @@ class StorageService {
         modes.where((m) => m == 'cn' || m == 'en' || m == 'sci').toList();
     await _prefs.setStringList(
         _quizNameModesKey, cleaned.isEmpty ? const ['cn'] : cleaned);
+  }
+
+  // ============ eBird 地点筛选持久化 ============
+
+  /// 上次应用的 eBird 筛选标签（地点代码或经纬度），空表示未筛选。
+  String getEbirdFilterLabel() => _prefs.getString(_ebirdFilterLabelKey) ?? '';
+
+  /// 上次筛选命中的学名集合（小写）。
+  Set<String> getEbirdFilterSci() =>
+      (_prefs.getStringList(_ebirdFilterSciKey) ?? const []).toSet();
+
+  Future<void> saveEbirdFilter(String label, Set<String> sci) async {
+    final trimmed = label.trim();
+    if (trimmed.isEmpty || sci.isEmpty) {
+      await clearEbirdFilter();
+      return;
+    }
+    await _prefs.setString(_ebirdFilterLabelKey, trimmed);
+    await _prefs.setStringList(_ebirdFilterSciKey, sci.toList());
+  }
+
+  Future<void> clearEbirdFilter() async {
+    await _prefs.remove(_ebirdFilterLabelKey);
+    await _prefs.remove(_ebirdFilterSciKey);
+  }
+
+  /// 最近用过的 eBird 地点（最多 10 条，最新在前）。
+  List<String> getEbirdLocationHistory() =>
+      _prefs.getStringList(_ebirdLocationHistoryKey) ?? const [];
+
+  Future<void> addEbirdLocationHistory(String location) async {
+    final normalized = location.trim();
+    if (normalized.isEmpty) return;
+    final list = getEbirdLocationHistory().toList()
+      ..removeWhere((e) => e.toLowerCase() == normalized.toLowerCase());
+    list.insert(0, normalized);
+    await _prefs.setStringList(
+        _ebirdLocationHistoryKey, list.take(10).toList());
+  }
+
+  Future<void> removeEbirdLocationHistory(String location) async {
+    final list = getEbirdLocationHistory().toList()
+      ..removeWhere((e) => e.toLowerCase() == location.trim().toLowerCase());
+    await _prefs.setStringList(_ebirdLocationHistoryKey, list);
   }
 
   // ============ 纠错日记 ============

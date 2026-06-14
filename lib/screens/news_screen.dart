@@ -1,12 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../app_version.dart';
-import '../services/app_update_service.dart';
+import '../services/discover_service.dart';
 import '../services/podcast_service.dart';
 
 class _VolunteerItem {
@@ -39,53 +34,16 @@ const _volunteers = <_VolunteerItem>[
 
 const _wechatGroupQrAsset = 'assets/brand/wechat_group_qr_20260614.jpg';
 
-Future<void> _saveWechatQrToDevice(BuildContext context) async {
-  try {
-    final path = await _writeWechatQrAsset();
-    if (!context.mounted) return;
-    final fileName = path.split(Platform.pathSeparator).last;
-    final inDownloads = path.contains('${Platform.pathSeparator}Download'
-        '${Platform.pathSeparator}');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          inDownloads ? '已保存到下载目录：$fileName' : '已保存二维码：$path',
-        ),
-      ),
-    );
-  } catch (e) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('保存失败：$e')),
-    );
+/// 入群二维码图片：有服务器 URL 用网络图（失败回退内置），否则内置。
+Widget _qrImage(String networkUrl, {BoxFit fit = BoxFit.contain}) {
+  if (networkUrl.isEmpty) {
+    return Image.asset(_wechatGroupQrAsset, fit: fit);
   }
-}
-
-Future<String> _writeWechatQrAsset() async {
-  final data = await rootBundle.load(_wechatGroupQrAsset);
-  final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-  const fileName = 'Birdaholic_wechat_group_qr_20260614.jpg';
-  final dirs = <Directory>[];
-
-  if (Platform.isAndroid) {
-    final downloads = Directory('/storage/emulated/0/Download');
-    if (await downloads.exists()) {
-      dirs.add(downloads);
-    }
-  }
-  dirs.add(await getApplicationDocumentsDirectory());
-
-  Object? lastError;
-  for (final dir in dirs) {
-    try {
-      final file = File('${dir.path}${Platform.pathSeparator}$fileName');
-      await file.writeAsBytes(bytes, flush: true);
-      return file.path;
-    } catch (e) {
-      lastError = e;
-    }
-  }
-  throw Exception(lastError ?? '无法写入图片');
+  return Image.network(
+    networkUrl,
+    fit: fit,
+    errorBuilder: (_, __, ___) => Image.asset(_wechatGroupQrAsset, fit: fit),
+  );
 }
 
 class NewsScreen extends StatefulWidget {
@@ -97,15 +55,17 @@ class NewsScreen extends StatefulWidget {
 
 class _NewsScreenState extends State<NewsScreen> {
   PodcastEpisode? _podcastEpisode;
-  AppUpdateInfo? _updateInfo;
   bool _podcastLoading = true;
-  bool _updateLoading = true;
+  DiscoverContent? _discover;
+
+  int _tab = 0;
+  static const _tabs = ['播客栏目', '志愿招募', '观鸟资讯'];
 
   @override
   void initState() {
     super.initState();
     _loadPodcast();
-    _loadUpdateInfo();
+    _loadDiscover();
   }
 
   Future<void> _loadPodcast() async {
@@ -117,14 +77,27 @@ class _NewsScreenState extends State<NewsScreen> {
     });
   }
 
-  Future<void> _loadUpdateInfo() async {
-    final info = await AppUpdateService.fetchLatest();
-    if (!mounted) return;
-    setState(() {
-      _updateInfo = info;
-      _updateLoading = false;
-    });
+  Future<void> _loadDiscover() async {
+    final content = await DiscoverService.fetchDiscover();
+    if (!mounted || content == null) return;
+    setState(() => _discover = content);
   }
+
+  /// 志愿招募项：服务器可达时用服务器内容（即便为空），不可达时回退内置。
+  List<_VolunteerItem> get _volunteerItems {
+    if (_discover == null) return _volunteers;
+    return _discover!.volunteers
+        .map((v) => _VolunteerItem(
+              title: v.title,
+              org: v.org,
+              location: '',
+              date: v.date,
+              url: v.url,
+            ))
+        .toList();
+  }
+
+  String get _groupQrUrl => _discover?.groupQrUrl ?? '';
 
   Future<void> _open(BuildContext context, String url) async {
     final uri = Uri.parse(url);
@@ -138,133 +111,250 @@ class _NewsScreenState extends State<NewsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: [
-        _sectionHeader(Icons.system_update_alt_outlined, '更新通知'),
         const SizedBox(height: 8),
-        _updateNoticeCard(context),
-        const SizedBox(height: 18),
-        _sectionHeader(Icons.mic_none_outlined, '鸟瘾综合征 · 最新一期'),
-        const SizedBox(height: 8),
-        _podcastCard(context),
-        const SizedBox(height: 18),
-        _sectionHeader(Icons.groups_outlined, '入群交流'),
-        const SizedBox(height: 8),
-        _wechatGroupCard(context),
-        const SizedBox(height: 18),
-        _sectionHeader(Icons.newspaper_outlined, '鸟讯'),
-        const SizedBox(height: 8),
-        _buildComingSoonCard('鸟讯功能开发中'),
-        const SizedBox(height: 18),
-        _sectionHeader(Icons.volunteer_activism_outlined, '志愿者招募'),
-        const SizedBox(height: 8),
-        ..._volunteers.map((item) => _buildVolunteerCard(context, item)),
-        const SizedBox(height: 8),
-        Card(
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _open(context, 'mailto:birderrrr@gmail.com'),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.campaign_outlined, color: Colors.green[700]),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      '如有需要发布研究招募信息，请联系 birderrrr@gmail.com',
-                      style: TextStyle(fontSize: 13, height: 1.45),
-                    ),
-                  ),
-                ],
+        _tabBar(),
+        const SizedBox(height: 4),
+        Expanded(child: _tabContent(context)),
+        _wechatBottomBar(context),
+      ],
+    );
+  }
+
+  Widget _tabBar() {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _tabs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (ctx, i) {
+          final selected = i == _tab;
+          return Center(
+            child: ChoiceChip(
+              label: Text(_tabs[i]),
+              selected: selected,
+              showCheckmark: false,
+              labelStyle: TextStyle(
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected ? Colors.white : Colors.grey[800],
               ),
+              selectedColor: const Color(0xFF2d5016),
+              backgroundColor: Colors.grey.withValues(alpha: 0.12),
+              side: BorderSide.none,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              onSelected: (_) => setState(() => _tab = i),
             ),
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
   }
 
-  Widget _sectionHeader(IconData icon, String title) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: const Color(0xFF2d5016)),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-      ],
-    );
+  Widget _tabContent(BuildContext context) {
+    switch (_tab) {
+      case 0: // 播客
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _podcastCard(context),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: () => _open(context, PodcastService.podcastWebUrl),
+              icon: const Icon(Icons.podcasts_outlined, size: 18),
+              label: const Text('在小宇宙收听全部往期'),
+            ),
+          ],
+        );
+      case 1: // 志愿招募
+        final items = _volunteerItems;
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (items.isEmpty)
+              _buildComingSoonCard('暂无招募信息，欢迎联系补充')
+            else
+              ...items.map((item) => _buildVolunteerCard(context, item)),
+            const SizedBox(height: 4),
+            _contactCard(context, '如有需要发布研究招募信息，请联系 birderrrr@gmail.com'),
+          ],
+        );
+      default: // 观鸟资讯
+        final news = _discover?.news ?? const <DiscoverNews>[];
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (news.isEmpty)
+              _discoverPlaceholder(context)
+            else ...[
+              ...news.map((n) => _buildNewsCard(context, n)),
+              const SizedBox(height: 4),
+              _contactCard(context, '想分享鸟导 / 鸟团 / 出行 / 鸟种攻略？联系 birderrrr@gmail.com'),
+            ],
+          ],
+        );
+    }
   }
 
-  Widget _updateNoticeCard(BuildContext context) {
-    final currentVersion = _updateInfo?.version == appVersionName;
+  Widget _contactCard(BuildContext context, String text) {
     return Card(
-      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => _open(
-          context,
-          _updateInfo?.downloadUrl ?? AppUpdateService.downloadUrl,
-        ),
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _open(context, 'mailto:birderrrr@gmail.com'),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2d5016).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.system_update_alt_outlined,
-                  color: Color(0xFF2d5016),
-                ),
-              ),
-              const SizedBox(width: 12),
+              Icon(Icons.campaign_outlined, color: Colors.green[700]),
+              const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _updateLoading
-                          ? '正在检查最新版本...'
-                          : (_updateInfo == null
-                              ? '打开下载页查看最新版'
-                              : currentVersion
-                                  ? '当前版本 Birdaholic v$appVersionName'
-                                  : '${_updateInfo!.title}'
-                                      '${_updateInfo!.releaseDate.isEmpty ? '' : ' · ${_updateInfo!.releaseDate}'}'),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _updateInfo == null
-                          ? '前往下载页'
-                          : currentVersion
-                              ? '版本 $appVersionName · 已是当前安装包版本'
-                              : '版本 ${_updateInfo!.version} · 点击查看下载页',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
+                child: Text(
+                  text,
+                  style: const TextStyle(fontSize: 13, height: 1.45),
                 ),
               ),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _discoverPlaceholder(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.construction_outlined, color: Colors.grey[400]),
+                const SizedBox(width: 12),
+                const Text(
+                  '观鸟资讯 · 开发中',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '计划收录：鸟讯、观鸟向导 / 带队老师、观鸟团、热门观鸟地与出行线路、鸟种攻略。',
+              style: TextStyle(
+                  fontSize: 13, height: 1.5, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _open(context, 'mailto:birderrrr@gmail.com'),
+              icon: const Icon(Icons.mail_outline, size: 18),
+              label: const Text('欢迎联系补充'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewsCard(BuildContext context, DiscoverNews n) {
+    final hasUrl = n.url.isNotEmpty;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: hasUrl ? () => _open(context, n.url) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (n.category.isNotEmpty) ...[
+                _InfoPill(n.category),
+                const SizedBox(height: 8),
+              ],
+              Text(
+                n.title,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              ),
+              if (n.summary.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  n.summary,
+                  style: TextStyle(
+                      fontSize: 13, height: 1.45, color: Colors.grey[700]),
+                ),
+              ],
+              if (n.date.isNotEmpty || hasUrl) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (n.date.isNotEmpty) ...[
+                      Icon(Icons.calendar_today_outlined,
+                          size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 3),
+                      Text(n.date,
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    ],
+                    const Spacer(),
+                    if (hasUrl)
+                      Icon(Icons.chevron_right,
+                          size: 18, color: Colors.grey[400]),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _wechatBottomBar(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+        child: Center(
+          child: TextButton.icon(
+            onPressed: () => _showWechatSheet(context),
+            icon: const Icon(Icons.groups_outlined, size: 18),
+            label: const Text('入群交流'),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF2d5016),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 点入群直接弹出微信群二维码截图，无多余文字/按钮。
+  void _showWechatSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        final maxH = MediaQuery.of(ctx).size.height * 0.7;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxH),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: _qrImage(_groupQrUrl, fit: BoxFit.contain),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -378,103 +468,6 @@ class _NewsScreenState extends State<NewsScreen> {
     );
   }
 
-  Widget _wechatGroupCard(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: () => _openWechatQr(context),
-                  child: Container(
-                    width: 92,
-                    height: 122,
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: Colors.black.withValues(alpha: 0.08),
-                      ),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.asset(
-                        _wechatGroupQrAsset,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '鸟瘾综合征用户群',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      Text(
-                        '点击二维码可放大查看，也可以先保存图片，再去微信扫码入群。',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          height: 1.45,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '二维码过期后会在这里更新。',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _openWechatQr(context),
-                    icon: const Icon(Icons.open_in_full_rounded, size: 18),
-                    label: const Text('放大'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _saveWechatQrToDevice(context),
-                    icon: const Icon(Icons.download_rounded, size: 18),
-                    label: const Text('保存图片'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openWechatQr(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const _WechatQrViewer()),
-    );
-  }
 
   Widget _buildComingSoonCard(String text) {
     return Card(
@@ -505,11 +498,7 @@ class _NewsScreenState extends State<NewsScreen> {
               const Wrap(
                 spacing: 6,
                 runSpacing: 6,
-                children: [
-                  _InfoPill('招募中'),
-                  _InfoPill('春迁'),
-                  _InfoPill('滨海水鸟'),
-                ],
+                children: [_InfoPill('招募中')],
               ),
               const SizedBox(height: 8),
               Text(
@@ -517,24 +506,35 @@ class _NewsScreenState extends State<NewsScreen> {
                 style:
                     const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.place_outlined, size: 13, color: Colors.grey[500]),
-                  const SizedBox(width: 3),
-                  Text(item.location,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                  const SizedBox(width: 12),
-                  Icon(Icons.calendar_today_outlined,
-                      size: 13, color: Colors.grey[500]),
-                  const SizedBox(width: 3),
-                  Text(item.date,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                ],
-              ),
-              const SizedBox(height: 5),
-              Text('发起：${item.org}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              if (item.location.isNotEmpty || item.date.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (item.location.isNotEmpty) ...[
+                      Icon(Icons.place_outlined,
+                          size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 3),
+                      Text(item.location,
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      const SizedBox(width: 12),
+                    ],
+                    if (item.date.isNotEmpty) ...[
+                      Icon(Icons.calendar_today_outlined,
+                          size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 3),
+                      Text(item.date,
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    ],
+                  ],
+                ),
+              ],
+              if (item.org.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text('发起：${item.org}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              ],
               if (item.note != null) ...[
                 const SizedBox(height: 8),
                 Container(
@@ -556,77 +556,6 @@ class _NewsScreenState extends State<NewsScreen> {
               ],
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WechatQrViewer extends StatelessWidget {
-  const _WechatQrViewer();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFBFCF6),
-      appBar: AppBar(
-        title: const Text('入群二维码'),
-        actions: [
-          IconButton(
-            tooltip: '保存图片',
-            onPressed: () => _saveWechatQrToDevice(context),
-            icon: const Icon(Icons.download_rounded),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: Center(
-                child: InteractiveViewer(
-                  minScale: 0.75,
-                  maxScale: 5,
-                  boundaryMargin: const EdgeInsets.all(40),
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(18),
-                        child: Image.asset(
-                          _wechatGroupQrAsset,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton.icon(
-                  onPressed: () => _saveWechatQrToDevice(context),
-                  icon: const Icon(Icons.download_rounded),
-                  label: const Text('保存图片'),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

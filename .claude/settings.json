@@ -2,8 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(/Users/wuyang/.flutter-sdk/bin/flutter analyze *)",
+      "Bash(flutter analyze *)",
       "Bash(curl -sI *)",
-      "Bash(claude mcp list *)"
+      "Bash(claude mcp list *)",
+      "mcp__fetch__fetch_markdown",
+      "mcp__brave-search__brave_web_search"
     ]
   }
 }

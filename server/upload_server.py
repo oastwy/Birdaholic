@@ -47,6 +47,14 @@ USERS_FILE = Path("/data/server/users.json")
 FEEDBACK_FILE = Path("/data/server/feedback.json")
 _feedback_lock = threading.Lock()
 
+# ── 发现页运营内容（二维码 / 志愿招募 / 观鸟资讯）────────────────
+DISCOVER_FILE = Path("/data/server/discover.json")
+DISCOVER_DIR = DATA_DIR / "discover"  # 二维码等图片，nginx 经 /discover/ 提供
+DISCOVER_PUBLIC_BASE = os.environ.get(
+    "BIRDAHOLIC_DISCOVER_BASE", "https://birding.today/discover"
+)
+_discover_lock = threading.Lock()
+
 
 def load_users() -> dict:
     if USERS_FILE.exists():
@@ -899,6 +907,120 @@ async def admin_feedback_resolve(
             raise HTTPException(status_code=404, detail="Feedback not found")
         _save_feedback(items)
     return {"ok": True, "id": fid}
+
+
+# ── 发现页运营内容 ───────────────────────────────────────────
+def _default_discover() -> dict:
+    return {"groupQr": {"imageUrl": "", "updatedAt": ""}, "volunteers": [], "news": []}
+
+
+def _load_discover() -> dict:
+    if DISCOVER_FILE.exists():
+        try:
+            data = json.loads(DISCOVER_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                base = _default_discover()
+                base.update({k: data.get(k, base[k]) for k in base})
+                return base
+        except Exception:
+            pass
+    return _default_discover()
+
+
+def _save_discover(data: dict) -> None:
+    DISCOVER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DISCOVER_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _sanitize_discover(payload: dict) -> dict:
+    """只保留已知字段，避免后台误传脏数据。"""
+    out = _default_discover()
+    qr = payload.get("groupQr") or {}
+    if isinstance(qr, dict):
+        out["groupQr"] = {
+            "imageUrl": str(qr.get("imageUrl", ""))[:500],
+            "updatedAt": str(qr.get("updatedAt", ""))[:40],
+        }
+    for v in (payload.get("volunteers") or [])[:50]:
+        if not isinstance(v, dict):
+            continue
+        out["volunteers"].append({
+            "id": str(v.get("id", "") or secrets.token_urlsafe(6))[:40],
+            "title": str(v.get("title", ""))[:200],
+            "org": str(v.get("org", ""))[:120],
+            "date": str(v.get("date", ""))[:60],
+            "url": str(v.get("url", ""))[:500],
+            "status": "expired" if str(v.get("status", "")) == "expired" else "active",
+        })
+    for n in (payload.get("news") or [])[:100]:
+        if not isinstance(n, dict):
+            continue
+        out["news"].append({
+            "id": str(n.get("id", "") or secrets.token_urlsafe(6))[:40],
+            "title": str(n.get("title", ""))[:200],
+            "summary": str(n.get("summary", ""))[:600],
+            "url": str(n.get("url", ""))[:500],
+            "category": str(n.get("category", ""))[:40],
+            "date": str(n.get("date", ""))[:60],
+            "status": "expired" if str(n.get("status", "")) == "expired" else "active",
+        })
+    return out
+
+
+@app.get("/api/discover")
+def get_discover() -> dict:
+    """公开：发现页运营内容（App 自行过滤 status==active）。"""
+    return _load_discover()
+
+
+@app.post("/api/discover")
+async def set_discover(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    cleaned = _sanitize_discover(payload)
+    with _discover_lock:
+        # 保留已有二维码（后台只改文字时不必重传图）
+        if not cleaned["groupQr"]["imageUrl"]:
+            cleaned["groupQr"] = _load_discover().get("groupQr", cleaned["groupQr"])
+        _save_discover(cleaned)
+    return {"ok": True}
+
+
+@app.post("/api/discover/qr")
+async def set_discover_qr(
+    file: UploadFile = File(...),
+    token: str = Form(""),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    if media_kind(file.filename, file.content_type or "") != "images":
+        raise HTTPException(status_code=400, detail="请上传图片")
+    DISCOVER_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename or "qr.jpg").suffix.lower() or ".jpg"
+    target = DISCOVER_DIR / f"group_qr_{int(time.time())}{ext}"
+    with target.open("wb") as handle:
+        shutil.copyfileobj(file.file, handle)
+    final = _compress_image(target, max_side=1200, target_kb=400)
+    url = f"{DISCOVER_PUBLIC_BASE}/{final.name}"
+    with _discover_lock:
+        data = _load_discover()
+        data["groupQr"] = {"imageUrl": url, "updatedAt": str(int(time.time()))}
+        _save_discover(data)
+    return {"ok": True, "imageUrl": url}
+
+
+@app.get("/admin/discover")
+def admin_discover_page() -> FileResponse:
+    html = SERVER_DIR / "discover_admin.html"
+    if not html.exists():
+        raise HTTPException(status_code=404, detail="discover_admin.html not found")
+    return FileResponse(html)
 
 
 @app.get("/api/admin/pending")

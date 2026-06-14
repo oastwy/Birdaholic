@@ -307,6 +307,10 @@ class PackDownloaderV2 {
         ((item['sci'] as String?) ?? '').trim().toLowerCase(): item,
     };
 
+    // 跨包复用：其他本地数据包里已下好的同物种媒体，直接复制、不再联网下载。
+    final otherPacksMedia =
+        await _loadOtherPacksMediaIndex(packDir, requestedSciSet);
+
     final total = speciesList.length;
     var completed = speciesBySci.length;
     final speciesData = [...existingSpeciesData];
@@ -345,6 +349,46 @@ class PackDownloaderV2 {
         );
         completed++;
         continue;
+      }
+
+      // 本包没有，但其他本地包已有 → 复制本地文件，省一次网络下载。
+      if (existing == null) {
+        final reuse = otherPacksMedia[sciKey];
+        if (reuse != null) {
+          final reused =
+              await _reuseLocalMedia(reuse.packDir, reuse.entry, packDir);
+          if (reused != null) {
+            reused['cn'] =
+                entry.cn.isNotEmpty ? entry.cn : (reused['cn'] ?? '');
+            reused['en'] =
+                entry.en.isNotEmpty ? entry.en : (reused['en'] ?? '');
+            reused['sci'] = entry.sci;
+            final ac = (reused['audios'] as List<dynamic>?)?.length ?? 0;
+            final hi = (reused['image'] as String?)?.isNotEmpty ?? false;
+            totalAudio += ac;
+            if (hi) totalImage++;
+            speciesData.add(reused);
+            speciesBySci[sciKey] = reused;
+            await _writeProgressFiles(
+              packDir: packDir,
+              speciesData: speciesData,
+              region: region,
+              packName: packName,
+              totalAudio: totalAudio,
+              totalImage: totalImage,
+            );
+            onSpeciesComplete?.call(
+              DownloadResult(
+                species: entry,
+                status: DownloadStatus.skipped,
+                audioCount: ac,
+                hasImage: hi,
+              ),
+            );
+            completed++;
+            continue;
+          }
+        }
       }
 
       DownloadResult result;
@@ -426,6 +470,103 @@ class PackDownloaderV2 {
     } catch (_) {
       return [];
     }
+  }
+
+  /// 扫描其他本地数据包，建立「学名 → (所在包目录, species.json 条目)」索引，
+  /// 仅收录有媒体（音频/图片）且在本次请求范围内的物种，首个命中者优先。
+  Future<Map<String, ({String packDir, Map<String, dynamic> entry})>>
+      _loadOtherPacksMediaIndex(
+    String currentPackDir,
+    Set<String> requestedSciSet,
+  ) async {
+    final result = <String, ({String packDir, Map<String, dynamic> entry})>{};
+    if (requestedSciSet.isEmpty) return result;
+    final docDir = await getApplicationDocumentsDirectory();
+    final packsRoot = Directory('${docDir.path}/packs');
+    if (!await packsRoot.exists()) return result;
+    await for (final ent in packsRoot.list()) {
+      if (ent is! Directory || ent.path == currentPackDir) continue;
+      final f = File('${ent.path}/species.json');
+      if (!await f.exists()) continue;
+      try {
+        final list = jsonDecode(await f.readAsString()) as List<dynamic>;
+        for (final item in list) {
+          if (item is! Map<String, dynamic>) continue;
+          final sci = ((item['sci'] as String?) ?? '').trim().toLowerCase();
+          if (sci.isEmpty ||
+              result.containsKey(sci) ||
+              !requestedSciSet.contains(sci)) {
+            continue;
+          }
+          final hasMedia =
+              ((item['audios'] as List<dynamic>?)?.isNotEmpty ?? false) ||
+                  ((item['image'] as String?)?.isNotEmpty ?? false) ||
+                  ((item['images'] as List<dynamic>?)?.isNotEmpty ?? false);
+          if (hasMedia) {
+            result[sci] = (packDir: ent.path, entry: item);
+          }
+        }
+      } catch (_) {
+        // 损坏的包跳过
+      }
+    }
+    return result;
+  }
+
+  /// 把另一个包里某物种的媒体文件复制进当前包，返回新的 species.json 条目。
+  /// 任何文件复制失败都跳过该文件；若一个都没复制成功返回 null（回退到联网下载）。
+  Future<Map<String, dynamic>?> _reuseLocalMedia(
+    String srcPackDir,
+    Map<String, dynamic> srcEntry,
+    String destPackDir,
+  ) async {
+    Future<bool> copyRel(String rel) async {
+      if (rel.isEmpty) return false;
+      final src = File('$srcPackDir/$rel');
+      if (!await src.exists()) return false;
+      final dest = File('$destPackDir/$rel');
+      await dest.parent.create(recursive: true);
+      await src.copy(dest.path);
+      return true;
+    }
+
+    final newAudios = <Map<String, dynamic>>[];
+    for (final a in (srcEntry['audios'] as List<dynamic>? ?? const [])) {
+      if (a is! Map<String, dynamic>) continue;
+      if (await copyRel((a['file'] as String? ?? '').trim())) {
+        newAudios.add(Map<String, dynamic>.from(a));
+      }
+    }
+
+    final newImages = <Map<String, dynamic>>[];
+    for (final im in (srcEntry['images'] as List<dynamic>? ?? const [])) {
+      if (im is! Map<String, dynamic>) continue;
+      if (await copyRel((im['file'] as String? ?? '').trim())) {
+        newImages.add(Map<String, dynamic>.from(im));
+      }
+    }
+
+    String? newImage;
+    final imgRel = (srcEntry['image'] as String? ?? '').trim();
+    if (await copyRel(imgRel)) newImage = imgRel;
+
+    if (newAudios.isEmpty && newImages.isEmpty && newImage == null) {
+      return null;
+    }
+
+    final out = Map<String, dynamic>.from(srcEntry);
+    out['audios'] = newAudios;
+    if (newImages.isEmpty) {
+      out.remove('images');
+    } else {
+      out['images'] = newImages;
+    }
+    if (newImage == null) {
+      out.remove('image');
+    } else {
+      out['image'] = newImage;
+    }
+    return out;
   }
 
   Future<void> _writeProgressFiles({

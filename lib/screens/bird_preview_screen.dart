@@ -1066,35 +1066,122 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
         : serverText.isNotEmpty
             ? serverText
             : '';
-    if (display.isEmpty) return const SizedBox.shrink();
+    final isEmpty = display.isEmpty;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '辨识特征',
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: Colors.white70),
+          Row(
+            children: [
+              const Text(
+                '辨识特征',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white70),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => _editSpeciesFeatures(sp),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white60,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: Text(isEmpty ? '添加' : '编辑'),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: const Color(0xFF1A2B17),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              display,
-              style: const TextStyle(
-                  color: Colors.white70, fontSize: 14, height: 1.6),
+              isEmpty ? '还没有辨识特征，点「添加」补充。' : display,
+              style: TextStyle(
+                  color: isEmpty ? Colors.white38 : Colors.white70,
+                  fontSize: 14,
+                  height: 1.6),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _editSpeciesFeatures(Species sp) async {
+    final existing = widget.storage.getSpeciesNote(sp.sci).isNotEmpty
+        ? widget.storage.getSpeciesNote(sp.sci)
+        : sp.identificationFeatures.isNotEmpty
+            ? sp.identificationFeatures
+            : (_currentServerMedia?.identificationFeatures ?? '');
+    final controller = TextEditingController(text: existing);
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('辨识特征：${sp.cn}'),
+        contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          decoration: InputDecoration(
+            helperMaxLines: 3,
+            helperText: '建议来源：你自己的野外笔记、可靠图鉴描述、管理员审核后的团队经验。不要整段复制第三方内容。',
+            hintText: '例如：白色眉纹明显；叫声短促上扬；常在灌丛边缘活动。',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cancel'),
+            child: const Text('取消'),
+          ),
+          if (widget.storage.isAdminMode)
+            TextButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'upload'),
+              icon: const Icon(Icons.cloud_upload_outlined),
+              label: const Text('保存并推送'),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('本地保存'),
+          ),
+        ],
+      ),
+    );
+    if (action != 'save' && action != 'upload') return;
+
+    try {
+      await widget.storage.setSpeciesNote(sp.sci, controller.text);
+      if (action == 'upload') {
+        final token = widget.storage.getAdminUploadToken();
+        if (token.isEmpty) throw Exception('管理员密钥为空');
+        await AdminUploadService().uploadIdentificationFeatures(
+          species: sp,
+          features: controller.text,
+          token: token,
+        );
+      }
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(action == 'upload' ? '辨识特征已保存并推送' : '辨识特征已保存'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('辨识特征保存失败: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Widget _buildUploadRow() {
