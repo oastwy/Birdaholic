@@ -432,6 +432,10 @@ class _UploadAccessRequestScreenState
   }
 
   String _platformLabel(TargetPlatform platform) {
+    // 注意：不要直接写 `case TargetPlatform.ohos`——该枚举值仅 flutter-ohos 有，
+    // 用普通 .flutter-sdk 编译（安卓/ iOS 单独打包）会报 Member not found: 'ohos'。
+    // 改用 .name 兜住 ohos，switch 加 default，两套工具链都能编译；鸿蒙端仍返回 'ohos'。
+    if (platform.name == 'ohos') return 'ohos';
     switch (platform) {
       case TargetPlatform.android:
         return 'android';
@@ -443,10 +447,10 @@ class _UploadAccessRequestScreenState
         return 'windows';
       case TargetPlatform.linux:
         return 'linux';
-      case TargetPlatform.ohos:
-        return 'ohos';
       case TargetPlatform.fuchsia:
         return 'fuchsia';
+      default:
+        return platform.name;
     }
   }
 
