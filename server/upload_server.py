@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 
 DATA_DIR = Path(os.environ.get("BIRDAHOLIC_DATA_DIR", "/data"))
@@ -50,6 +50,13 @@ _feedback_lock = threading.Lock()
 # ── 发现页运营内容（二维码 / 志愿招募 / 观鸟资讯）────────────────
 DISCOVER_FILE = Path("/data/server/discover.json")
 DISCOVER_DIR = DATA_DIR / "discover"  # 二维码等图片，nginx 经 /discover/ 提供
+
+# ── 删除回收站 ─────────────────────────────────────────────────
+TRASH_DIR = DATA_DIR / "trash"            # 删除的媒体先移到这里
+TRASH_RETENTION_DAYS = 30                 # 超过此天数自动清除
+DELETE_LOG_FILE = Path("/data/server/delete_log.json")  # 删除/恢复历史
+OPS_LOG_FILE = Path("/data/server/admin_ops.json")      # 统一管理操作日志
+QUIZ_LOG_FILE = Path("/data/server/quiz_log.json")      # 识别测验出题日志（App 回传）
 DISCOVER_PUBLIC_BASE = os.environ.get(
     "BIRDAHOLIC_DISCOVER_BASE", "https://birding.today/discover"
 )
@@ -111,6 +118,27 @@ WORLD_BY_SCI = {
     for item in WORLD_BIRDS
     if item.get("sci")
 }
+
+# 预计算每个物种中文名的拼音首字母缩写(_pyi, 如 鹪鹩→jl)与全拼(_pyf, jiaoliao)，
+# 供 /api/search 支持拼音搜索。pypinyin 不可用时静默跳过。
+try:
+    from pypinyin import lazy_pinyin, Style as _PyStyle
+
+    def _compute_pinyin(text: str) -> tuple[str, str]:
+        if not text:
+            return "", ""
+        try:
+            initials = "".join(lazy_pinyin(text, style=_PyStyle.FIRST_LETTER, errors="ignore")).lower()
+            full = "".join(lazy_pinyin(text, errors="ignore")).lower()
+            return initials, full
+        except Exception:
+            return "", ""
+
+    for _item in WORLD_BIRDS:
+        _zh = str(_item.get("zh", "")).strip()
+        _item["_pyi"], _item["_pyf"] = _compute_pinyin(_zh)
+except Exception:
+    pass
 
 
 def candidate_names(item: dict[str, Any]) -> list[str]:
@@ -289,10 +317,12 @@ def build_index_rows() -> list[dict[str, Any]]:
         rows.append(
             {
                 "sci": sci,
-                "cn": manifest.get("cn", "") or world_item.get("zh", ""),
-                "en": manifest.get("en", "") or world_item.get("en", ""),
-                "order": manifest.get("order", "") or world_item.get("order", ""),
-                "family": manifest.get("family", "") or world_item.get("family", ""),
+                # world_birds.json 是权威鸟种表，优先用它；manifest 里的名字是创建时的旧快照，
+                # 仅当该 sci 不在 world_birds 时才回退。修复英文名空白/为中文、与 App 名字不一致。
+                "cn": world_item.get("zh", "") or manifest.get("cn", ""),
+                "en": world_item.get("en", "") or manifest.get("en", ""),
+                "order": world_item.get("order", "") or manifest.get("order", ""),
+                "family": world_item.get("family", "") or manifest.get("family", ""),
                 "species_dir": manifest_path.parent.name,
                 "manifest_url": f"{PUBLIC_BASE_URL}/species/{manifest_path.parent.name}/manifest.json",
                 "image_count": sum(1 for x in manifest.get("images", []) if not x.get("pending")),
@@ -329,26 +359,66 @@ def tester() -> FileResponse:
     return FileResponse(html)
 
 
+@app.get("/admin")
+def admin_page() -> FileResponse:
+    html = SERVER_DIR / "admin.html"
+    if not html.exists():
+        raise HTTPException(status_code=404, detail="admin.html not found")
+    return FileResponse(html)
+
+
+@app.get("/admin/")
+def admin_page_slash() -> RedirectResponse:
+    return RedirectResponse(url="/admin", status_code=307)
+
+
 @app.get("/api/search")
 def search(q: str = "") -> list[dict[str, str]]:
     query = normalize_name(q)
     if not query:
         return []
-    results: list[dict[str, str]] = []
-    for item in WORLD_BIRDS:
-        joined = " ".join(candidate_names(item)).lower()
-        if query in normalize_name(joined):
-            results.append(
-                {
-                    "sci": item.get("sci", ""),
-                    "en": item.get("en", ""),
-                    "zh": item.get("zh", ""),
-                    "code": item.get("code", ""),
-                }
-            )
-        if len(results) >= 20:
-            break
-    return results
+    # 按匹配精确度排序后再截断，避免“鹪鹩”这种被一堆“XX鹪鹩”挤出。
+    # rank: 0=某名字完全等于查询，1=以查询开头，2=名字包含，3=拼音包含。
+    # 纯字母查询额外匹配中文名的拼音首字母(_pyi)与全拼(_pyf)，支持 jl / jiaoliao 搜鹪鹩。
+    q_compact = query.replace(" ", "")
+    is_alpha = bool(q_compact) and bool(re.fullmatch(r"[a-z]+", q_compact))
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    for idx, item in enumerate(WORLD_BIRDS):
+        names = [normalize_name(n) for n in candidate_names(item)]
+        rank = None
+        for nn in names:
+            if not nn:
+                continue
+            if nn == query:
+                rank = 0
+                break
+            if nn.startswith(query):
+                rank = 1 if rank is None else min(rank, 1)
+            elif query in nn:
+                rank = 2 if rank is None else min(rank, 2)
+        if rank != 0 and is_alpha:
+            for p in (item.get("_pyi", ""), item.get("_pyf", "")):
+                if not p:
+                    continue
+                if p == q_compact:
+                    rank = 0
+                    break
+                if p.startswith(q_compact):
+                    rank = 1 if rank is None else min(rank, 1)
+                elif q_compact in p:
+                    rank = 3 if rank is None else min(rank, 3)
+        if rank is not None:
+            scored.append((rank, idx, item))
+    scored.sort(key=lambda t: (t[0], t[1]))
+    return [
+        {
+            "sci": item.get("sci", ""),
+            "en": item.get("en", ""),
+            "zh": item.get("zh", ""),
+            "code": item.get("code", ""),
+        }
+        for _rank, _idx, item in scored[:300]
+    ]
 
 
 @app.get("/api/stats")
@@ -574,12 +644,14 @@ async def upload(
     media_type: str = Form(""),
     audio_type: str = Form(""),
     license: str = Form("CC BY-NC 4.0"),
+    location: str = Form(""),
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     user = authenticate(authorization, token)
     SPECIES_DIR.mkdir(parents=True, exist_ok=True)
     is_admin = user["role"] == "admin"
     now_ts = int(time.time())
+    loc = location.strip()[:200]
 
     # Clamp difficulty to [1, 5]; 0 means "not specified"
     if difficulty:
@@ -651,6 +723,8 @@ async def upload(
             }
             if description.strip():
                 entry["description"] = description.strip()
+            if loc:
+                entry["location"] = loc
             if difficulty:
                 # Admin: authoritative entry-level difficulty.
                 # Beta: suggested difficulty, surfaced during review.
@@ -679,6 +753,8 @@ async def upload(
             }
             if description.strip():
                 entry["description"] = description.strip()
+            if loc:
+                entry["location"] = loc
             entry.update(try_generate_spectrogram(target_sci, target))
             if difficulty:
                 entry["difficulty" if is_admin else "suggested_difficulty"] = difficulty
@@ -699,6 +775,10 @@ async def upload(
         })
 
     update_index()
+    if saved:
+        _log_op("上传媒体", user.get("id", ""),
+                ", ".join(sorted({s["sci"] for s in saved}))[:120],
+                f"{len(saved)} 个文件" + ("（待审核）" if not is_admin else ""))
     return {"saved": saved, "failed": failed}
 
 
@@ -890,7 +970,7 @@ async def admin_feedback_resolve(
     token: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(authorization, token)
+    _admin = _require_admin(authorization, token)
     fid = str(payload.get("id", "")).strip()
     if not fid:
         raise HTTPException(status_code=400, detail="Missing id")
@@ -906,7 +986,63 @@ async def admin_feedback_resolve(
         if not found:
             raise HTTPException(status_code=404, detail="Feedback not found")
         _save_feedback(items)
+    _log_op("标记反馈已处理", _admin.get("id", ""), fid)
     return {"ok": True, "id": fid}
+
+
+@app.post("/api/admin/feedback/reply")
+async def admin_feedback_reply(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    admin = _require_admin(authorization, token)
+    fid = str(payload.get("id", "")).strip()
+    reply = str(payload.get("reply", "")).strip()
+    if not fid:
+        raise HTTPException(status_code=400, detail="Missing id")
+    if not reply:
+        raise HTTPException(status_code=400, detail="Empty reply")
+    with _feedback_lock:
+        items = _load_feedback()
+        target = None
+        for it in items:
+            if it.get("id") == fid:
+                it["reply"] = reply[:2000]
+                it["replied_at"] = int(time.time())
+                it["replied_by"] = admin.get("name") or admin.get("id", "")
+                it["status"] = "resolved"
+                it.setdefault("resolved_at", int(time.time()))
+                target = it
+                break
+        if target is None:
+            raise HTTPException(status_code=404, detail="Feedback not found")
+        _save_feedback(items)
+    _log_op("回复反馈", admin.get("id", ""), fid, reply[:80])
+    return {"ok": True, "id": fid, "reply": reply}
+
+
+@app.get("/api/feedback/replies")
+def feedback_replies(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """供 App 端拉取：当前用户收到的纠错回复。匿名用户无回复。"""
+    user = _resolve_user_soft(authorization, token)
+    uid = user.get("id", "")
+    out = []
+    if uid and uid != "anon":
+        for it in _load_feedback():
+            if it.get("uploader_id") == uid and it.get("reply"):
+                out.append({
+                    "id": it.get("id"),
+                    "message": it.get("message", ""),
+                    "reply": it.get("reply", ""),
+                    "replied_at": it.get("replied_at"),
+                    "species_cn": it.get("species_cn", ""),
+                    "species_sci": it.get("species_sci", ""),
+                })
+    return {"items": out}
 
 
 # ── 发现页运营内容 ───────────────────────────────────────────
@@ -1061,7 +1197,7 @@ async def admin_approve(
     token: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(authorization, token)
+    admin = _require_admin(authorization, token)
     sci = str(payload.get("sci", "")).strip()
     file = str(payload.get("file", "")).strip()
     if not sci or not file:
@@ -1093,8 +1229,12 @@ async def admin_approve(
             break
     if not found_kind:
         raise HTTPException(status_code=404, detail="Pending entry not found")
+    # 物种重新有了正式（非 pending）图片后，解除补图审核标记
+    if sum(1 for e in m.get("images", []) if not e.get("pending")) > 0:
+        m.pop("backfill_review", None)
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
+    _log_op("通过审核", admin.get("id", ""), f"{sci} / {file}", found_kind or "")
     return {"approved": True, "sci": sci, "file": file, "kind": found_kind, "entry": entry}
 
 
@@ -1104,7 +1244,7 @@ async def admin_reject(
     token: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(authorization, token)
+    admin = _require_admin(authorization, token)
     sci = str(payload.get("sci", "")).strip()
     file = str(payload.get("file", "")).strip()
     if not sci or not file:
@@ -1134,7 +1274,87 @@ async def admin_reject(
         raise HTTPException(status_code=404, detail="Pending entry not found")
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
+    _log_op("拒绝审核", admin.get("id", ""), f"{sci} / {file}")
     return {"rejected": True, "sci": sci, "file": file}
+
+
+# ── 回收站 / 删除历史 工具 ────────────────────────────────────
+def _purge_trash(retention_days: int = TRASH_RETENTION_DAYS) -> int:
+    """清除回收站中超过保留期的条目，返回清除数量。"""
+    if not TRASH_DIR.exists():
+        return 0
+    cutoff = time.time() - retention_days * 86400
+    purged = 0
+    for entry_dir in TRASH_DIR.iterdir():
+        if not entry_dir.is_dir():
+            continue
+        deleted_at = 0.0
+        try:
+            meta = json.loads((entry_dir / "meta.json").read_text(encoding="utf-8"))
+            deleted_at = float(meta.get("deleted_at", 0))
+        except Exception:
+            try:
+                deleted_at = entry_dir.stat().st_mtime
+            except Exception:
+                deleted_at = 0.0
+        if deleted_at and deleted_at < cutoff:
+            try:
+                shutil.rmtree(entry_dir)
+                purged += 1
+            except Exception:
+                pass
+    return purged
+
+
+def _read_trash_entries() -> list[dict[str, Any]]:
+    _purge_trash()
+    out: list[dict[str, Any]] = []
+    if not TRASH_DIR.exists():
+        return out
+    for entry_dir in sorted(TRASH_DIR.iterdir(), key=lambda p: p.name, reverse=True):
+        if not entry_dir.is_dir():
+            continue
+        try:
+            out.append(json.loads((entry_dir / "meta.json").read_text(encoding="utf-8")))
+        except Exception:
+            continue
+    return out
+
+
+def _append_delete_log(record: dict[str, Any]) -> None:
+    """把删除/恢复事件追加到历史日志（最多保留近 2000 条）。"""
+    try:
+        log = json.loads(DELETE_LOG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(log, list):
+            log = []
+    except Exception:
+        log = []
+    log.append(record)
+    log = log[-2000:]
+    try:
+        DELETE_LOG_FILE.write_text(
+            json.dumps(log, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+def _log_op(action: str, by: str, target: str = "", note: str = "") -> None:
+    """统一管理操作日志（审核/上传/删除/恢复/反馈/密钥等），最多保留近 3000 条。"""
+    try:
+        log = json.loads(OPS_LOG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(log, list):
+            log = []
+    except Exception:
+        log = []
+    log.append({"at": int(time.time()), "action": action, "by": by or "", "target": target, "note": note})
+    log = log[-3000:]
+    try:
+        OPS_LOG_FILE.write_text(
+            json.dumps(log, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except Exception:
+        pass
 
 
 @app.delete("/api/admin/media")
@@ -1143,7 +1363,7 @@ async def admin_delete_media(
     token: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(authorization, token)
+    admin = _require_admin(authorization, token)
     sci = str(payload.get("sci", "")).strip()
     kind = str(payload.get("kind", "")).strip()
     file = str(payload.get("file", "")).strip()
@@ -1170,7 +1390,14 @@ async def admin_delete_media(
     if removed is None:
         raise HTTPException(status_code=404, detail="Media entry not found")
     m[kind] = kept
+    was_cover = bool(kind == "images" and m.get("image") == file)
 
+    # 不直接删除，移入回收站，保留 30 天可恢复
+    _purge_trash()
+    trash_id = time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_urlsafe(4)
+    entry_dir = TRASH_DIR / trash_id
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    stored_files: list[dict[str, str]] = []
     for field in ("file", "spectrogram"):
         rel_value = str(removed.get(field, "")).strip()
         if not rel_value:
@@ -1180,12 +1407,32 @@ async def admin_delete_media(
             rel_path = _safe_manifest_file(rel_value, expected)
         except HTTPException:
             continue
-        target = SPECIES_DIR / key / rel_path
+        src = SPECIES_DIR / key / rel_path
+        if not src.exists():
+            continue
+        dest = entry_dir / rel_path.name
         try:
-            if target.exists():
-                target.unlink()
+            shutil.move(str(src), str(dest))
+            stored_files.append({"field": field, "rel": str(rel_path), "stored": dest.name})
         except Exception:
             pass
+
+    deleted_at = time.time()
+    meta = {
+        "trash_id": trash_id,
+        "sci": sci,
+        "key": key,
+        "kind": kind,
+        "file": file,
+        "entry": removed,
+        "stored_files": stored_files,
+        "was_cover": was_cover,
+        "deleted_by": admin.get("id", ""),
+        "deleted_at": deleted_at,
+    }
+    (entry_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     if kind == "images" and m.get("image") == file:
         next_image = next((e for e in m.get("images", []) if not e.get("pending")), None)
@@ -1197,9 +1444,349 @@ async def admin_delete_media(
             for field in ("image", "image_credit", "image_license"):
                 m.pop(field, None)
 
+    # 若该物种图片被清空：标记需人工审核，自动补图只能进待审核队列
+    remaining_images = sum(1 for e in m.get("images", []) if not e.get("pending"))
+    emptied = bool(kind == "images" and remaining_images == 0)
+    if emptied:
+        m["backfill_review"] = True
+
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
-    return {"deleted": True, "sci": sci, "kind": kind, "file": file}
+
+    _append_delete_log({
+        "action": "delete",
+        "trash_id": trash_id,
+        "sci": sci,
+        "key": key,
+        "kind": kind,
+        "file": file,
+        "contributor": removed.get("contributor", ""),
+        "by": admin.get("id", ""),
+        "at": deleted_at,
+        "emptied_species": emptied,
+    })
+    _log_op("删除媒体", admin.get("id", ""), f"{sci} / {file}", "图片已清空→补图转审核" if emptied else "")
+    return {
+        "deleted": True, "sci": sci, "kind": kind, "file": file,
+        "trash_id": trash_id, "emptied_species": emptied,
+    }
+
+
+@app.get("/api/admin/trash")
+def admin_list_trash(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    items = []
+    for meta in _read_trash_entries():
+        entry = meta.get("entry", {}) or {}
+        deleted_at = meta.get("deleted_at") or 0
+        has_file = any(sf.get("field") == "file" for sf in meta.get("stored_files", []))
+        items.append({
+            "trash_id": meta.get("trash_id"),
+            "sci": meta.get("sci"),
+            "kind": meta.get("kind"),
+            "file": meta.get("file"),
+            "contributor": entry.get("contributor", ""),
+            "license": entry.get("license", ""),
+            "deleted_by": meta.get("deleted_by", ""),
+            "deleted_at": deleted_at,
+            "expires_at": deleted_at + TRASH_RETENTION_DAYS * 86400 if deleted_at else 0,
+            "has_file": has_file,
+        })
+    return {"items": items, "retention_days": TRASH_RETENTION_DAYS}
+
+
+@app.get("/api/admin/trash/file")
+def admin_trash_file(
+    id: str = "",
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> FileResponse:
+    _require_admin(authorization, token)
+    if not id or "/" in id or ".." in id:
+        raise HTTPException(status_code=400, detail="Invalid id")
+    entry_dir = TRASH_DIR / id
+    try:
+        meta = json.loads((entry_dir / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
+    main = next((sf for sf in meta.get("stored_files", []) if sf.get("field") == "file"), None)
+    if not main:
+        raise HTTPException(status_code=404, detail="No file")
+    fp = entry_dir / main["stored"]
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File missing")
+    return FileResponse(str(fp))
+
+
+@app.post("/api/admin/trash/restore")
+async def admin_restore_media(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    admin = _require_admin(authorization, token)
+    _purge_trash()
+    trash_id = str(payload.get("trash_id", "")).strip()
+    if not trash_id or "/" in trash_id or ".." in trash_id:
+        raise HTTPException(status_code=400, detail="Invalid trash_id")
+    entry_dir = TRASH_DIR / trash_id
+    try:
+        meta = json.loads((entry_dir / "meta.json").read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=404, detail="回收站条目不存在或已过期")
+    key = meta["key"]
+    kind = meta["kind"]
+    entry = meta.get("entry", {}) or {}
+
+    for sf in meta.get("stored_files", []):
+        src = entry_dir / sf["stored"]
+        try:
+            rel_path = _safe_manifest_file(
+                sf["rel"], "images/" if sf["field"] == "file" and kind == "images"
+                else ("audio/" if sf["field"] == "file" else "audio_spectrograms/")
+            )
+        except HTTPException:
+            continue
+        dest = SPECIES_DIR / key / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.exists():
+            try:
+                shutil.move(str(src), str(dest))
+            except Exception:
+                pass
+
+    mp = SPECIES_DIR / key / "manifest.json"
+    try:
+        m = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
+    except Exception:
+        m = {}
+    arr = m.get(kind, [])
+    if not any(e.get("file") == entry.get("file") for e in arr):
+        arr.append(entry)
+    m[kind] = arr
+    if meta.get("was_cover") and kind == "images" and entry.get("file"):
+        m["image"] = entry.get("file")
+        m["image_credit"] = entry.get("credit") or entry.get("contributor", "")
+        m["image_license"] = entry.get("license", "")
+    if sum(1 for e in m.get("images", []) if not e.get("pending")) > 0:
+        m.pop("backfill_review", None)
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    update_index()
+    try:
+        shutil.rmtree(entry_dir)
+    except Exception:
+        pass
+
+    _append_delete_log({
+        "action": "restore",
+        "trash_id": trash_id,
+        "sci": meta.get("sci"),
+        "key": key,
+        "kind": kind,
+        "file": entry.get("file"),
+        "by": admin.get("id", ""),
+        "at": time.time(),
+    })
+    _log_op("恢复媒体", admin.get("id", ""), f"{meta.get('sci')} / {entry.get('file')}")
+    return {"restored": True, "sci": meta.get("sci"), "kind": kind, "file": entry.get("file")}
+
+
+@app.get("/api/admin/delete_log")
+def admin_delete_log(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    try:
+        log = json.loads(DELETE_LOG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(log, list):
+            log = []
+    except Exception:
+        log = []
+    return {"items": list(reversed(log[-500:]))}
+
+
+@app.get("/api/admin/ops_log")
+def admin_ops_log(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    try:
+        log = json.loads(OPS_LOG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(log, list):
+            log = []
+    except Exception:
+        log = []
+    return {"items": list(reversed(log[-800:]))}
+
+
+# ── 识别测验出题日志（用于定位有问题的题/图）──────────────────
+_quiz_lock = threading.Lock()
+
+
+@app.post("/api/quiz/log")
+def quiz_log(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """App 出题/答题后回传一条记录。建议只回传答错或被举报的题。
+    期望字段：sci(正确种), image(相对路径), options[list], correct, chosen,
+    is_correct(bool), reported(bool), mode, client。"""
+    user = _resolve_user_soft(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    if not sci:
+        raise HTTPException(status_code=400, detail="Missing sci")
+    rec = {
+        "sci": sci,
+        "image": str(payload.get("image", ""))[:300],
+        "options": [str(o)[:120] for o in (payload.get("options") or [])][:8],
+        "correct": str(payload.get("correct", ""))[:120],
+        "chosen": str(payload.get("chosen", ""))[:120],
+        "is_correct": bool(payload.get("is_correct", False)),
+        "reported": bool(payload.get("reported", False)),
+        "mode": str(payload.get("mode", ""))[:40],
+        "client": str(payload.get("client", ""))[:60],
+        "uploader_id": user.get("id", "anon"),
+        "at": int(time.time()),
+    }
+    with _quiz_lock:
+        try:
+            log = json.loads(QUIZ_LOG_FILE.read_text(encoding="utf-8"))
+            if not isinstance(log, list):
+                log = []
+        except Exception:
+            log = []
+        log.append(rec)
+        log = log[-5000:]
+        try:
+            QUIZ_LOG_FILE.write_text(
+                json.dumps(log, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+@app.get("/api/admin/quiz_log")
+def admin_quiz_log(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    try:
+        log = json.loads(QUIZ_LOG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(log, list):
+            log = []
+    except Exception:
+        log = []
+    # 按图片聚合，凸显"反复答错/被举报"的问题图
+    by_img: dict[str, dict[str, Any]] = {}
+    for r in log:
+        img = r.get("image") or ""
+        k = (r.get("sci", ""), img)
+        key = "".join(k)
+        a = by_img.setdefault(key, {
+            "sci": r.get("sci", ""), "image": img,
+            "wrong": 0, "reported": 0, "total": 0,
+        })
+        a["total"] += 1
+        if not r.get("is_correct"):
+            a["wrong"] += 1
+        if r.get("reported"):
+            a["reported"] += 1
+    problems = sorted(by_img.values(), key=lambda x: (x["reported"], x["wrong"]), reverse=True)
+    return {
+        "items": list(reversed(log[-500:])),
+        "problems": problems[:200],
+        "total": len(log),
+        "total_wrong": sum(1 for r in log if not r.get("is_correct")),
+        "total_reported": sum(1 for r in log if r.get("reported")),
+    }
+
+
+@app.get("/api/admin/contributors")
+def admin_contributors(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """按用户统计上传贡献（只计 uploader_id 标记的用户上传，不含 iNaturalist 自动补图）。"""
+    _require_admin(authorization, token)
+    users = load_users() or {}
+    id_name: dict[str, str] = {}
+    for _tok, u in users.items():
+        if isinstance(u, dict) and u.get("id"):
+            id_name[u["id"]] = u.get("name") or u["id"]
+
+    agg: dict[str, dict[str, Any]] = {}
+    cagg: dict[str, dict[str, Any]] = {}  # 按署名(contributor)聚合（仍只计用户上传）
+    for mp in SPECIES_DIR.glob("*/manifest.json"):
+        try:
+            m = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        key = mp.parent.name
+        for kind in ("images", "audio"):
+            for e in m.get(kind, []):
+                uid = e.get("uploader_id")
+                if not uid:
+                    continue
+                a = agg.setdefault(uid, {
+                    "uploader_id": uid, "name": e.get("uploader_name") or "",
+                    "images": 0, "audio": 0, "pending": 0, "_species": set(),
+                })
+                cname = (e.get("contributor") or "").strip() or "（未署名）"
+                c = cagg.setdefault(cname, {
+                    "contributor": cname, "images": 0, "audio": 0, "pending": 0, "_species": set(),
+                })
+                a["_species"].add(key)
+                c["_species"].add(key)
+                if e.get("pending"):
+                    a["pending"] += 1
+                    c["pending"] += 1
+                elif kind == "images":
+                    a["images"] += 1
+                    c["images"] += 1
+                else:
+                    a["audio"] += 1
+                    c["audio"] += 1
+
+    rows = []
+    for uid, a in agg.items():
+        rows.append({
+            "uploader_id": uid,
+            "name": id_name.get(uid) or a.get("name") or uid,
+            "images": a["images"],
+            "audio": a["audio"],
+            "pending": a["pending"],
+            "species": len(a["_species"]),
+        })
+    rows.sort(key=lambda r: (r["images"], r["audio"], r["species"]), reverse=True)
+    crows = []
+    for cname, c in cagg.items():
+        crows.append({
+            "contributor": cname,
+            "images": c["images"],
+            "audio": c["audio"],
+            "pending": c["pending"],
+            "species": len(c["_species"]),
+        })
+    crows.sort(key=lambda r: (r["images"], r["audio"], r["species"]), reverse=True)
+    return {
+        "rows": rows,
+        "by_contributor": crows,
+        "total_users": len(rows),
+        "total_contributors": len(crows),
+        "total_images": sum(r["images"] for r in rows),
+        "total_audio": sum(r["audio"] for r in rows),
+        "total_pending": sum(r["pending"] for r in rows),
+        "total_species": len({k for a in agg.values() for k in a["_species"]}),
+    }
 
 
 def _save_users(users: dict) -> None:
@@ -1249,7 +1836,7 @@ async def admin_add_user(
     token: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(authorization, token)
+    _admin = _require_admin(authorization, token)
     name = str(payload.get("name", "")).strip()
     user_id = str(payload.get("id", "")).strip()
     role = str(payload.get("role", "beta")).strip().lower()
@@ -1272,6 +1859,7 @@ async def admin_add_user(
         raise HTTPException(status_code=409, detail="token already in use")
     users[new_token] = {"id": user_id, "role": role, "name": name}
     _save_users(users)
+    _log_op("新增密钥", _admin.get("id", ""), f"{name} ({user_id})", role)
     return {"token": new_token, "id": user_id, "role": role, "name": name}
 
 
@@ -1292,6 +1880,7 @@ async def admin_delete_user(
         raise HTTPException(status_code=404, detail="user not found")
     removed = users.pop(target_token)
     _save_users(users)
+    _log_op("删除密钥", me.get("id", ""), f"{removed.get('name', '')} ({removed.get('id', '')})")
     return {"deleted": True, "id": removed.get("id", "")}
 
 

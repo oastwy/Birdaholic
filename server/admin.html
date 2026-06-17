@@ -1,0 +1,1647 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Birdaholic 后台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f4ee;
+      --panel: #fffdf8;
+      --ink: #1e261b;
+      --muted: #66705f;
+      --line: #ded8cb;
+      --green: #2d5016;
+      --green-2: #e5f0dc;
+      --red: #b24335;
+      --gold: #a46a12;
+      --blue: #1f6fbb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(255, 253, 248, .96);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .header-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 14px 18px 10px;
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: 0; }
+    .sub { color: var(--muted); font-size: 13px; }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 18px 18px 56px;
+    }
+    .token-bar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto;
+      gap: 10px;
+      align-items: end;
+      margin-top: 14px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 10px 0 2px;
+    }
+    .tab {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 13px;
+      font-weight: 700;
+    }
+    .tab.active {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .panel {
+      display: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 14px;
+      box-shadow: 0 2px 8px rgba(29, 40, 22, .06);
+    }
+    .panel.active { display: block; }
+    .panel h2 { margin: 0 0 12px; font-size: 18px; }
+    .grid { display: grid; gap: 12px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .metric {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      min-height: 82px;
+    }
+    .metric .label { color: var(--muted); font-size: 13px; }
+    .metric .value { font-size: 28px; font-weight: 800; margin-top: 4px; }
+    label {
+      display: block;
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    input, textarea, select, button {
+      font: inherit;
+    }
+    input[type="text"], input[type="password"], input[type="number"], input[type="url"], textarea, select {
+      width: 100%;
+      border: 1px solid #cfc8b9;
+      background: #fff;
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 11px;
+      min-height: 42px;
+    }
+    input[type="file"] {
+      width: 100%;
+      border: 1px dashed #a8a08f;
+      background: #fbfaf6;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    textarea { min-height: 84px; resize: vertical; }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      background: var(--green);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 700;
+      min-height: 40px;
+    }
+    button.secondary { background: #635d50; }
+    button.ghost {
+      background: #fff;
+      color: var(--green);
+      border: 1px solid #b7c6ab;
+    }
+    button.danger { background: var(--red); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .list { display: grid; gap: 12px; margin-top: 12px; }
+    .item {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .item-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .title { font-weight: 800; font-size: 16px; }
+    .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      background: var(--green-2);
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 800;
+      margin-right: 6px;
+      margin-top: 6px;
+    }
+    .pill.red { background: #f8e6e2; color: var(--red); }
+    .pill.gold { background: #fff0cf; color: var(--gold); }
+    .media {
+      margin-top: 10px;
+      max-width: 260px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #f6f3ea;
+    }
+    img.media { display: block; width: 100%; height: auto; }
+    audio.media { width: min(520px, 100%); max-width: 100%; }
+    tr.stats-row:hover { background: #f6f3ea; }
+    .thumbs {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+      margin: 8px 0 12px;
+    }
+    .thumbs img {
+      width: 100%;
+      height: 96px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #f6f3ea;
+    }
+    .thumb { display: flex; flex-direction: column; gap: 5px; }
+    .audio-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .del {
+      background: var(--red);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .thumb .del { align-self: center; }
+    .del:disabled { opacity: .5; cursor: default; }
+    .fb-media { margin-top: 10px; }
+    .fb-media-body { margin-top: 8px; }
+    .upload-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
+    .fb-reply { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+    .quick-replies { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .quick-replies .ghost { padding: 5px 10px; font-size: 13px; }
+    .reply-row { display: flex; gap: 8px; align-items: center; }
+    .reply-input { flex: 1; }
+    .fb-reply-shown { margin-top: 10px; padding: 8px 12px; background: var(--green-2); border-radius: 8px; line-height: 1.5; }
+    .restore { background: var(--green); color: #fff; border: none; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+    .restore:disabled { opacity: .5; cursor: default; }
+    .thumb .meta { font-size: 12px; color: var(--ink); }
+    .search-results {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .species-option {
+      text-align: left;
+      background: #eef4e9;
+      color: #1f3517;
+      border: 1px solid #cbdcbe;
+      justify-content: flex-start;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-size: 12px; }
+    pre {
+      white-space: pre-wrap;
+      overflow: auto;
+      background: #252820;
+      color: #f6f3ea;
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 80px;
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      background: #252820;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 999px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease;
+      z-index: 60;
+      max-width: min(640px, calc(100vw - 28px));
+    }
+    .toast.show { opacity: 1; }
+    .row-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fff;
+    }
+    .qr-preview {
+      display: none;
+      width: 160px;
+      max-width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+    a { color: var(--green); font-weight: 700; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .quick-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .quick-links a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 38px;
+      border: 1px solid #b7c6ab;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #fff;
+    }
+    @media (max-width: 780px) {
+      .token-bar, .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; }
+      .header-inner, main { padding-left: 12px; padding-right: 12px; }
+      .panel { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <h1>Birdaholic 闪卡后台</h1>
+    <div class="sub">上传、审核、纠错、用户密钥和发现页运营集中在这里。</div>
+    <div class="token-bar">
+      <div>
+        <label for="token">管理员 Token</label>
+        <input id="token" type="password" autocomplete="off" placeholder="admin token">
+      </div>
+      <button id="saveTokenBtn" class="ghost">保存并验证</button>
+      <button id="refreshBtn">刷新当前页</button>
+    </div>
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="overview">总览</button>
+      <button class="tab" data-tab="upload">上传</button>
+      <button class="tab" data-tab="review">待审核</button>
+      <button class="tab" data-tab="feedback">纠错审核</button>
+      <button class="tab" data-tab="users">用户密钥</button>
+      <button class="tab" data-tab="discover">发现页运营</button>
+      <button class="tab" data-tab="stats">媒体统计</button>
+      <button class="tab" data-tab="contrib">用户贡献</button>
+      <button class="tab" data-tab="trash">回收站</button>
+      <button class="tab" data-tab="history">删除历史</button>
+      <button class="tab" data-tab="ops">操作日志</button>
+      <button class="tab" data-tab="quiz">测验题目</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="panel active" id="panel-overview">
+    <h2>总览</h2>
+    <div class="grid four">
+      <div class="metric"><div class="label">服务器物种</div><div class="value" id="metricSpecies">-</div></div>
+      <div class="metric"><div class="label">服务器图片</div><div class="value" id="metricImages">-</div></div>
+      <div class="metric"><div class="label">服务器音频</div><div class="value" id="metricAudio">-</div></div>
+      <div class="metric"><div class="label">待审核</div><div class="value" id="metricPending">-</div></div>
+    </div>
+    <div class="grid four" style="margin-top:12px">
+      <div class="metric"><div class="label">用户上传图片</div><div class="value" id="metricUserImg">-</div></div>
+      <div class="metric"><div class="label">参与上传用户</div><div class="value" id="metricUsers">-</div></div>
+      <div class="metric"><div class="label">无图鸟种</div><div class="value" id="metricNoImg" style="color:var(--red)">-</div></div>
+      <div class="metric"><div class="label">回收站待清理</div><div class="value" id="metricTrash">-</div></div>
+    </div>
+    <div class="quick-links">
+      <a href="/uploader" target="_blank">旧上传页</a>
+      <a href="/tester" target="_blank">内测上传页</a>
+      <a href="/admin/discover" target="_blank">旧发现页后台</a>
+      <a href="/stats" target="_blank">旧媒体统计</a>
+      <a href="/_stats/" target="_blank">访问统计</a>
+      <a href="/filebrowser/" target="_blank">文件后台</a>
+    </div>
+    <div class="hint" id="whoamiHint">请先填写管理员 Token。</div>
+  </section>
+
+  <section class="panel" id="panel-upload">
+    <h2>媒体上传</h2>
+    <div class="grid two">
+      <div>
+        <label for="species">指定物种</label>
+        <input id="species" type="text" placeholder="输入中文名、英文名或学名搜索">
+        <div class="hint">可不指定，服务器会尝试从文件名识别。</div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+      <div>
+        <label for="files">选择图片或音频</label>
+        <input id="files" type="file" multiple accept="image/*,audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.heic">
+      </div>
+    </div>
+    <div id="uploadExisting" style="margin-top:12px"></div>
+    <div class="grid three" style="margin-top:12px">
+      <div>
+        <label for="contributor">署名</label>
+        <input id="contributor" type="text" value="管理员上传">
+      </div>
+      <div>
+        <label for="mediaType">媒体类型</label>
+        <select id="mediaType">
+          <option value="">自动识别</option>
+          <option value="images">图片</option>
+          <option value="audio">音频</option>
+        </select>
+      </div>
+      <div>
+        <label for="audioType">音频类型</label>
+        <select id="audioType">
+          <option value="">自动识别</option>
+          <option value="song">鸣唱 song</option>
+          <option value="call">鸣叫 call</option>
+        </select>
+      </div>
+      <div>
+        <label for="difficulty">照片/录音难度</label>
+        <select id="difficulty">
+          <option value="0">不设置</option>
+          <option value="1">1 星</option>
+          <option value="2">2 星</option>
+          <option value="3">3 星</option>
+          <option value="4">4 星</option>
+          <option value="5">5 星</option>
+        </select>
+      </div>
+      <div>
+        <label for="license">许可</label>
+        <input id="license" type="text" value="CC BY-NC 4.0">
+      </div>
+      <div>
+        <label for="uploadLocation">地点</label>
+        <input id="uploadLocation" type="text" placeholder="如：广东深圳·华侨城湿地（可空）">
+      </div>
+    </div>
+    <div class="grid two" style="margin-top:12px">
+      <div>
+        <label for="description">备注/描述</label>
+        <textarea id="description" placeholder="可空"></textarea>
+      </div>
+      <div>
+        <label for="features">辨识特征</label>
+        <textarea id="features" placeholder="可空，会写入每个上传条目"></textarea>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button id="previewBtn" class="secondary">预识别文件名</button>
+      <button id="uploadBtn">上传</button>
+      <span class="hint" id="uploadStatus"></span>
+    </div>
+    <table id="previewTable" hidden>
+      <thead><tr><th>文件</th><th>识别结果</th><th>类型</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <pre id="uploadOutput">等待上传。</pre>
+  </section>
+
+  <section class="panel" id="panel-review">
+    <div class="item-head">
+      <h2>待审核上传</h2>
+      <button id="loadPendingBtn" class="ghost">刷新待审核</button>
+    </div>
+    <div class="toolbar" id="reviewBatchBar" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--ink);margin:0">
+        <input type="checkbox" id="pickAll" style="width:auto"> 全选
+      </label>
+      <span class="hint" id="pickCount">已选 0 项</span>
+      <button id="batchApproveBtn">批量通过</button>
+      <button id="batchRejectBtn" class="danger">批量拒绝</button>
+    </div>
+    <div id="pendingList" class="list"></div>
+  </section>
+
+  <section class="panel" id="panel-feedback">
+    <div class="item-head">
+      <h2>纠错审核</h2>
+      <div class="toolbar" style="margin-top:0">
+        <select id="feedbackFilter" style="width:auto">
+          <option value="open">只看未处理</option>
+          <option value="all">全部</option>
+        </select>
+        <button id="loadFeedbackBtn" class="ghost">刷新纠错</button>
+      </div>
+    </div>
+    <div id="feedbackList" class="list"></div>
+  </section>
+
+  <section class="panel" id="panel-users">
+    <h2>用户密钥</h2>
+    <div class="grid four">
+      <div>
+        <label for="newUserName">名称</label>
+        <input id="newUserName" type="text" placeholder="如 南堡志愿者">
+      </div>
+      <div>
+        <label for="newUserId">用户 ID（可空）</label>
+        <input id="newUserId" type="text" placeholder="自动生成">
+      </div>
+      <div>
+        <label for="newUserRole">角色</label>
+        <select id="newUserRole">
+          <option value="beta">内测用户 beta</option>
+          <option value="admin">管理员 admin</option>
+        </select>
+      </div>
+      <div>
+        <label for="newUserToken">自定义 Token（可空）</label>
+        <input id="newUserToken" type="text" placeholder="自动生成">
+      </div>
+    </div>
+    <div class="toolbar">
+      <button id="createUserBtn">创建用户</button>
+      <button id="loadUsersBtn" class="ghost">刷新用户</button>
+    </div>
+    <div id="usersList" class="list"></div>
+  </section>
+
+  <section class="panel" id="panel-discover">
+    <h2>发现页运营</h2>
+    <div class="grid two">
+      <div class="row-card">
+        <label for="qrFile">入群二维码</label>
+        <input id="qrFile" type="file" accept="image/*">
+        <button id="uploadQrBtn" style="margin-top:10px">上传二维码</button>
+        <img id="qrPreview" class="qr-preview" alt="当前二维码">
+      </div>
+      <div class="row-card">
+        <div class="hint">保存志愿招募和鸟讯后，App 会通过发现/资讯页读取；二维码上传后立即生效。</div>
+        <div class="toolbar">
+          <button id="loadDiscoverBtn" class="ghost">加载现有内容</button>
+          <button id="saveDiscoverBtn">保存运营内容</button>
+        </div>
+      </div>
+    </div>
+    <div class="item-head" style="margin-top:14px">
+      <h2>志愿招募</h2>
+      <button id="addVolunteerBtn" class="ghost">新增招募</button>
+    </div>
+    <div id="volunteersList" class="list"></div>
+    <div class="item-head" style="margin-top:18px">
+      <h2>观鸟资讯</h2>
+      <button id="addNewsBtn" class="ghost">新增资讯</button>
+    </div>
+    <div id="newsList" class="list"></div>
+  </section>
+
+  <section class="panel" id="panel-stats">
+    <h2>媒体统计</h2>
+    <div class="grid three" id="statsSummary" style="margin-bottom:12px">
+      <div class="metric"><div class="label">收录物种（有 manifest）</div><div class="value" id="sumSpecies">-</div></div>
+      <div class="metric"><div class="label">有图物种</div><div class="value" id="sumWithImg">-</div></div>
+      <div class="metric"><div class="label">无图鸟种</div><div class="value" id="sumNoImg" style="color:var(--red)">-</div></div>
+    </div>
+    <div class="toolbar">
+      <input id="statsQuery" type="text" placeholder="搜索中文名、英文名或学名" style="max-width:420px">
+      <button id="loadStatsBtn">查询</button>
+      <button id="clearStatsBtn" class="ghost">清空</button>
+      <button id="exportStatsBtn" class="ghost">导出 CSV</button>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--ink);margin:0">
+        <input type="checkbox" id="noImgOnly" style="width:auto"> 只看无图鸟种
+      </label>
+    </div>
+    <table>
+      <thead><tr><th>中文名</th><th>学名</th><th>英文名</th><th>图片</th><th>音频</th><th>manifest</th></tr></thead>
+      <tbody id="statsRows"></tbody>
+    </table>
+  </section>
+
+  <section class="panel" id="panel-contrib">
+    <h2>用户贡献</h2>
+    <div class="grid four" id="contribSummary" style="margin-bottom:12px">
+      <div class="metric"><div class="label">参与上传用户</div><div class="value" id="cUsers">-</div></div>
+      <div class="metric"><div class="label">用户上传图片</div><div class="value" id="cImages">-</div></div>
+      <div class="metric"><div class="label">用户上传音频</div><div class="value" id="cAudio">-</div></div>
+      <div class="metric"><div class="label">覆盖物种</div><div class="value" id="cSpecies">-</div></div>
+    </div>
+    <div class="toolbar">
+      <button id="loadContribBtn">刷新</button>
+      <button id="exportContribBtn" class="ghost">导出 CSV</button>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--ink);margin:0">
+        统计口径
+        <select id="contribMode" style="width:auto">
+          <option value="user">按账号</option>
+          <option value="contributor">按署名</option>
+        </select>
+      </label>
+      <span class="hint">只统计 App 用户上传（不含 iNaturalist 自动补图），按图片数排行。</span>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th id="contribCol1">用户</th><th>图片</th><th>音频</th><th>物种数</th><th>待审核</th></tr></thead>
+      <tbody id="contribRows"></tbody>
+    </table>
+  </section>
+
+  <section class="panel" id="panel-trash">
+    <h2>回收站</h2>
+    <div class="toolbar">
+      <button id="loadTrashBtn">刷新</button>
+      <span class="hint" id="trashHint">删除的图片/音频会在这里保留 30 天，可恢复；超期自动清除。</span>
+    </div>
+    <div id="trashList" class="thumbs"></div>
+  </section>
+
+  <section class="panel" id="panel-history">
+    <h2>删除历史</h2>
+    <div class="toolbar">
+      <button id="loadHistoryBtn">刷新</button>
+      <span class="hint">记录每次删除与恢复（最近 500 条）。</span>
+    </div>
+    <table>
+      <thead><tr><th>时间</th><th>操作</th><th>物种</th><th>类型</th><th>文件</th><th>操作人</th></tr></thead>
+      <tbody id="historyRows"></tbody>
+    </table>
+  </section>
+
+  <section class="panel" id="panel-quiz">
+    <h2>测验题目</h2>
+    <div class="grid three" style="margin-bottom:12px">
+      <div class="metric"><div class="label">记录总数</div><div class="value" id="qTotal">-</div></div>
+      <div class="metric"><div class="label">答错</div><div class="value" id="qWrong" style="color:var(--red)">-</div></div>
+      <div class="metric"><div class="label">用户举报</div><div class="value" id="qReported" style="color:var(--gold)">-</div></div>
+    </div>
+    <div class="toolbar">
+      <button id="loadQuizBtn">刷新</button>
+      <span class="hint">识别测验由 App 端随机出题；此处汇总 App 回传的题目，凸显反复答错/被举报的问题图。（需 App 新版接入后才有数据）</span>
+    </div>
+    <h3 style="margin:8px 0">问题图片排行</h3>
+    <div id="quizProblems" class="thumbs"></div>
+    <h3 style="margin:16px 0 8px">最近记录</h3>
+    <table>
+      <thead><tr><th>时间</th><th>物种</th><th>正确</th><th>所选</th><th>结果</th><th>举报</th></tr></thead>
+      <tbody id="quizRows"></tbody>
+    </table>
+  </section>
+
+  <section class="panel" id="panel-ops">
+    <h2>操作日志</h2>
+    <div class="toolbar">
+      <button id="loadOpsBtn">刷新</button>
+      <span class="hint">记录审核、上传、删除/恢复、反馈回复、密钥变更等管理操作（最近 800 条）。</span>
+    </div>
+    <table>
+      <thead><tr><th>时间</th><th>操作</th><th>对象</th><th>说明</th><th>操作人</th></tr></thead>
+      <tbody id="opsRows"></tbody>
+    </table>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const TOKEN_KEY = 'birdaholic.admin.token';
+const tokenEl = document.querySelector('#token');
+const toastEl = document.querySelector('#toast');
+let activeTab = 'overview';
+let selectedSci = '';
+let discoverState = { groupQr: { imageUrl: '', updatedAt: '' }, volunteers: [], news: [] };
+let allFeedback = [];
+
+function token(){ return tokenEl.value.trim(); }
+function authHeaders(extra){ return Object.assign({ 'Authorization': 'Bearer ' + token() }, extra || {}); }
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+function fmtTime(ts){
+  if(!ts) return '';
+  return new Date(Number(ts) * 1000).toLocaleString('zh-CN', { hour12:false });
+}
+async function getJson(url, options){
+  const res = await fetch(url, options || {});
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
+  if(!res.ok) throw new Error(res.status + ' ' + (typeof data === 'string' ? data : JSON.stringify(data)));
+  return data;
+}
+function requireToken(){
+  if(!token()) {
+    showToast('请先填写管理员 Token');
+    return false;
+  }
+  return true;
+}
+
+document.querySelector('#tabs').addEventListener('click', event => {
+  const btn = event.target.closest('.tab');
+  if(!btn) return;
+  activeTab = btn.dataset.tab;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === btn));
+  document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + activeTab));
+  refreshActive();
+});
+
+tokenEl.value = localStorage.getItem(TOKEN_KEY) || '';
+document.querySelector('#saveTokenBtn').onclick = async () => {
+  localStorage.setItem(TOKEN_KEY, token());
+  await verifyToken();
+};
+document.querySelector('#refreshBtn').onclick = refreshActive;
+
+async function verifyToken(){
+  if(!requireToken()) return;
+  try {
+    const me = await getJson('/api/whoami?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    document.querySelector('#whoamiHint').textContent = `当前身份：${me.name || me.id} · ${me.role}`;
+    localStorage.setItem(TOKEN_KEY, token());
+    showToast('Token 可用');
+  } catch (e) {
+    document.querySelector('#whoamiHint').textContent = 'Token 验证失败：' + e.message;
+    showToast('Token 验证失败');
+  }
+}
+
+async function loadOverview(){
+  try {
+    const stats = await getJson('/api/stats');
+    document.querySelector('#metricSpecies').textContent = stats.species_count ?? '-';
+    document.querySelector('#metricImages').textContent = stats.image_count ?? '-';
+    document.querySelector('#metricAudio').textContent = stats.audio_count ?? '-';
+    const rows = stats.rows || [];
+    document.querySelector('#metricNoImg').textContent = rows.filter(r => (r.image_count || 0) === 0).length;
+  } catch (e) {}
+  if(!token()) return;
+  try {
+    const uploadStats = await getJson('/api/upload_stats?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    document.querySelector('#metricPending').textContent = uploadStats.pending_total ?? uploadStats.my_pending ?? '-';
+  } catch (e) {
+    document.querySelector('#metricPending').textContent = '-';
+  }
+  try {
+    const c = await getJson('/api/admin/contributors?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    document.querySelector('#metricUserImg').textContent = c.total_images ?? '-';
+    document.querySelector('#metricUsers').textContent = c.total_users ?? '-';
+  } catch (e) {}
+  try {
+    const t = await getJson('/api/admin/trash?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    document.querySelector('#metricTrash').textContent = (t.items || []).length;
+  } catch (e) {}
+}
+
+function kindOf(file) {
+  if(file.type.startsWith('image/')) return '图片';
+  if(file.type.startsWith('audio/')) return '音频';
+  const name = file.name.toLowerCase();
+  if(/\.(jpg|jpeg|png|webp|heic)$/.test(name)) return '图片';
+  if(/\.(mp3|m4a|aac|wav|flac|ogg)$/.test(name)) return '音频';
+  return '不支持';
+}
+
+document.querySelector('#species').addEventListener('input', async () => {
+  selectedSci = '';
+  document.querySelector('#uploadExisting').innerHTML = '';
+  const box = document.querySelector('#searchResults');
+  const q = document.querySelector('#species').value.trim();
+  box.innerHTML = '';
+  if(q.length < 2) return;
+  try {
+    const rows = await getJson('/api/search?q=' + encodeURIComponent(q));
+    box.innerHTML = rows.map(row => `<button class="species-option" data-sci="${esc(row.sci)}">${esc(row.zh || row.en || row.sci)} · ${esc(row.sci)} · ${esc(row.en || '')}</button>`).join('');
+  } catch (e) {
+    box.innerHTML = '<div class="hint">搜索失败：' + esc(e.message) + '</div>';
+  }
+});
+document.querySelector('#searchResults').addEventListener('click', event => {
+  const btn = event.target.closest('button[data-sci]');
+  if(!btn) return;
+  selectedSci = btn.dataset.sci;
+  document.querySelector('#species').value = btn.textContent;
+  document.querySelector('#searchResults').innerHTML = '';
+  renderExistingMedia(document.querySelector('#uploadExisting'), selectedSci);
+});
+
+// 上传页：选中物种后展示其已有图片/音频（只读，便于避免重复上传）
+async function renderExistingMedia(container, sci){
+  if(!sci){ container.innerHTML = ''; return; }
+  const dir = speciesDirOf(sci);
+  container.innerHTML = '<div class="hint">正在读取该物种已有媒体...</div>';
+  const rel = u => String(u || '').replace(/^https?:\/\/[^/]+/, '');
+  let m;
+  try { m = await getJson('/species/' + encodeURIComponent(dir) + '/manifest.json'); }
+  catch (e) { container.innerHTML = '<div class="hint">该物种暂无任何媒体（新物种）。</div>'; return; }
+  const imgs = (m.images || []).filter(x => !x.pending);
+  const auds = (m.audio || []).filter(x => !x.pending);
+  let html = `<div class="hint">该物种已有 ${imgs.length} 张图片、${auds.length} 条音频（请避免重复上传）：</div>`;
+  if(imgs.length){
+    html += '<div class="thumbs">' + imgs.map(x => {
+      const u = rel(x.url) || ('/species/' + dir + '/' + (x.file || ''));
+      const credit = esc([x.contributor, x.license].filter(Boolean).join(' · '));
+      return `<a href="${esc(u)}" target="_blank" title="${credit}"><img src="${esc(u)}" loading="lazy" alt=""></a>`;
+    }).join('') + '</div>';
+  }
+  if(auds.length){
+    html += auds.map(x => {
+      const u = rel(x.url) || ('/species/' + dir + '/' + (x.file || ''));
+      return `<audio class="media" controls src="${esc(u)}"></audio>`;
+    }).join('');
+  }
+  if(!imgs.length && !auds.length) html = '<div class="hint">该物种暂无已审核媒体。</div>';
+  container.innerHTML = html;
+}
+document.querySelector('#previewBtn').onclick = async () => {
+  const tbody = document.querySelector('#previewTable tbody');
+  tbody.innerHTML = '';
+  const files = [...document.querySelector('#files').files];
+  if(!files.length) return showToast('请先选择文件');
+  for(const file of files){
+    let label = '未识别';
+    try {
+      const data = await getJson('/api/recognize_filename?filename=' + encodeURIComponent(file.name));
+      if(data.matched) label = `${data.species.zh || data.species.en || data.species.sci} · ${data.species.sci}`;
+    } catch (_) {}
+    tbody.insertAdjacentHTML('beforeend', `<tr><td>${esc(file.name)}</td><td>${esc(label)}</td><td>${esc(kindOf(file))}</td></tr>`);
+  }
+  document.querySelector('#previewTable').hidden = false;
+};
+document.querySelector('#uploadBtn').onclick = async () => {
+  if(!requireToken()) return;
+  const files = [...document.querySelector('#files').files];
+  if(!files.length) return showToast('请先选择文件');
+  const form = new FormData();
+  form.append('token', token());
+  if(selectedSci) form.append('sci', selectedSci);
+  form.append('contributor', document.querySelector('#contributor').value.trim() || '管理员上传');
+  form.append('media_type', document.querySelector('#mediaType').value);
+  form.append('audio_type', document.querySelector('#audioType').value);
+  form.append('difficulty', document.querySelector('#difficulty').value);
+  form.append('license', document.querySelector('#license').value.trim() || 'CC BY-NC 4.0');
+  form.append('location', document.querySelector('#uploadLocation').value.trim());
+  form.append('description', document.querySelector('#description').value.trim());
+  form.append('features', document.querySelector('#features').value.trim());
+  for(const file of files) form.append('files', file);
+  document.querySelector('#uploadBtn').disabled = true;
+  document.querySelector('#uploadStatus').textContent = '上传中...';
+  try {
+    const data = await getJson('/api/upload', { method:'POST', headers: authHeaders(), body: form });
+    document.querySelector('#uploadOutput').textContent = JSON.stringify(data, null, 2);
+    showToast('上传完成');
+    await loadOverview();
+  } catch (e) {
+    document.querySelector('#uploadOutput').textContent = String(e);
+    showToast('上传失败');
+  } finally {
+    document.querySelector('#uploadBtn').disabled = false;
+    document.querySelector('#uploadStatus').textContent = '';
+  }
+};
+
+async function loadPending(){
+  if(!requireToken()) return;
+  const list = document.querySelector('#pendingList');
+  list.innerHTML = '<div class="hint">加载中...</div>';
+  try {
+    const items = await getJson('/api/admin/pending?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    document.querySelector('#reviewBatchBar').style.display = items.length ? '' : 'none';
+    document.querySelector('#pickAll').checked = false;
+    updatePickCount();
+    if(!items.length) {
+      list.innerHTML = '<div class="item">暂无待审核内容。</div>';
+      return;
+    }
+    list.innerHTML = items.map((it, idx) => {
+      const isImg = it.kind === 'images';
+      // 后端 url 是 http://...:8080，https 页面会被混合内容拦截；改用同源相对路径
+      const u = String(it.url || '').replace(/^https?:\/\/[^/]+/, '');
+      const media = u ? (isImg ? `<a href="${esc(u)}" target="_blank"><img class="media" src="${esc(u)}" alt=""></a>` : `<audio class="media" controls src="${esc(u)}"></audio>`) : '';
+      return `<div class="item" data-index="${idx}" data-sci="${esc(it.sci)}" data-file="${esc(it.file)}">
+        <div class="item-head">
+          <div>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0 0 4px"><input type="checkbox" class="pick" style="width:auto"> 选择</label>
+            <div class="title">${esc(it.cn || it.en || it.sci)} · ${esc(it.sci)}</div>
+            <div class="meta">${esc(it.kind)} · ${esc(it.file)} · ${esc(fmtTime(it.uploaded_at))}</div>
+            <span class="pill">${esc(it.uploader_name || it.uploader_id || '未知上传者')}</span>
+            ${it.suggested_difficulty ? `<span class="pill gold">建议 ${esc(it.suggested_difficulty)} 星</span>` : ''}
+          </div>
+          <div class="toolbar" style="margin-top:0">
+            <button data-action="approve">通过</button>
+            <button class="danger" data-action="reject">拒绝</button>
+          </div>
+        </div>
+        ${media}
+        ${it.contributor ? `<div class="meta">署名：${esc(it.contributor)}</div>` : ''}
+      </div>`;
+    }).join('');
+    list._items = items;
+  } catch (e) {
+    list.innerHTML = '<div class="item">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+document.querySelector('#loadPendingBtn').onclick = loadPending;
+document.querySelector('#pendingList').addEventListener('click', async event => {
+  const btn = event.target.closest('button[data-action]');
+  if(!btn || !requireToken()) return;
+  const item = btn.closest('.item');
+  const payload = { sci: item.dataset.sci, file: item.dataset.file, token: token() };
+  const action = btn.dataset.action;
+  if(action === 'reject' && !confirm('确定拒绝并删除这个待审核文件？')) return;
+  btn.disabled = true;
+  try {
+    await getJson(action === 'approve' ? '/api/admin/approve' : '/api/admin/reject', {
+      method:'POST',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify(payload),
+    });
+    showToast(action === 'approve' ? '已通过' : '已拒绝');
+    await loadPending();
+    await loadOverview();
+  } catch (e) {
+    showToast('操作失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+function updatePickCount(){
+  const n = document.querySelectorAll('#pendingList .pick:checked').length;
+  const el = document.querySelector('#pickCount');
+  if(el) el.textContent = '已选 ' + n + ' 项';
+}
+document.querySelector('#pendingList').addEventListener('change', event => {
+  if(event.target.classList.contains('pick')) updatePickCount();
+});
+document.querySelector('#pickAll').addEventListener('change', event => {
+  document.querySelectorAll('#pendingList .pick').forEach(c => { c.checked = event.target.checked; });
+  updatePickCount();
+});
+async function batchReview(action){
+  if(!requireToken()) return;
+  const picked = [...document.querySelectorAll('#pendingList .item')].filter(it => it.querySelector('.pick')?.checked);
+  if(!picked.length){ showToast('请先勾选要处理的项'); return; }
+  const verb = action === 'approve' ? '通过' : '拒绝';
+  if(!confirm(`确定批量${verb}选中的 ${picked.length} 项？` + (action === 'reject' ? '（拒绝会删除这些待审核文件）' : ''))) return;
+  const bar = document.querySelector('#reviewBatchBar');
+  bar.querySelectorAll('button').forEach(b => b.disabled = true);
+  let ok = 0, fail = 0;
+  for(const it of picked){
+    try {
+      await getJson(action === 'approve' ? '/api/admin/approve' : '/api/admin/reject', {
+        method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }),
+        body: JSON.stringify({ sci: it.dataset.sci, file: it.dataset.file, token: token() }),
+      });
+      ok++;
+    } catch (e) { fail++; }
+  }
+  showToast(`批量${verb}完成：成功 ${ok}${fail ? '，失败 ' + fail : ''}`);
+  bar.querySelectorAll('button').forEach(b => b.disabled = false);
+  await loadPending();
+  await loadOverview();
+}
+document.querySelector('#batchApproveBtn').onclick = () => batchReview('approve');
+document.querySelector('#batchRejectBtn').onclick = () => batchReview('reject');
+
+async function loadFeedback(){
+  if(!requireToken()) return;
+  const list = document.querySelector('#feedbackList');
+  list.innerHTML = '<div class="hint">加载中...</div>';
+  try {
+    allFeedback = await getJson('/api/admin/feedback?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    renderFeedback();
+  } catch (e) {
+    list.innerHTML = '<div class="item">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+function renderFeedback(){
+  const filter = document.querySelector('#feedbackFilter').value;
+  const rows = allFeedback.filter(x => filter === 'all' || (x.status || 'open') === 'open');
+  const list = document.querySelector('#feedbackList');
+  if(!rows.length) {
+    list.innerHTML = '<div class="item">暂无纠错反馈。</div>';
+    return;
+  }
+  list.innerHTML = rows.map(row => `<div class="item" data-id="${esc(row.id)}">
+    <div class="item-head">
+      <div>
+        <div class="title">${esc(row.species_cn || row.species_sci || row.page || '纠错反馈')}</div>
+        <div class="meta">${esc(row.uploader_name || row.uploader_id || '匿名')} · ${esc(row.role || '')} · ${esc(fmtTime(row.created_at))}</div>
+        ${row.species_sci ? `<span class="pill">${esc(row.species_sci)}</span>` : ''}
+        ${row.page ? `<span class="pill">${esc(row.page)}</span>` : ''}
+        <span class="pill ${row.status === 'resolved' ? '' : 'red'}">${esc(row.status || 'open')}</span>
+      </div>
+      ${(row.status || 'open') === 'open' ? '<button data-action="resolve">标记已处理</button>' : ''}
+    </div>
+    <div style="margin-top:10px; line-height:1.6">${esc(row.message)}</div>
+    ${row.species_sci ? `<div class="fb-media" data-sci="${esc(row.species_sci)}">
+      <button class="ghost" data-fbmedia="1">管理该物种图片/音频</button>
+      <div class="fb-media-body" style="display:none"></div>
+    </div>` : ''}
+    ${row.reply ? `<div class="fb-reply-shown">已回复：${esc(row.reply)}<span class="hint"> · ${esc(fmtTime(row.replied_at))}${row.replied_by ? ' · ' + esc(row.replied_by) : ''}</span></div>` : ''}
+    <div class="fb-reply">
+      <div class="quick-replies">
+        <button class="ghost" data-quick="感谢指正！已核实并修正。">感谢指正</button>
+        <button class="ghost" data-quick="感谢反馈，我们会尽快核实处理。">感谢反馈</button>
+        <button class="ghost" data-quick="已确认并修正，谢谢你的细心！">已修正</button>
+        <button class="ghost" data-quick="经核实该信息无误，仍然感谢你的关注。">核实无误</button>
+      </div>
+      <div class="reply-row">
+        <input type="text" class="reply-input" placeholder="回复用户…（可先点上方便捷回复）" value="${esc(row.reply || '')}">
+        <button data-reply="1">${row.reply ? '更新回复' : '发送回复'}</button>
+      </div>
+    </div>
+  </div>`).join('');
+}
+
+// 计算物种目录（与后端 species_key 一致：空白折叠为下划线）
+function speciesDirOf(sci){ return String(sci || '').trim().split(/\s+/).join('_'); }
+
+// 渲染某物种的图片/音频管理面板（缩略图可点开、可删除、可上传新文件）
+async function renderSpeciesMedia(body, sci){
+  const dir = speciesDirOf(sci);
+  body.dataset.sci = sci;
+  body.dataset.dir = dir;
+  body.dataset.loaded = '1';
+  body.innerHTML = '<div class="hint">加载中...</div>';
+  const rel = u => String(u || '').replace(/^https?:\/\/[^/]+/, '');
+  let m;
+  try { m = await getJson('/species/' + encodeURIComponent(dir) + '/manifest.json'); }
+  catch (e) { m = { images: [], audio: [] }; }
+  const imgs = (m.images || []).filter(x => !x.pending);
+  const auds = (m.audio || []).filter(x => !x.pending);
+  let html = `<div class="upload-inline">
+    <input type="file" class="fb-file" accept="image/*,audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.heic" multiple>
+    <button data-fbupload="1">上传新图片/音频</button>
+    <span class="hint fb-upmsg"></span>
+  </div>`;
+  html += `<div class="hint">图片 ${imgs.length} 张${imgs.length ? '（点开看大图）' : ''}</div>`;
+  if(imgs.length){
+    html += '<div class="thumbs">' + imgs.map(x => {
+      const u = rel(x.url) || ('/species/' + dir + '/' + (x.file || ''));
+      const credit = esc([x.contributor, x.license].filter(Boolean).join(' · '));
+      return `<div class="thumb"><a href="${esc(u)}" target="_blank" title="${credit}"><img src="${esc(u)}" loading="lazy" alt=""></a><button class="del" data-del="1" data-sci="${esc(sci)}" data-kind="images" data-file="${esc(x.file || '')}">删除</button></div>`;
+    }).join('') + '</div>';
+  }
+  if(auds.length){
+    html += `<div class="hint">音频 ${auds.length} 条</div>` + auds.map(x => {
+      const u = rel(x.url) || ('/species/' + dir + '/' + (x.file || ''));
+      return `<div class="audio-row"><audio class="media" controls src="${esc(u)}"></audio><button class="del" data-del="1" data-sci="${esc(sci)}" data-kind="audio" data-file="${esc(x.file || '')}">删除</button></div>`;
+    }).join('');
+  }
+  body.innerHTML = html;
+}
+
+// 纠错审核里的图片/音频管理：展开、删除、上传、回复用户
+document.querySelector('#feedbackList').addEventListener('click', async event => {
+  const quick = event.target.closest('button[data-quick]');
+  if(quick){
+    const input = quick.closest('.item').querySelector('.reply-input');
+    if(input){ input.value = quick.dataset.quick; input.focus(); }
+    return;
+  }
+  const reply = event.target.closest('button[data-reply]');
+  if(reply){
+    if(!requireToken()) return;
+    const item = reply.closest('.item');
+    const input = item.querySelector('.reply-input');
+    const text = input ? input.value.trim() : '';
+    if(!text){ showToast('请先输入或选择回复内容'); return; }
+    reply.disabled = true;
+    try {
+      await getJson('/api/admin/feedback/reply?token=' + encodeURIComponent(token()), {
+        method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }),
+        body: JSON.stringify({ id: item.dataset.id, reply: text }),
+      });
+      showToast('已回复用户');
+      await loadFeedback();
+    } catch (e) { showToast('回复失败：' + e.message); reply.disabled = false; }
+    return;
+  }
+  const toggleBtn = event.target.closest('button[data-fbmedia]');
+  if(toggleBtn){
+    if(!requireToken()) return;
+    const wrap = toggleBtn.closest('.fb-media');
+    const body = wrap.querySelector('.fb-media-body');
+    if(body.style.display !== 'none'){ body.style.display = 'none'; toggleBtn.textContent = '管理该物种图片/音频'; return; }
+    body.style.display = '';
+    toggleBtn.textContent = '收起';
+    if(body.dataset.loaded !== '1') await renderSpeciesMedia(body, wrap.dataset.sci);
+    return;
+  }
+  const del = event.target.closest('button[data-del]');
+  if(del){
+    if(!requireToken()) return;
+    const kindCn = del.dataset.kind === 'audio' ? '音频' : '照片';
+    if(!confirm('确定删除这个' + kindCn + '？文件会一并删除，不可恢复。')) return;
+    del.disabled = true;
+    try {
+      await getJson('/api/admin/media?token=' + encodeURIComponent(token()), {
+        method: 'DELETE',
+        headers: authHeaders({ 'Content-Type':'application/json' }),
+        body: JSON.stringify({ sci: del.dataset.sci, kind: del.dataset.kind, file: del.dataset.file }),
+      });
+      showToast('已删除');
+      const body = del.closest('.fb-media-body');
+      if(body) await renderSpeciesMedia(body, body.dataset.sci);
+    } catch (e) { showToast('删除失败：' + e.message); del.disabled = false; }
+    return;
+  }
+  const up = event.target.closest('button[data-fbupload]');
+  if(up){
+    if(!requireToken()) return;
+    const body = up.closest('.fb-media-body');
+    const input = body.querySelector('.fb-file');
+    const msg = body.querySelector('.fb-upmsg');
+    const files = input ? [...input.files] : [];
+    if(!files.length){ showToast('请先选择文件'); return; }
+    const form = new FormData();
+    form.append('token', token());
+    form.append('sci', body.dataset.sci);
+    form.append('contributor', '管理员上传');
+    form.append('license', 'CC BY-NC 4.0');
+    for(const f of files) form.append('files', f);
+    up.disabled = true;
+    if(msg) msg.textContent = '上传中...';
+    try {
+      await getJson('/api/upload', { method:'POST', headers: authHeaders(), body: form });
+      showToast('上传完成');
+      await renderSpeciesMedia(body, body.dataset.sci);
+    } catch (e) {
+      showToast('上传失败：' + e.message);
+      if(msg) msg.textContent = '上传失败：' + e.message;
+      up.disabled = false;
+    }
+    return;
+  }
+});
+document.querySelector('#loadFeedbackBtn').onclick = loadFeedback;
+document.querySelector('#feedbackFilter').onchange = renderFeedback;
+document.querySelector('#feedbackList').addEventListener('click', async event => {
+  const btn = event.target.closest('button[data-action="resolve"]');
+  if(!btn || !requireToken()) return;
+  const id = btn.closest('.item').dataset.id;
+  btn.disabled = true;
+  try {
+    await getJson('/api/admin/feedback/resolve?token=' + encodeURIComponent(token()), {
+      method:'POST',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify({ id }),
+    });
+    showToast('已标记处理');
+    await loadFeedback();
+  } catch (e) {
+    showToast('操作失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadUsers(){
+  if(!requireToken()) return;
+  const list = document.querySelector('#usersList');
+  list.innerHTML = '<div class="hint">加载中...</div>';
+  try {
+    const users = await getJson('/api/admin/users?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    list.innerHTML = users.map(u => `<div class="item" data-token="${esc(u.token)}">
+      <div class="item-head">
+        <div>
+          <div class="title">${esc(u.name || u.id)}</div>
+          <div class="meta">${esc(u.id)} · ${esc(u.role)} ${u.is_self ? '· 当前 token' : ''}</div>
+          <div class="meta">${esc(u.token)}</div>
+        </div>
+        ${u.is_self ? '' : '<button class="danger" data-action="delete-user">删除</button>'}
+      </div>
+    </div>`).join('') || '<div class="item">暂无用户。</div>';
+  } catch (e) {
+    list.innerHTML = '<div class="item">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+document.querySelector('#loadUsersBtn').onclick = loadUsers;
+document.querySelector('#createUserBtn').onclick = async () => {
+  if(!requireToken()) return;
+  const body = {
+    name: document.querySelector('#newUserName').value.trim(),
+    id: document.querySelector('#newUserId').value.trim(),
+    role: document.querySelector('#newUserRole').value,
+    token: document.querySelector('#newUserToken').value.trim(),
+  };
+  if(!body.name) return showToast('请填写名称');
+  try {
+    const user = await getJson('/api/admin/users?token=' + encodeURIComponent(token()), {
+      method:'POST',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify(body),
+    });
+    showToast('已创建用户');
+    document.querySelector('#newUserName').value = '';
+    document.querySelector('#newUserId').value = '';
+    document.querySelector('#newUserToken').value = '';
+    await loadUsers();
+    alert('新 token：\\n' + user.token);
+  } catch (e) {
+    showToast('创建失败：' + e.message);
+  }
+};
+document.querySelector('#usersList').addEventListener('click', async event => {
+  const btn = event.target.closest('button[data-action="delete-user"]');
+  if(!btn || !requireToken()) return;
+  const targetToken = btn.closest('.item').dataset.token;
+  if(!confirm('确定删除这个 token？')) return;
+  try {
+    await getJson('/api/admin/users?token=' + encodeURIComponent(token()), {
+      method:'DELETE',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify({ token: targetToken }),
+    });
+    showToast('已删除');
+    await loadUsers();
+  } catch (e) {
+    showToast('删除失败：' + e.message);
+  }
+});
+
+function statusSelect(value){
+  return `<select data-f="status"><option value="active" ${value === 'expired' ? '' : 'selected'}>有效</option><option value="expired" ${value === 'expired' ? 'selected' : ''}>过期</option></select>`;
+}
+function volunteerRow(v){
+  return `<div class="row-card discover-row" data-kind="volunteer">
+    <div class="grid two">
+      <div><label>标题</label><input data-f="title" value="${esc(v.title)}"></div>
+      <div><label>机构/来源</label><input data-f="org" value="${esc(v.org)}"></div>
+      <div><label>时间标签</label><input data-f="date" value="${esc(v.date)}"></div>
+      <div><label>状态</label>${statusSelect(v.status)}</div>
+    </div>
+    <label style="margin-top:10px">链接 URL</label><input data-f="url" value="${esc(v.url)}">
+    <input type="hidden" data-f="id" value="${esc(v.id)}">
+    <button class="danger" data-action="remove-row" style="margin-top:10px">删除</button>
+  </div>`;
+}
+function newsRow(n){
+  return `<div class="row-card discover-row" data-kind="news">
+    <div class="grid two">
+      <div><label>标题</label><input data-f="title" value="${esc(n.title)}"></div>
+      <div><label>分类</label><input data-f="category" value="${esc(n.category)}" placeholder="鸟讯/鸟导/鸟团/出行/鸟种攻略"></div>
+      <div><label>时间标签</label><input data-f="date" value="${esc(n.date)}"></div>
+      <div><label>状态</label>${statusSelect(n.status)}</div>
+    </div>
+    <label style="margin-top:10px">摘要</label><textarea data-f="summary">${esc(n.summary)}</textarea>
+    <label>链接 URL</label><input data-f="url" value="${esc(n.url)}">
+    <input type="hidden" data-f="id" value="${esc(n.id)}">
+    <button class="danger" data-action="remove-row" style="margin-top:10px">删除</button>
+  </div>`;
+}
+function renderDiscover(){
+  document.querySelector('#volunteersList').innerHTML = (discoverState.volunteers || []).map(volunteerRow).join('') || '<div class="item">暂无志愿招募。</div>';
+  document.querySelector('#newsList').innerHTML = (discoverState.news || []).map(newsRow).join('') || '<div class="item">暂无资讯。</div>';
+  const img = document.querySelector('#qrPreview');
+  if(discoverState.groupQr && discoverState.groupQr.imageUrl) {
+    img.src = discoverState.groupQr.imageUrl + '?t=' + Date.now();
+    img.style.display = 'block';
+  } else {
+    img.style.display = 'none';
+  }
+}
+async function loadDiscover(){
+  try {
+    const data = await getJson('/api/discover');
+    discoverState = Object.assign({ groupQr:{ imageUrl:'', updatedAt:'' }, volunteers:[], news:[] }, data || {});
+    renderDiscover();
+  } catch (e) {
+    showToast('发现页加载失败：' + e.message);
+  }
+}
+function collectDiscoverRows(containerId){
+  const rows = [];
+  document.querySelectorAll('#' + containerId + ' .discover-row').forEach(row => {
+    const item = {};
+    row.querySelectorAll('[data-f]').forEach(el => item[el.dataset.f] = el.value);
+    if((item.title || '').trim()) rows.push(item);
+  });
+  return rows;
+}
+async function saveDiscover(){
+  if(!requireToken()) return;
+  const payload = {
+    groupQr: discoverState.groupQr || { imageUrl:'', updatedAt:'' },
+    volunteers: collectDiscoverRows('volunteersList'),
+    news: collectDiscoverRows('newsList'),
+  };
+  try {
+    await getJson('/api/discover', {
+      method:'POST',
+      headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify(payload),
+    });
+    showToast('发现页已保存');
+    await loadDiscover();
+  } catch (e) {
+    showToast('保存失败：' + e.message);
+  }
+}
+document.querySelector('#loadDiscoverBtn').onclick = loadDiscover;
+document.querySelector('#saveDiscoverBtn').onclick = saveDiscover;
+document.querySelector('#addVolunteerBtn').onclick = () => {
+  document.querySelector('#volunteersList').insertAdjacentHTML('beforeend', volunteerRow({ status:'active' }));
+};
+document.querySelector('#addNewsBtn').onclick = () => {
+  document.querySelector('#newsList').insertAdjacentHTML('beforeend', newsRow({ status:'active' }));
+};
+document.querySelector('#panel-discover').addEventListener('click', event => {
+  const btn = event.target.closest('button[data-action="remove-row"]');
+  if(btn) btn.closest('.discover-row').remove();
+});
+document.querySelector('#uploadQrBtn').onclick = async () => {
+  if(!requireToken()) return;
+  const file = document.querySelector('#qrFile').files[0];
+  if(!file) return showToast('请先选择二维码图片');
+  const form = new FormData();
+  form.append('file', file);
+  form.append('token', token());
+  try {
+    const data = await getJson('/api/discover/qr', { method:'POST', headers: authHeaders(), body: form });
+    discoverState.groupQr = { imageUrl: data.imageUrl, updatedAt: String(Date.now()) };
+    renderDiscover();
+    showToast('二维码已上传');
+  } catch (e) {
+    showToast('二维码上传失败：' + e.message);
+  }
+};
+
+let allStatsRows = [];
+async function loadStats(){
+  const tbody = document.querySelector('#statsRows');
+  tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+  try {
+    const data = await getJson('/api/stats');
+    allStatsRows = data.rows || [];
+    const total = allStatsRows.length;
+    const withImg = allStatsRows.filter(r => (r.image_count || 0) > 0).length;
+    document.querySelector('#sumSpecies').textContent = total;
+    document.querySelector('#sumWithImg').textContent = withImg;
+    document.querySelector('#sumNoImg').textContent = total - withImg;
+    renderStatsTable();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+function renderStatsTable(){
+  const tbody = document.querySelector('#statsRows');
+  const q = document.querySelector('#statsQuery').value.trim().toLowerCase();
+  const noImgOnly = document.querySelector('#noImgOnly').checked;
+  let rows = allStatsRows;
+  if(noImgOnly) rows = rows.filter(r => (r.image_count || 0) === 0);
+  if(q) rows = rows.filter(r => [r.cn, r.sci, r.en, r.species_dir].some(v => String(v || '').toLowerCase().includes(q)));
+  rows = rows.slice(0, 300);
+  tbody.innerHTML = rows.map((row, i) => `<tr class="stats-row" data-i="${i}" data-sci="${esc(row.sci || '')}" data-dir="${esc(row.species_dir || '')}" style="cursor:pointer">
+      <td>${esc(row.cn || '')}</td>
+      <td>${esc(row.sci || '')}</td>
+      <td>${esc(row.en || '')}</td>
+      <td>${esc(row.image_count || 0)}</td>
+      <td>${esc(row.audio_count || 0)}</td>
+      <td>${row.manifest_url ? `<a href="${esc(row.manifest_url)}" target="_blank" onclick="event.stopPropagation()">manifest</a>` : ''}</td>
+    </tr>
+    <tr class="stats-detail" id="statsDetail-${i}" style="display:none"><td colspan="6"></td></tr>`).join('') || '<tr><td colspan="6">无结果</td></tr>';
+}
+
+// 点击某一行展开/收起该物种的照片缩略图与音频（同源 HTTPS 取 manifest，避免混合内容）
+async function toggleStatsDetail(i, sci, dir){
+  const detail = document.querySelector('#statsDetail-' + i);
+  if(!detail) return;
+  if(detail.style.display !== 'none'){ detail.style.display = 'none'; return; }
+  detail.style.display = '';
+  if(detail.dataset.loaded === '1') return;
+  await renderStatsDetail(detail, sci, dir);
+}
+
+async function renderStatsDetail(detail, sci, dir){
+  const cell = detail.querySelector('td');
+  cell.innerHTML = '<div class="hint">加载中...</div>';
+  if(!dir){ cell.innerHTML = '<div class="hint">缺少物种目录信息</div>'; return; }
+  detail.dataset.sci = sci;
+  detail.dataset.dir = dir;
+  const rel = u => String(u || '').replace(/^https?:\/\/[^/]+/, '');
+  try {
+    const m = await getJson('/species/' + encodeURIComponent(dir) + '/manifest.json');
+    const imgs = (m.images || []).filter(x => !x.pending);
+    const auds = (m.audio || []).filter(x => !x.pending);
+    let html = '';
+    if(imgs.length){
+      html += `<div class="hint">图片 ${imgs.length} 张（点开看大图）</div><div class="thumbs">` +
+        imgs.map(x => {
+          const u = rel(x.url) || ('/species/' + dir + '/' + (x.file || ''));
+          const credit = esc([x.contributor, x.license].filter(Boolean).join(' · '));
+          return `<div class="thumb">
+            <a href="${esc(u)}" target="_blank" title="${credit}"><img src="${esc(u)}" loading="lazy" alt=""></a>
+            <button class="del" data-del="1" data-sci="${esc(sci)}" data-kind="images" data-file="${esc(x.file || '')}">删除</button>
+          </div>`;
+        }).join('') + '</div>';
+    }
+    if(auds.length){
+      html += `<div class="hint">音频 ${auds.length} 条</div>` +
+        auds.map(x => {
+          const u = rel(x.url) || ('/species/' + dir + '/' + (x.file || ''));
+          return `<div class="audio-row">
+            <audio class="media" controls src="${esc(u)}"></audio>
+            <button class="del" data-del="1" data-sci="${esc(sci)}" data-kind="audio" data-file="${esc(x.file || '')}">删除</button>
+          </div>`;
+        }).join('');
+    }
+    cell.innerHTML = html || '<div class="hint">该物种暂无可显示的媒体</div>';
+    detail.dataset.loaded = '1';
+  } catch (e) {
+    cell.innerHTML = '<div class="hint">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+document.querySelector('#statsRows').addEventListener('click', async event => {
+  const del = event.target.closest('button[data-del]');
+  if(del){
+    event.stopPropagation();
+    if(!requireToken()) return;
+    const kindCn = del.dataset.kind === 'audio' ? '音频' : '照片';
+    if(!confirm('确定删除这个' + kindCn + '？文件会一并删除，不可恢复。')) return;
+    del.disabled = true;
+    try {
+      await getJson('/api/admin/media?token=' + encodeURIComponent(token()), {
+        method: 'DELETE',
+        headers: authHeaders({ 'Content-Type':'application/json' }),
+        body: JSON.stringify({ sci: del.dataset.sci, kind: del.dataset.kind, file: del.dataset.file }),
+      });
+      showToast('已删除');
+      const detail = del.closest('tr.stats-detail');
+      const mainRow = detail && detail.previousElementSibling;
+      if(mainRow && mainRow.classList.contains('stats-row')){
+        const idx = del.dataset.kind === 'images' ? 3 : 4;
+        const c = mainRow.children[idx];
+        if(c) c.textContent = Math.max(0, (parseInt(c.textContent, 10) || 0) - 1);
+      }
+      if(detail){ detail.dataset.loaded = ''; await renderStatsDetail(detail, detail.dataset.sci, detail.dataset.dir); }
+    } catch (e) {
+      showToast('删除失败：' + e.message);
+      del.disabled = false;
+    }
+    return;
+  }
+  const tr = event.target.closest('tr.stats-row');
+  if(!tr) return;
+  toggleStatsDetail(tr.dataset.i, tr.dataset.sci, tr.dataset.dir);
+});
+document.querySelector('#loadStatsBtn').onclick = renderStatsTable;
+document.querySelector('#clearStatsBtn').onclick = () => { document.querySelector('#statsQuery').value = ''; renderStatsTable(); };
+document.querySelector('#statsQuery').addEventListener('keydown', event => { if(event.key === 'Enter') renderStatsTable(); });
+document.querySelector('#noImgOnly').addEventListener('change', renderStatsTable);
+document.querySelector('#exportStatsBtn').onclick = () => {
+  if(!allStatsRows.length){ showToast('请先在媒体统计页加载数据'); return; }
+  const q = document.querySelector('#statsQuery').value.trim().toLowerCase();
+  const noImgOnly = document.querySelector('#noImgOnly').checked;
+  let rows = allStatsRows;
+  if(noImgOnly) rows = rows.filter(r => (r.image_count || 0) === 0);
+  if(q) rows = rows.filter(r => [r.cn, r.sci, r.en, r.species_dir].some(v => String(v || '').toLowerCase().includes(q)));
+  const today = new Date().toISOString().slice(0, 10);
+  downloadCsv(`媒体统计_${today}.csv`, ['中文名', '学名', '英文名', '图片', '音频', '目录'],
+    rows.map(r => [r.cn || '', r.sci || '', r.en || '', r.image_count || 0, r.audio_count || 0, r.species_dir || '']));
+};
+
+// ── 回收站 ───────────────────────────────────────────────────
+async function loadTrash(){
+  if(!requireToken()) return;
+  const box = document.querySelector('#trashList');
+  box.innerHTML = '<div class="hint">加载中...</div>';
+  try {
+    const data = await getJson('/api/admin/trash?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    const items = data.items || [];
+    document.querySelector('#trashHint').textContent = `保留 ${data.retention_days || 30} 天可恢复，超期自动清除。当前 ${items.length} 项。`;
+    if(!items.length){ box.innerHTML = '<div class="hint">回收站为空。</div>'; return; }
+    box.innerHTML = items.map(it => {
+      const days = it.expires_at ? Math.max(0, Math.ceil((it.expires_at * 1000 - Date.now()) / 86400000)) : '-';
+      const preview = it.has_file
+        ? (it.kind === 'audio'
+            ? `<audio class="media" controls src="/api/admin/trash/file?id=${encodeURIComponent(it.trash_id)}&token=${encodeURIComponent(token())}"></audio>`
+            : `<img src="/api/admin/trash/file?id=${encodeURIComponent(it.trash_id)}&token=${encodeURIComponent(token())}" loading="lazy" alt="">`)
+        : '<div class="hint">文件缺失</div>';
+      return `<div class="thumb">
+        ${preview}
+        <div class="meta">${esc(it.sci || '')} · ${it.kind === 'audio' ? '音频' : '图片'}</div>
+        <div class="hint">还剩 ${days} 天 · ${esc(it.contributor || '')}</div>
+        <button class="restore" data-restore="${esc(it.trash_id)}">恢复</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = '<div class="hint">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+document.querySelector('#loadTrashBtn').onclick = loadTrash;
+document.querySelector('#trashList').addEventListener('click', async event => {
+  const btn = event.target.closest('button[data-restore]');
+  if(!btn || !requireToken()) return;
+  btn.disabled = true;
+  try {
+    await getJson('/api/admin/trash/restore?token=' + encodeURIComponent(token()), {
+      method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }),
+      body: JSON.stringify({ trash_id: btn.dataset.restore }),
+    });
+    showToast('已恢复');
+    await loadTrash();
+  } catch (e) { showToast('恢复失败：' + e.message); btn.disabled = false; }
+});
+
+// ── 删除历史 ─────────────────────────────────────────────────
+async function loadHistory(){
+  if(!requireToken()) return;
+  const tbody = document.querySelector('#historyRows');
+  tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+  try {
+    const data = await getJson('/api/admin/delete_log?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    const items = data.items || [];
+    tbody.innerHTML = items.map(it => `<tr>
+      <td>${esc(fmtTime(it.at))}</td>
+      <td>${it.action === 'restore' ? '<span class="pill">恢复</span>' : '<span class="pill red">删除</span>'}</td>
+      <td>${esc(it.sci || '')}</td>
+      <td>${it.kind === 'audio' ? '音频' : '图片'}</td>
+      <td style="word-break:break-all">${esc(it.file || '')}</td>
+      <td>${esc(it.by || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="6">暂无记录。</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+document.querySelector('#loadHistoryBtn').onclick = loadHistory;
+
+// ── 操作日志 ─────────────────────────────────────────────────
+async function loadOpsLog(){
+  if(!requireToken()) return;
+  const tbody = document.querySelector('#opsRows');
+  tbody.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+  try {
+    const data = await getJson('/api/admin/ops_log?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    const items = data.items || [];
+    tbody.innerHTML = items.map(it => `<tr>
+      <td>${esc(fmtTime(it.at))}</td>
+      <td>${esc(it.action || '')}</td>
+      <td style="word-break:break-all">${esc(it.target || '')}</td>
+      <td>${esc(it.note || '')}</td>
+      <td>${esc(it.by || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="5">暂无记录。</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="5">加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+document.querySelector('#loadOpsBtn').onclick = loadOpsLog;
+
+// ── 测验题目 ─────────────────────────────────────────────────
+async function loadQuizLog(){
+  if(!requireToken()) return;
+  const probBox = document.querySelector('#quizProblems');
+  const tbody = document.querySelector('#quizRows');
+  probBox.innerHTML = '<div class="hint">加载中...</div>';
+  tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+  try {
+    const data = await getJson('/api/admin/quiz_log?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    document.querySelector('#qTotal').textContent = data.total ?? 0;
+    document.querySelector('#qWrong').textContent = data.total_wrong ?? 0;
+    document.querySelector('#qReported').textContent = data.total_reported ?? 0;
+    const problems = (data.problems || []).filter(p => p.image);
+    probBox.innerHTML = problems.length ? problems.map(p => {
+      const u = '/species/' + encodeURIComponent(speciesDirOf(p.sci)) + '/' + p.image;
+      return `<div class="thumb">
+        <a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy" alt=""></a>
+        <div class="meta">${esc(p.sci)}</div>
+        <div class="hint">答错 ${p.wrong} · 举报 ${p.reported} · 共 ${p.total}</div>
+      </div>`;
+    }).join('') : '<div class="hint">暂无数据（App 接入后显示）。</div>';
+    const items = data.items || [];
+    tbody.innerHTML = items.map(r => `<tr>
+      <td>${esc(fmtTime(r.at))}</td>
+      <td>${esc(r.sci || '')}</td>
+      <td>${esc(r.correct || '')}</td>
+      <td>${esc(r.chosen || '')}</td>
+      <td>${r.is_correct ? '<span class="pill">对</span>' : '<span class="pill red">错</span>'}</td>
+      <td>${r.reported ? '<span class="pill gold">举报</span>' : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="6">暂无记录。</td></tr>';
+  } catch (e) {
+    probBox.innerHTML = '<div class="hint">加载失败：' + esc(e.message) + '</div>';
+    tbody.innerHTML = '<tr><td colspan="6">加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+document.querySelector('#loadQuizBtn').onclick = loadQuizLog;
+
+// ── CSV 导出 ─────────────────────────────────────────────────
+let contribRows = [];
+function downloadCsv(filename, headers, rows){
+  const esc2 = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [headers.map(esc2).join(',')].concat(rows.map(r => r.map(esc2).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ── 用户贡献 ─────────────────────────────────────────────────
+let contribData = { rows: [], by_contributor: [] };
+async function loadContrib(){
+  if(!requireToken()) return;
+  const tbody = document.querySelector('#contribRows');
+  tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+  try {
+    const data = await getJson('/api/admin/contributors?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    contribData = data;
+    document.querySelector('#cUsers').textContent = data.total_users ?? 0;
+    document.querySelector('#cImages').textContent = data.total_images ?? 0;
+    document.querySelector('#cAudio').textContent = data.total_audio ?? 0;
+    document.querySelector('#cSpecies').textContent = data.total_species ?? 0;
+    renderContrib();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+function renderContrib(){
+  const mode = document.querySelector('#contribMode').value;
+  const tbody = document.querySelector('#contribRows');
+  document.querySelector('#contribCol1').textContent = mode === 'contributor' ? '署名' : '用户';
+  const rows = mode === 'contributor' ? (contribData.by_contributor || []) : (contribData.rows || []);
+  contribRows = rows;
+  tbody.innerHTML = rows.map((r, i) => `<tr>
+    <td>${i + 1}</td>
+    <td>${esc(mode === 'contributor' ? r.contributor : (r.name || r.uploader_id))}</td>
+    <td>${esc(r.images || 0)}</td>
+    <td>${esc(r.audio || 0)}</td>
+    <td>${esc(r.species || 0)}</td>
+    <td>${r.pending ? `<span class="pill red">${esc(r.pending)}</span>` : 0}</td>
+  </tr>`).join('') || '<tr><td colspan="6">暂无用户上传记录。</td></tr>';
+}
+document.querySelector('#loadContribBtn').onclick = loadContrib;
+document.querySelector('#contribMode').addEventListener('change', renderContrib);
+document.querySelector('#exportContribBtn').onclick = () => {
+  if(!contribRows.length){ showToast('请先刷新数据'); return; }
+  const mode = document.querySelector('#contribMode').value;
+  const today = new Date().toISOString().slice(0, 10);
+  if(mode === 'contributor'){
+    downloadCsv(`用户贡献_按署名_${today}.csv`, ['排名', '署名', '图片', '音频', '物种数', '待审核'],
+      contribRows.map((r, i) => [i + 1, r.contributor, r.images || 0, r.audio || 0, r.species || 0, r.pending || 0]));
+  } else {
+    downloadCsv(`用户贡献_按账号_${today}.csv`, ['排名', '用户', 'uploader_id', '图片', '音频', '物种数', '待审核'],
+      contribRows.map((r, i) => [i + 1, r.name || r.uploader_id, r.uploader_id, r.images || 0, r.audio || 0, r.species || 0, r.pending || 0]));
+  }
+};
+
+function refreshActive(){
+  if(activeTab === 'overview') loadOverview();
+  if(activeTab === 'review') loadPending();
+  if(activeTab === 'feedback') loadFeedback();
+  if(activeTab === 'users') loadUsers();
+  if(activeTab === 'discover') loadDiscover();
+  if(activeTab === 'stats') loadStats();
+  if(activeTab === 'contrib') loadContrib();
+  if(activeTab === 'trash') loadTrash();
+  if(activeTab === 'history') loadHistory();
+  if(activeTab === 'ops') loadOpsLog();
+  if(activeTab === 'quiz') loadQuizLog();
+}
+
+loadOverview();
+if(token()) verifyToken();
+</script>
+</body>
+</html>
