@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../models/audio_info.dart';
+import '../models/data_pack.dart';
 import '../models/species.dart';
 import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
@@ -59,6 +60,9 @@ class FlashcardScreen extends StatefulWidget {
 class FlashcardScreenState extends State<FlashcardScreen> {
   List<Species> _allSpecies = [];
   List<_DeckCard> _deck = [];
+  // 筛选里切换数据包用：已安装包 + 当前激活包目录
+  List<DataPack> _installedPacks = const [];
+  String? _activePackDir;
   Set<String> _speciesWithAudioFiles = const {};
   Set<String> _speciesWithImageFiles = const {};
   int _idx = 0;
@@ -1637,6 +1641,14 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   void jumpTo(Species target) => _jumpToSpecies(target);
 
   Future<void> _openFilterSheet() async {
+    // 打开筛选前载入已安装数据包，供「数据包」下拉切换
+    try {
+      _installedPacks = await widget.packManager.getInstalledPacks();
+      _activePackDir = await widget.packManager.getActivePackDir();
+    } catch (_) {
+      _installedPacks = const [];
+    }
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -1665,6 +1677,41 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
+                  if (_installedPacks.length > 1) ...[
+                    const Text('数据包',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    DropdownButton<String>(
+                      isExpanded: true,
+                      value: _installedPacks
+                              .any((p) => p.packDir == _activePackDir)
+                          ? _activePackDir
+                          : null,
+                      hint: const Text('选择数据包'),
+                      items: [
+                        for (final p in _installedPacks)
+                          DropdownMenuItem(
+                            value: p.packDir,
+                            child: Text(p.name,
+                                overflow: TextOverflow.ellipsis, maxLines: 1),
+                          ),
+                      ],
+                      onChanged: (dir) async {
+                        if (dir == null || dir == _activePackDir) return;
+                        await widget.packManager.setActivePack(dir);
+                        _activePackDir = dir;
+                        sheetSetState(() {});
+                        setState(() {
+                          _correctCount = 0;
+                          _wrongCount = 0;
+                          _ebirdFilterSci = const {};
+                          _ebirdFilterLabel = '';
+                        });
+                        await _loadSpecies(); // 重载该包物种并重建牌组
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -2501,19 +2548,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         extraImageCredits: extraImageCredits,
                       ),
                     ),
-                  ),
-                ),
-              ),
-              Visibility(
-                visible: !_revealed && !_showAnswerOnEntry && !_answered,
-                maintainSize: true,
-                maintainAnimation: true,
-                maintainState: true,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    '先看答案，再判断是否认识',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                 ),
               ),
