@@ -575,6 +575,10 @@ class _PackManageScreenState extends State<PackManageScreen> {
               name: country.name,
               nameZh: country.nameZh,
               count: 0,
+              // 很多国家没有国家级合集文件（如挪威只有 NO-xx 省级名录，
+              // /checklists/NO.json 是 404）。把各省代码作为 memberCodes，
+              // 下载时合并各省名录，避免「加载名录失败」。
+              memberCodes: [for (final r in country.provinces) r.code],
             )
           : country.provinces.firstWhere((r) => r.code == regionCode);
     }
