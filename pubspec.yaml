@@ -1,8 +1,7 @@
 name: bird_flashcard
 description: 鸟鸣闪卡学习工具
 publish_to: none
-version: 1.6.16+73
-
+version: 1.6.17+74
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
