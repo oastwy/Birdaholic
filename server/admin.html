@@ -329,6 +329,7 @@
       <button class="tab" data-tab="upload">上传</button>
       <button class="tab" data-tab="review">待审核</button>
       <button class="tab" data-tab="feedback">纠错审核</button>
+      <button class="tab" data-tab="tokenreq">权限申请</button>
       <button class="tab" data-tab="users">用户密钥</button>
       <button class="tab" data-tab="discover">发现页运营</button>
       <button class="tab" data-tab="stats">媒体统计</button>
@@ -473,6 +474,18 @@
       </div>
     </div>
     <div id="feedbackList" class="list"></div>
+  </section>
+
+  <section class="panel" id="panel-tokenreq">
+    <h2>权限申请</h2>
+    <div class="toolbar">
+      <button id="loadTokenReqBtn">刷新</button>
+      <span class="hint">用户在 App 里申请上传权限（不收实名，仅本机匿名申请号）。批准后自动生成 beta token，App 自动取回。</span>
+    </div>
+    <table>
+      <thead><tr><th>申请时间</th><th>名称/备注</th><th>平台·版本</th><th>申请号</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="tokenReqRows"></tbody>
+    </table>
   </section>
 
   <section class="panel" id="panel-users">
@@ -1626,10 +1639,57 @@ document.querySelector('#exportContribBtn').onclick = () => {
   }
 };
 
+// ── 权限申请 ─────────────────────────────────────────────────
+async function loadTokenReqs(){
+  if(!requireToken()) return;
+  const tbody = document.querySelector('#tokenReqRows');
+  tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+  try {
+    const data = await getJson('/api/admin/token_requests?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    const items = data.items || [];
+    const pill = s => s === 'approved' ? '<span class="pill">已通过</span>'
+      : s === 'rejected' ? '<span class="pill red">已拒绝</span>'
+      : '<span class="pill gold">待审核</span>';
+    tbody.innerHTML = items.map(r => `<tr data-cid="${esc(r.client_id)}">
+      <td>${esc(fmtTime(r.created_at))}</td>
+      <td>${esc(r.name || r.note || '')}</td>
+      <td>${esc([r.platform, r.app_version].filter(Boolean).join(' · '))}</td>
+      <td style="word-break:break-all;font-size:12px">${esc(r.client_id)}</td>
+      <td>${pill(r.status)}${r.status === 'approved' && r.token ? `<div class="hint" style="word-break:break-all">${esc(r.token)}</div>` : ''}</td>
+      <td>${r.status === 'approved' ? '' : '<button data-treq="approve">通过</button> <button class="danger" data-treq="reject">拒绝</button>'}</td>
+    </tr>`).join('') || '<tr><td colspan="6">暂无申请。</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+document.querySelector('#loadTokenReqBtn').onclick = loadTokenReqs;
+document.querySelector('#tokenReqRows').addEventListener('click', async event => {
+  const btn = event.target.closest('button[data-treq]');
+  if(!btn || !requireToken()) return;
+  const cid = btn.closest('tr').dataset.cid;
+  const action = btn.dataset.treq;
+  if(action === 'reject' && !confirm('确定拒绝该申请？')) return;
+  let body = { client_id: cid };
+  if(action === 'approve'){
+    const name = prompt('给该用户起个名称（显示在署名/用户密钥里）：', '');
+    if(name === null) return;
+    if(name.trim()) body.name = name.trim();
+  }
+  btn.disabled = true;
+  try {
+    await getJson('/api/admin/token_requests/' + action + '?token=' + encodeURIComponent(token()), {
+      method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }), body: JSON.stringify(body),
+    });
+    showToast(action === 'approve' ? '已通过，token 已生成' : '已拒绝');
+    await loadTokenReqs();
+  } catch (e) { showToast('操作失败：' + e.message); btn.disabled = false; }
+});
+
 function refreshActive(){
   if(activeTab === 'overview') loadOverview();
   if(activeTab === 'review') loadPending();
   if(activeTab === 'feedback') loadFeedback();
+  if(activeTab === 'tokenreq') loadTokenReqs();
   if(activeTab === 'users') loadUsers();
   if(activeTab === 'discover') loadDiscover();
   if(activeTab === 'stats') loadStats();

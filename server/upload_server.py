@@ -57,6 +57,7 @@ TRASH_RETENTION_DAYS = 30                 # 超过此天数自动清除
 DELETE_LOG_FILE = Path("/data/server/delete_log.json")  # 删除/恢复历史
 OPS_LOG_FILE = Path("/data/server/admin_ops.json")      # 统一管理操作日志
 QUIZ_LOG_FILE = Path("/data/server/quiz_log.json")      # 识别测验出题日志（App 回传）
+TOKEN_REQ_FILE = Path("/data/server/token_requests.json")  # 匿名上传权限申请队列
 DISCOVER_PUBLIC_BASE = os.environ.get(
     "BIRDAHOLIC_DISCOVER_BASE", "https://birding.today/discover"
 )
@@ -939,6 +940,7 @@ async def submit_feedback(
         "uploader_id": user.get("id", "anon"),
         "uploader_name": user.get("name", ""),
         "role": user.get("role", "anon"),
+        "client_id": str(payload.get("client_id", "")).strip()[:80],
         "message": message[:4000],
         "page": str(payload.get("page", ""))[:200],
         "species_cn": str(payload.get("species_cn", ""))[:200],
@@ -1025,24 +1027,169 @@ async def admin_feedback_reply(
 @app.get("/api/feedback/replies")
 def feedback_replies(
     token: str = "",
+    client_id: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict:
-    """供 App 端拉取：当前用户收到的纠错回复。匿名用户无回复。"""
+    """供 App 端拉取：当前用户收到的纠错回复。
+    有 token 的用户按 uploader_id 匹配；匿名用户按本机 client_id 匹配（同机可收回复）。"""
     user = _resolve_user_soft(authorization, token)
     uid = user.get("id", "")
+    cid = (client_id or "").strip()
     out = []
-    if uid and uid != "anon":
-        for it in _load_feedback():
-            if it.get("uploader_id") == uid and it.get("reply"):
-                out.append({
-                    "id": it.get("id"),
-                    "message": it.get("message", ""),
-                    "reply": it.get("reply", ""),
-                    "replied_at": it.get("replied_at"),
-                    "species_cn": it.get("species_cn", ""),
-                    "species_sci": it.get("species_sci", ""),
-                })
+    for it in _load_feedback():
+        if not it.get("reply"):
+            continue
+        match = (uid and uid != "anon" and it.get("uploader_id") == uid) or (
+            cid and it.get("client_id") == cid)
+        if match:
+            out.append({
+                "id": it.get("id"),
+                "message": it.get("message", ""),
+                "reply": it.get("reply", ""),
+                "replied_at": it.get("replied_at"),
+                "species_cn": it.get("species_cn", ""),
+                "species_sci": it.get("species_sci", ""),
+            })
     return {"items": out}
+
+
+# ── 匿名上传权限申请（App 不需注册，本机 client_id 提交，管理员审核发 token）──
+_token_req_lock = threading.Lock()
+
+
+def _load_token_reqs() -> list[dict]:
+    try:
+        data = json.loads(TOKEN_REQ_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_token_reqs(items: list[dict]) -> None:
+    try:
+        TOKEN_REQ_FILE.write_text(
+            json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        TOKEN_REQ_FILE.chmod(0o600)
+    except Exception:
+        pass
+
+
+def _token_req_public(rec: dict) -> dict:
+    """只回 App 端 status + token（approved 才带 token）。"""
+    approved = rec.get("status") == "approved"
+    return {"status": rec.get("status", "pending"),
+            "token": rec.get("token", "") if approved else ""}
+
+
+@app.post("/api/token_requests")
+def submit_token_request(payload: dict = Body(...)) -> dict:
+    client_id = str(payload.get("client_id", "")).strip()[:80]
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Missing client_id")
+    now = int(time.time())
+    with _token_req_lock:
+        items = _load_token_reqs()
+        rec = next((r for r in items if r.get("client_id") == client_id), None)
+        if rec is None:
+            rec = {
+                "client_id": client_id,
+                "note": str(payload.get("note", ""))[:500],
+                "platform": str(payload.get("platform", ""))[:40],
+                "app_version": str(payload.get("app_version", ""))[:40],
+                "app_build": str(payload.get("app_build", ""))[:40],
+                "status": "pending",
+                "token": "",
+                "created_at": now,
+                "updated_at": now,
+            }
+            items.append(rec)
+        else:
+            # 已批准的保持不变；否则（none/rejected/pending）重新置为 pending 并刷新信息
+            if rec.get("status") != "approved":
+                rec["status"] = "pending"
+                rec["note"] = str(payload.get("note", rec.get("note", "")))[:500]
+                rec["platform"] = str(payload.get("platform", rec.get("platform", "")))[:40]
+                rec["app_version"] = str(payload.get("app_version", rec.get("app_version", "")))[:40]
+                rec["app_build"] = str(payload.get("app_build", rec.get("app_build", "")))[:40]
+            rec["updated_at"] = now
+        _save_token_reqs(items)
+    return _token_req_public(rec)
+
+
+@app.get("/api/token_requests/status")
+def token_request_status(client_id: str = "") -> dict:
+    cid = (client_id or "").strip()
+    if not cid:
+        return {"status": "none", "token": ""}
+    rec = next((r for r in _load_token_reqs() if r.get("client_id") == cid), None)
+    return _token_req_public(rec) if rec else {"status": "none", "token": ""}
+
+
+@app.get("/api/admin/token_requests")
+def admin_list_token_requests(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization, token)
+    items = sorted(_load_token_reqs(), key=lambda r: r.get("created_at", 0), reverse=True)
+    return {"items": items}
+
+
+@app.post("/api/admin/token_requests/approve")
+async def admin_approve_token_request(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    admin = _require_admin(authorization, token)
+    client_id = str(payload.get("client_id", "")).strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Missing client_id")
+    name = str(payload.get("name", "")).strip() or f"用户_{client_id[:6]}"
+    with _token_req_lock:
+        items = _load_token_reqs()
+        rec = next((r for r in items if r.get("client_id") == client_id), None)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="申请不存在")
+        if rec.get("status") != "approved" or not rec.get("token"):
+            new_token = _gen_token("beta")
+            users = load_users()
+            uid = f"u_{client_id[:8]}_{int(time.time()) % 10000}"
+            users[new_token] = {"id": uid, "role": "beta", "name": name}
+            _save_users(users)
+            rec["token"] = new_token
+            rec["user_id"] = uid
+        rec["status"] = "approved"
+        rec["name"] = name
+        rec["decided_at"] = int(time.time())
+        rec["decided_by"] = admin.get("id", "")
+        _save_token_reqs(items)
+    _log_op("批准上传权限", admin.get("id", ""), client_id, name)
+    return {"ok": True, "client_id": client_id, "token": rec["token"]}
+
+
+@app.post("/api/admin/token_requests/reject")
+async def admin_reject_token_request(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    admin = _require_admin(authorization, token)
+    client_id = str(payload.get("client_id", "")).strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Missing client_id")
+    with _token_req_lock:
+        items = _load_token_reqs()
+        rec = next((r for r in items if r.get("client_id") == client_id), None)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="申请不存在")
+        rec["status"] = "rejected"
+        rec["reason"] = str(payload.get("reason", ""))[:200]
+        rec["decided_at"] = int(time.time())
+        rec["decided_by"] = admin.get("id", "")
+        _save_token_reqs(items)
+    _log_op("拒绝上传权限", admin.get("id", ""), client_id, rec.get("reason", ""))
+    return {"ok": True, "client_id": client_id}
 
 
 # ── 发现页运营内容 ───────────────────────────────────────────
