@@ -43,6 +43,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   bool _guideDismissed = false;
   AppUpdateInfo? _updateInfo;
   bool _updateLoading = true;
+  bool _updateBannerDismissed = false;
 
   @override
   void initState() {
@@ -74,10 +75,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
   Widget _updateBanner() {
     final hasNew = !_updateLoading &&
         _updateInfo != null &&
-        _updateInfo!.version != appVersionName;
-    final bg = hasNew
-        ? const Color(0xFF2d5016)
-        : Colors.grey.withValues(alpha: 0.10);
+        AppUpdateService.isNewerThanCurrent(_updateInfo!.version);
+    final bg =
+        hasNew ? const Color(0xFF2d5016) : Colors.grey.withValues(alpha: 0.10);
     final fg = hasNew ? Colors.white : Colors.grey[700]!;
     final text = _updateLoading
         ? '正在检查更新…'
@@ -89,9 +89,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => _openUrl(
-          _updateInfo?.downloadUrl ?? AppUpdateService.downloadUrl,
-        ),
+        onTap: hasNew
+            ? () => _openUrl(
+                  _updateInfo?.downloadUrl ?? AppUpdateService.downloadUrl,
+                )
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
@@ -112,8 +114,23 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   ),
                 ),
               ),
-              Icon(Icons.chevron_right,
-                  size: 18, color: fg.withValues(alpha: 0.7)),
+              if (hasNew)
+                Icon(Icons.chevron_right,
+                    size: 18, color: fg.withValues(alpha: 0.7))
+              else if (!_updateLoading)
+                IconButton(
+                  tooltip: '关闭',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  onPressed: () =>
+                      setState(() => _updateBannerDismissed = true),
+                  icon: Icon(Icons.close,
+                      size: 18, color: fg.withValues(alpha: 0.75)),
+                ),
             ],
           ),
         ),
@@ -205,7 +222,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            if (Platform.isAndroid) ...[
+            if (Platform.isAndroid && !_updateBannerDismissed) ...[
               _updateBanner(),
               const SizedBox(height: 12),
             ],

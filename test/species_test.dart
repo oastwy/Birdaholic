@@ -44,9 +44,9 @@ void main() {
     });
 
     test('toJson：难度为 1（默认）时省略，非默认时写入', () {
-      final def = SpeciesImageInfo(file: 'images/x.jpg', difficulty: 1).toJson();
+      final def = const SpeciesImageInfo(file: 'images/x.jpg', difficulty: 1).toJson();
       expect(def.containsKey('difficulty'), false);
-      final hard = SpeciesImageInfo(file: 'images/x.jpg', difficulty: 4).toJson();
+      final hard = const SpeciesImageInfo(file: 'images/x.jpg', difficulty: 4).toJson();
       expect(hard['difficulty'], 4);
     });
   });

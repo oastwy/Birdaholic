@@ -7,6 +7,8 @@ class SpeciesImageInfo {
   final String contributorUrl;
   final String source;
   final String license;
+  final String location;
+  final String date;
   final int difficulty;
 
   const SpeciesImageInfo({
@@ -16,6 +18,8 @@ class SpeciesImageInfo {
     this.contributorUrl = '',
     this.source = '',
     this.license = '',
+    this.location = '',
+    this.date = '',
     this.difficulty = 1,
   });
 
@@ -37,6 +41,11 @@ class SpeciesImageInfo {
         contributorUrl: (json['contributor_url'] as String? ?? '').trim(),
         source: source,
         license: (json['license'] as String? ?? '').trim(),
+        location: (json['location'] as String? ?? '').trim(),
+        date: ((json['date'] as String?) ??
+                (json['observed_on'] as String?) ??
+                '')
+            .trim(),
         difficulty: ((json['difficulty'] as int?) ?? 1).clamp(1, 5),
       );
     }
@@ -50,6 +59,8 @@ class SpeciesImageInfo {
         if (contributorUrl.isNotEmpty) 'contributor_url': contributorUrl,
         if (source.isNotEmpty) 'source': source,
         if (license.isNotEmpty) 'license': license,
+        if (location.isNotEmpty) 'location': location,
+        if (date.isNotEmpty) 'date': date,
         if (difficulty != 1) 'difficulty': difficulty,
       };
 }

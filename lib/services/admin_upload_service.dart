@@ -53,7 +53,8 @@ class AdminFeedbackEntry {
     required this.status,
   });
 
-  factory AdminFeedbackEntry.fromJson(Map<String, dynamic> j) => AdminFeedbackEntry(
+  factory AdminFeedbackEntry.fromJson(Map<String, dynamic> j) =>
+      AdminFeedbackEntry(
         id: j['id'] as String? ?? '',
         uploaderId: j['uploader_id'] as String? ?? '',
         uploaderName: j['uploader_name'] as String? ?? '',
@@ -65,6 +66,121 @@ class AdminFeedbackEntry {
         createdAt: (j['created_at'] as num?)?.toInt() ?? 0,
         status: j['status'] as String? ?? 'open',
       );
+}
+
+class FeedbackReplyEntry {
+  final String id;
+  final String message;
+  final String page;
+  final String speciesCn;
+  final String speciesSci;
+  final int createdAt;
+  final String status;
+  final String reply;
+  final String responder;
+  final int repliedAt;
+
+  const FeedbackReplyEntry({
+    required this.id,
+    required this.message,
+    required this.page,
+    required this.speciesCn,
+    required this.speciesSci,
+    required this.createdAt,
+    required this.status,
+    required this.reply,
+    required this.responder,
+    required this.repliedAt,
+  });
+
+  bool get hasReply => reply.trim().isNotEmpty;
+
+  factory FeedbackReplyEntry.fromJson(Map<String, dynamic> j) {
+    String str(List<String> keys) {
+      for (final key in keys) {
+        final value = j[key];
+        if (value == null) continue;
+        final text = '$value'.trim();
+        if (text.isNotEmpty) return text;
+      }
+      return '';
+    }
+
+    int integer(List<String> keys) {
+      for (final key in keys) {
+        final value = j[key];
+        if (value is num) return value.toInt();
+        final parsed = int.tryParse('$value');
+        if (parsed != null) return parsed;
+      }
+      return 0;
+    }
+
+    return FeedbackReplyEntry(
+      id: str(['id', 'feedback_id']),
+      message: str(['message', 'feedback', 'content']),
+      page: str(['page']),
+      speciesCn: str(['species_cn', 'speciesCn']),
+      speciesSci: str(['species_sci', 'speciesSci']),
+      createdAt: integer(['created_at', 'createdAt']),
+      status: str(['status']),
+      reply: str(['reply', 'reply_text', 'admin_reply', 'response']),
+      responder: str(['reply_by', 'replier', 'responder', 'admin_name']),
+      repliedAt: integer(['replied_at', 'reply_at', 'resolved_at']),
+    );
+  }
+}
+
+class UploadAccessRequestStatus {
+  final String id;
+  final String status;
+  final String token;
+  final String role;
+  final String name;
+  final String userId;
+  final String reply;
+  final int createdAt;
+  final int updatedAt;
+  final int resolvedAt;
+
+  const UploadAccessRequestStatus({
+    required this.id,
+    required this.status,
+    required this.token,
+    required this.role,
+    required this.name,
+    required this.userId,
+    required this.reply,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.resolvedAt,
+  });
+
+  bool get isNone => status == 'none' || status.isEmpty;
+  bool get isPending => status == 'pending';
+  bool get isApproved => status == 'approved' && token.isNotEmpty;
+  bool get isRejected => status == 'rejected';
+
+  factory UploadAccessRequestStatus.fromJson(Map<String, dynamic> j) {
+    int integer(String key) {
+      final value = j[key];
+      if (value is num) return value.toInt();
+      return int.tryParse('$value') ?? 0;
+    }
+
+    return UploadAccessRequestStatus(
+      id: j['id'] as String? ?? '',
+      status: j['status'] as String? ?? 'none',
+      token: j['token'] as String? ?? '',
+      role: j['role'] as String? ?? '',
+      name: j['name'] as String? ?? '',
+      userId: j['user_id'] as String? ?? '',
+      reply: j['reply'] as String? ?? '',
+      createdAt: integer('created_at'),
+      updatedAt: integer('updated_at'),
+      resolvedAt: integer('resolved_at'),
+    );
+  }
 }
 
 class UploadUser {
@@ -97,6 +213,7 @@ class PendingMediaItem {
   final int uploadedAt;
   final String description;
   final String features;
+  final String location;
   final int suggestedDifficulty;
   const PendingMediaItem({
     required this.sci,
@@ -112,6 +229,7 @@ class PendingMediaItem {
     required this.uploadedAt,
     this.description = '',
     this.features = '',
+    this.location = '',
     this.suggestedDifficulty = 0,
   });
 }
@@ -130,6 +248,7 @@ class HistoryItem {
   final int uploadedAt;
   final int approvedAt;
   final String description;
+  final String location;
   const HistoryItem({
     required this.sci,
     required this.cn,
@@ -144,6 +263,7 @@ class HistoryItem {
     required this.uploadedAt,
     required this.approvedAt,
     required this.description,
+    required this.location,
   });
 }
 
@@ -177,6 +297,7 @@ class AdminUploadService {
     String mediaType = '',
     String audioType = '',
     String license = 'CC BY-NC 4.0',
+    String location = '',
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -188,6 +309,9 @@ class AdminUploadService {
     if (mediaType.isNotEmpty) request.fields['media_type'] = mediaType;
     if (audioType.isNotEmpty) request.fields['audio_type'] = audioType;
     request.fields['license'] = license;
+    if (location.trim().isNotEmpty) {
+      request.fields['location'] = location.trim();
+    }
     request.files.add(await http.MultipartFile.fromPath('files', filePath));
 
     final response = await request.send();
@@ -210,6 +334,7 @@ class AdminUploadService {
     String mediaType = '',
     String audioType = '',
     String license = 'CC BY-NC 4.0',
+    String location = '',
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -222,6 +347,9 @@ class AdminUploadService {
     if (mediaType.isNotEmpty) request.fields['media_type'] = mediaType;
     if (audioType.isNotEmpty) request.fields['audio_type'] = audioType;
     request.fields['license'] = license;
+    if (location.trim().isNotEmpty) {
+      request.fields['location'] = location.trim();
+    }
     if (description.trim().isNotEmpty) {
       request.fields['description'] = description.trim();
     }
@@ -302,11 +430,13 @@ class AdminUploadService {
               uploadedAt: (e['uploaded_at'] as num?)?.toInt() ?? 0,
               approvedAt: (e['approved_at'] as num?)?.toInt() ?? 0,
               description: e['description'] as String? ?? '',
+              location: e['location'] as String? ?? '',
             ))
         .toList();
   }
 
-  Future<SpeciesMediaCount> fetchSpeciesMediaCount({required String sci}) async {
+  Future<SpeciesMediaCount> fetchSpeciesMediaCount(
+      {required String sci}) async {
     final uri = Uri.parse('$baseUrl/api/species_media_count')
         .replace(queryParameters: {'sci': sci});
     final response =
@@ -327,7 +457,8 @@ class AdminUploadService {
   Future<WhoAmI?> whoami({required String token}) async {
     if (token.trim().isEmpty) return null;
     final uri = Uri.parse('$baseUrl/api/whoami?token=$token');
-    final response = await _client.get(uri).timeout(const Duration(seconds: 15));
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) return null;
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return WhoAmI(
@@ -340,7 +471,8 @@ class AdminUploadService {
   Future<UploadStats?> fetchStats({required String token}) async {
     if (token.trim().isEmpty) return null;
     final uri = Uri.parse('$baseUrl/api/upload_stats?token=$token');
-    final response = await _client.get(uri).timeout(const Duration(seconds: 15));
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) return null;
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return UploadStats(
@@ -352,9 +484,56 @@ class AdminUploadService {
     );
   }
 
+  Future<UploadAccessRequestStatus> submitUploadAccessRequest({
+    required String clientId,
+    String note = '',
+    String platform = '',
+    String appVersion = '',
+    String appBuild = '',
+  }) async {
+    final response = await _client
+        .post(
+          Uri.parse('$baseUrl/api/token_requests'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'client_id': clientId,
+            'note': note,
+            'platform': platform,
+            'app_version': appVersion,
+            'app_build': appBuild,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('申请失败: ${response.statusCode} ${response.body}');
+    }
+    return UploadAccessRequestStatus.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<UploadAccessRequestStatus> fetchUploadAccessRequestStatus({
+    required String clientId,
+  }) async {
+    if (clientId.trim().isEmpty) {
+      return UploadAccessRequestStatus.fromJson(const {'status': 'none'});
+    }
+    final uri = Uri.parse('$baseUrl/api/token_requests/status')
+        .replace(queryParameters: {'client_id': clientId.trim()});
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('获取申请状态失败: ${response.statusCode} ${response.body}');
+    }
+    return UploadAccessRequestStatus.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   Future<List<PendingMediaItem>> fetchPending({required String token}) async {
     final uri = Uri.parse('$baseUrl/api/admin/pending?token=$token');
-    final response = await _client.get(uri).timeout(const Duration(seconds: 30));
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw Exception('获取审核队列失败: ${response.statusCode} ${response.body}');
     }
@@ -375,6 +554,7 @@ class AdminUploadService {
               uploadedAt: (e['uploaded_at'] as num?)?.toInt() ?? 0,
               description: e['description'] as String? ?? '',
               features: e['features'] as String? ?? '',
+              location: e['location'] as String? ?? '',
               suggestedDifficulty:
                   (e['suggested_difficulty'] as num?)?.toInt() ?? 0,
             ))
@@ -481,26 +661,34 @@ class AdminUploadService {
     String page = '',
     String speciesCn = '',
     String speciesSci = '',
+    String clientId = '',
+    Map<String, dynamic> context = const {},
   }) async {
+    final body = <String, dynamic>{
+      'message': message,
+      'page': page,
+      'species_cn': speciesCn,
+      'species_sci': speciesSci,
+    };
+    if (clientId.trim().isNotEmpty) {
+      body['client_id'] = clientId.trim();
+    }
+    body.addAll(context);
     final response = await _client.post(
       Uri.parse('$baseUrl/api/feedback?token=$token'),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({
-        'message': message,
-        'page': page,
-        'species_cn': speciesCn,
-        'species_sci': speciesSci,
-      }),
+      body: jsonEncode(body),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('反馈上传失败: ${response.statusCode} ${response.body}');
     }
   }
 
-  Future<List<AdminFeedbackEntry>> fetchAdminFeedback({required String token}) async {
+  Future<List<AdminFeedbackEntry>> fetchAdminFeedback(
+      {required String token}) async {
     final response = await _client
         .get(Uri.parse('$baseUrl/api/admin/feedback?token=$token'))
         .timeout(const Duration(seconds: 20));
@@ -512,6 +700,46 @@ class AdminUploadService {
         .whereType<Map<String, dynamic>>()
         .map(AdminFeedbackEntry.fromJson)
         .toList();
+  }
+
+  Future<List<FeedbackReplyEntry>> fetchFeedbackReplies({
+    String token = '',
+    String clientId = '',
+  }) async {
+    final query = <String, String>{};
+    if (token.trim().isNotEmpty) query['token'] = token.trim();
+    if (clientId.trim().isNotEmpty) query['client_id'] = clientId.trim();
+    final response = await _client
+        .get(
+          Uri.parse('$baseUrl/api/feedback/replies')
+              .replace(queryParameters: query),
+          headers: token.trim().isEmpty
+              ? const {}
+              : {'Authorization': 'Bearer ${token.trim()}'},
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('获取反馈通知失败: ${response.statusCode} ${response.body}');
+    }
+    final decoded = jsonDecode(response.body);
+    final List<dynamic> rawList;
+    if (decoded is List) {
+      rawList = decoded;
+    } else if (decoded is Map<String, dynamic>) {
+      final nested = decoded['replies'] ?? decoded['items'] ?? decoded['data'];
+      rawList = nested is List ? nested : const [];
+    } else {
+      rawList = const [];
+    }
+    return rawList
+        .whereType<Map<String, dynamic>>()
+        .map(FeedbackReplyEntry.fromJson)
+        .toList()
+      ..sort((a, b) {
+        final ar = a.repliedAt > 0 ? a.repliedAt : a.createdAt;
+        final br = b.repliedAt > 0 ? b.repliedAt : b.createdAt;
+        return br.compareTo(ar);
+      });
   }
 
   Future<void> resolveFeedback({

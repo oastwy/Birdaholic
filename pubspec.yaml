@@ -1,5 +1,6 @@
 name: bird_flashcard
 description: 鸟鸣闪卡学习工具
+publish_to: none
 version: 1.6.16+73
 
 environment:
@@ -18,6 +19,39 @@ dependencies:
   url_launcher: ^6.3.0
   wakelock_plus: ^1.4.0
   lpinyin: ^2.0.3
+
+  # ── 鸿蒙(OpenHarmony)平台实现：仅 ohos 构建用，在其他平台惰性、不激活。
+  #    路径指向本地 clone（~/ohos-flutter_packages），勿提交进发布分支。
+  shared_preferences_ohos:
+    path: /Users/wuyang/ohos-flutter_packages/packages/shared_preferences/shared_preferences_ohos
+  path_provider_ohos:
+    path: /Users/wuyang/ohos-flutter_packages/packages/path_provider/path_provider_ohos
+  url_launcher_ohos:
+    path: /Users/wuyang/ohos-flutter_packages/packages/url_launcher/url_launcher_ohos
+  wakelock_plus_ohos: ^0.0.3
+  # geolocator 鸿蒙实现：pub 的 0.0.3 有空安全 bug（timestamp 传 null），本地打补丁后用 path 挂。勿提交进发布分支。
+  geolocator_ohos:
+    path: /Users/wuyang/ohos-geolocator
+
+# ── 鸿蒙(ohos)构建专用覆盖：audioplayers 全子包指向本地 6.1.0-ohos fork
+#    （fork 内部 git URL 写坏了，必须全部 path 覆盖绕开）。勿提交进发布分支。
+dependency_overrides:
+  audioplayers:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers
+  audioplayers_android:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_android
+  audioplayers_darwin:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_darwin
+  audioplayers_linux:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_linux
+  audioplayers_web:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_web
+  audioplayers_windows:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_windows
+  audioplayers_ohos:
+    path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_ohos
+  audioplayers_platform_interface: ^7.0.0
+  path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:
@@ -38,4 +72,4 @@ flutter:
     - assets/brand/birdaholic_logo.png
     - assets/brand/wechat_group_qr_20260614.jpg
     - assets/sounds/complete.m4a
-    - data_packs/china_common_100_v1.2_opt.zip
+    - data_packs/china_common_100_v2.0_opt.zip

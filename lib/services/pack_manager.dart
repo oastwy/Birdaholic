@@ -65,10 +65,10 @@ class PackManager {
   /// 内置小包随 App 发布。完整中国名录只作为逐物种下载目录，不再维护整包 ZIP。
   static const builtinPacks = [
     BuiltinPackInfo(
-      assetPath: 'data_packs/china_common_100_v1.2_opt.zip',
-      dirName: 'china_common_100_v1_1',
+      assetPath: 'data_packs/china_common_100_v2.0_opt.zip',
+      dirName: 'china_common_100_v2',
       label: '中国常见鸟 100',
-      description: '100种鸟 · 用户上传图优先 · 安装后离线可学',
+      description: '100种鸟 · 用户上传图优先 · 含拍摄地点/时间 · 安装后离线可学',
     ),
   ];
 
@@ -1229,6 +1229,8 @@ class PackManager {
           'contributor_url': serverEntry['contributor_url'],
         if ((serverEntry['license'] as String? ?? '').trim().isNotEmpty)
           'license': serverEntry['license'],
+        if ((serverEntry['location'] as String? ?? '').trim().isNotEmpty)
+          'location': serverEntry['location'],
         if (difficulty.clamp(1, 5) != 1) 'difficulty': difficulty.clamp(1, 5),
       };
       images.add(entry);
@@ -1390,6 +1392,8 @@ class PackManager {
           'spectrogram_url': serverEntry['spectrogram_url'],
         if ((serverEntry['description'] as String? ?? '').trim().isNotEmpty)
           'description': serverEntry['description'],
+        if ((serverEntry['location'] as String? ?? '').trim().isNotEmpty)
+          'location': serverEntry['location'],
       };
       audios.add(entry);
       item['audios'] = audios;

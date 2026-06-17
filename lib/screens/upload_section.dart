@@ -74,6 +74,7 @@ class _UploadSectionState extends State<UploadSection> {
 
   final _speciesCtrl = TextEditingController();
   final _contributorCtrl = TextEditingController();
+  final _locationCtrl = TextEditingController();
   final _regionCtrl = TextEditingController(text: 'CN');
   final _featuresCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
@@ -101,6 +102,7 @@ class _UploadSectionState extends State<UploadSection> {
     super.initState();
     _service = AdminUploadService();
     _contributorCtrl.text = widget.storage.getContributorName();
+    _locationCtrl.text = widget.storage.getUploadLocation();
     _loadWorldBirds();
     _refreshStats();
   }
@@ -110,6 +112,7 @@ class _UploadSectionState extends State<UploadSection> {
     FilePickerGuard.forceReset();
     _speciesCtrl.dispose();
     _contributorCtrl.dispose();
+    _locationCtrl.dispose();
     _regionCtrl.dispose();
     _featuresCtrl.dispose();
     _descriptionCtrl.dispose();
@@ -305,6 +308,7 @@ class _UploadSectionState extends State<UploadSection> {
       return;
     }
     await widget.storage.setContributorName(_contributorCtrl.text.trim());
+    await widget.storage.setUploadLocation(_locationCtrl.text.trim());
     setState(() {
       _uploading = true;
       _uploadProgress = 0;
@@ -325,6 +329,7 @@ class _UploadSectionState extends State<UploadSection> {
           token: token,
           difficulty: _difficulty,
           description: _descriptionCtrl.text.trim(),
+          location: _locationCtrl.text.trim(),
           mediaType: _selectedMediaType ?? '',
           audioType: _selectedMediaType == 'audio' ? _audioType : '',
           license: 'CC BY-NC 4.0',
@@ -522,6 +527,16 @@ class _UploadSectionState extends State<UploadSection> {
                 isDense: true,
               ),
               onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 16),
+            _sectionHeader('拍摄/录音地点（可选）'),
+            TextField(
+              controller: _locationCtrl,
+              decoration: const InputDecoration(
+                hintText: '例：河北南堡 / 深圳湾 / 36.12, 120.32',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
             ),
             const SizedBox(height: 16),
             _sectionHeader('难度评级'),

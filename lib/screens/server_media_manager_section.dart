@@ -102,12 +102,25 @@ class _ServerMediaManagerSectionState extends State<ServerMediaManagerSection> {
   Future<void> _select(_BirdSearchItem bird) async {
     setState(() {
       _selected = bird;
-      _queryCtrl.text = '${bird.cn.isEmpty ? bird.en : bird.cn} · ${bird.sci}';
+      _queryCtrl.text = _birdLabel(bird);
       _results = const [];
       _media = null;
       _message = '';
     });
     await _refresh();
+  }
+
+  String _birdLabel(_BirdSearchItem bird) =>
+      '${bird.cn.isEmpty ? bird.en : bird.cn} · ${bird.sci}';
+
+  void _clearSelection() {
+    setState(() {
+      _queryCtrl.clear();
+      _results = const [];
+      _selected = null;
+      _media = null;
+      _message = '';
+    });
   }
 
   Future<void> _refresh() async {
@@ -207,13 +220,30 @@ class _ServerMediaManagerSectionState extends State<ServerMediaManagerSection> {
         children: [
           TextField(
             controller: _queryCtrl,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               isDense: true,
-              prefixIcon: Icon(Icons.search),
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _queryCtrl.text.isNotEmpty || _selected != null
+                  ? IconButton(
+                      tooltip: '清空鸟名',
+                      icon: const Icon(Icons.close),
+                      onPressed: _clearSelection,
+                    )
+                  : null,
               hintText: '搜索中文名 / English / 拉丁名 / 拼音首字母',
             ),
-            onChanged: _search,
+            onChanged: (value) {
+              final selected = _selected;
+              if (selected != null && value.trim() != _birdLabel(selected)) {
+                setState(() {
+                  _selected = null;
+                  _media = null;
+                  _message = '';
+                });
+              }
+              _search(value);
+            },
           ),
           if (_results.isNotEmpty)
             Card(

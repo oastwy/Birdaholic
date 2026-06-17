@@ -293,8 +293,8 @@ class _AuditHistorySectionState extends State<AuditHistorySection> {
                         TextSpan(text: '${it.cn.isEmpty ? it.en : it.cn} · '),
                         TextSpan(
                             text: it.sci,
-                            style: const TextStyle(
-                                fontStyle: FontStyle.italic)),
+                            style:
+                                const TextStyle(fontStyle: FontStyle.italic)),
                       ],
                     ),
                     maxLines: 1,
@@ -311,16 +311,21 @@ class _AuditHistorySectionState extends State<AuditHistorySection> {
                   if (it.description.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(it.description,
+                        style: TextStyle(fontSize: 11, color: Colors.blue[800]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                  if (it.location.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text('地点：${it.location}',
                         style:
-                            TextStyle(fontSize: 11, color: Colors.blue[800]),
+                            TextStyle(fontSize: 11, color: Colors.orange[800]),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                   ],
                   const SizedBox(height: 4),
                   Text(
-                    _timeAgo(it.approvedAt > 0
-                        ? it.approvedAt
-                        : it.uploadedAt),
+                    _timeAgo(it.approvedAt > 0 ? it.approvedAt : it.uploadedAt),
                     style: TextStyle(fontSize: 10, color: Colors.grey[500]),
                   ),
                 ],

@@ -148,8 +148,7 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
           children: [
             Text(
               '${it.cn.isEmpty ? it.en : it.cn} · ${it.sci}',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w700, fontSize: 13),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -178,12 +177,26 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
     ctrl.dispose();
     if (ok != true || msg.isEmpty) return;
     try {
+      final clientId = await widget.storage.ensureFeedbackClientId();
       await _service.submitFeedback(
         token: widget.storage.getAdminUploadToken(),
+        clientId: clientId,
         message: msg,
         page: '审核纠错（${it.kind == "audio" ? "音频" : "图片"}：${it.file}）',
         speciesCn: it.cn,
         speciesSci: it.sci,
+        context: {
+          'question_type': 'upload_review',
+          'question': '审核队列素材纠错',
+          'correct_answer': [
+            if (it.cn.trim().isNotEmpty) it.cn.trim(),
+            if (it.en.trim().isNotEmpty) it.en.trim(),
+            it.sci.trim(),
+          ].where((part) => part.isNotEmpty).join(' · '),
+          'media_kind': it.kind == 'audio' ? 'audio' : 'image',
+          'media_file': it.file,
+          'media_url': it.url,
+        },
       );
       if (!mounted) return;
       _showSnack('已记录纠错');
@@ -262,8 +275,7 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline,
-                  color: Colors.green, size: 48),
+              Icon(Icons.check_circle_outline, color: Colors.green, size: 48),
               SizedBox(height: 10),
               Text('当前没有待审核的内容', style: TextStyle(fontSize: 14)),
             ],
@@ -294,8 +306,7 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ClipRRect(
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(10)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
             child: SizedBox(
               height: 200,
               width: double.infinity,
@@ -309,8 +320,8 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
                           Icon(Icons.audiotrack, size: 48, color: Colors.grey),
                           SizedBox(height: 6),
                           Text('音频（点开始播放，暂不支持在线试听）',
-                              style: TextStyle(
-                                  color: Colors.grey, fontSize: 12)),
+                              style:
+                                  TextStyle(color: Colors.grey, fontSize: 12)),
                         ],
                       ),
                     )
@@ -371,35 +382,48 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
                     style: TextStyle(fontSize: 12, color: Colors.amber[800]),
                   ),
                 ],
+                if (it.location.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.orange[50],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '地点：${it.location}',
+                      style: TextStyle(fontSize: 12, color: Colors.orange[900]),
+                    ),
+                  ),
+                ],
                 if (it.description.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.blue[50],
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       '描述：${it.description}',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.blue[900]),
+                      style: TextStyle(fontSize: 12, color: Colors.blue[900]),
                     ),
                   ),
                 ],
                 if (it.features.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.green[50],
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       '识别特征：${it.features}',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.green[900]),
+                      style: TextStyle(fontSize: 12, color: Colors.green[900]),
                     ),
                   ),
                 ],

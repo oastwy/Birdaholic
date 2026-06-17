@@ -61,6 +61,7 @@ class _UploadModalContent extends StatefulWidget {
 
 class _UploadModalContentState extends State<_UploadModalContent> {
   final _contributorCtrl = TextEditingController();
+  final _locationCtrl = TextEditingController();
   final _featuresCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
   final List<File> _files = [];
@@ -80,6 +81,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   void initState() {
     super.initState();
     _contributorCtrl.text = widget.storage.getContributorName();
+    _locationCtrl.text = widget.storage.getUploadLocation();
     if (widget.kind == UploadKind.image) {
       _loadExistingImages();
     } else {
@@ -91,6 +93,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   void dispose() {
     FilePickerGuard.forceReset();
     _contributorCtrl.dispose();
+    _locationCtrl.dispose();
     _featuresCtrl.dispose();
     _descriptionCtrl.dispose();
     super.dispose();
@@ -151,6 +154,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
   Future<void> _doUpload() async {
     if (!_canUpload) return;
     await widget.storage.setContributorName(_contributorCtrl.text.trim());
+    await widget.storage.setUploadLocation(_locationCtrl.text.trim());
 
     final token = widget.storage.getAdminUploadToken();
     final hasToken = token.isNotEmpty;
@@ -177,6 +181,7 @@ class _UploadModalContentState extends State<_UploadModalContent> {
             token: token,
             difficulty: _difficulty,
             description: _descriptionCtrl.text.trim(),
+            location: _locationCtrl.text.trim(),
             mediaType: widget.kind == UploadKind.image ? 'image' : 'audio',
             audioType: widget.kind == UploadKind.audio ? _audioType : '',
             license: 'CC BY-NC 4.0',
@@ -309,6 +314,16 @@ class _UploadModalContentState extends State<_UploadModalContent> {
                         isDense: true,
                       ),
                       onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 14),
+                    _label('拍摄/录音地点（可选）'),
+                    TextField(
+                      controller: _locationCtrl,
+                      decoration: const InputDecoration(
+                        hintText: '例：河北南堡 / 深圳湾 / 36.12, 120.32',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     _label('描述（可选）· 性别 / 年龄 / 羽况'),

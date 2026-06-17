@@ -91,6 +91,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   int _groupCorrect = 0;
   int _groupWrong = 0;
   final List<_DeckCard> _groupWrongSpecies = [];
+  final Set<String> _answeredCardKeys = {};
 
   // Extra images from server for current bird
   List<String> _extraImagePaths = [];
@@ -352,6 +353,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupCorrect = 0;
       _groupWrong = 0;
       _groupWrongSpecies.clear();
+      _answeredCardKeys.clear();
       _showGroupComplete = false;
       _quizChoiceCache.clear();
       _extraImagePaths = [];
@@ -655,6 +657,14 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }
 
   void _recordAnswer(Species bird, {required bool isCorrect}) {
+    if (_answered) return;
+    final answerCard = _deck.isEmpty
+        ? _DeckCard(bird)
+        : _deck[_idx.clamp(0, _deck.length - 1).toInt()];
+    final answerKey =
+        '$_groupOffset|$_idx|${answerCard.species.sci}|${answerCard.audioIdx}';
+    if (!_answeredCardKeys.add(answerKey)) return;
+
     _audioKey.currentState?.stop();
     _answered = true;
     if (isCorrect) {
@@ -665,13 +675,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     } else {
       _wrongCount++;
       _groupWrong++;
-      final wrongCard = _deck.isEmpty
-          ? _DeckCard(bird)
-          : _deck[_idx.clamp(0, _deck.length - 1)];
       if (!_groupWrongSpecies.any((c) =>
-          c.species.sci == wrongCard.species.sci &&
-          c.audioIdx == wrongCard.audioIdx)) {
-        _groupWrongSpecies.add(wrongCard);
+          c.species.sci == answerCard.species.sci &&
+          c.audioIdx == answerCard.audioIdx)) {
+        _groupWrongSpecies.add(answerCard);
       }
       widget.storage.markWrong();
       widget.storage.markSpeciesUnknown(bird.cn);
@@ -830,6 +837,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupCorrect = 0;
       _groupWrong = 0;
       _groupWrongSpecies.clear();
+      _answeredCardKeys.clear();
       _idx = nextOffset;
       _extraImagePaths = [];
       _extraImageCredits = [];
@@ -855,6 +863,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupCorrect = 0;
       _groupWrong = 0;
       _groupWrongSpecies.clear();
+      _answeredCardKeys.clear();
       _idx = _groupOffset;
       _extraImagePaths = [];
       _extraImageCredits = [];
@@ -877,6 +886,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupCorrect = 0;
       _groupWrong = 0;
       _groupWrongSpecies.clear();
+      _answeredCardKeys.clear();
       _showGroupComplete = false;
       _extraImagePaths = [];
       _extraImageCredits = [];
@@ -948,6 +958,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     if (saved != true || controller.text.trim().isEmpty) return;
 
+    final feedbackContext = _buildFeedbackContext(bird);
     await widget.storage.addFeedbackEntry(
       message: controller.text,
       page: '闪卡学习',
@@ -955,20 +966,74 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       speciesSci: bird.sci,
     );
     final token = widget.storage.getAdminUploadToken();
+    final clientId = await widget.storage.ensureFeedbackClientId();
     // 不论有无 token 都尝试推送给管理员（无 token 走匿名）
     AdminUploadService()
         .submitFeedback(
           token: token,
+          clientId: clientId,
           message: controller.text,
           page: '闪卡学习',
           speciesCn: bird.cn,
           speciesSci: bird.sci,
+          context: feedbackContext,
         )
         .ignore();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
       content: Text('已记录纠错并同步给管理员'),
     ));
+  }
+
+  Map<String, dynamic> _buildFeedbackContext(Species bird) {
+    final context = <String, dynamic>{
+      'question_type': _mode == StudyMode.quiz ? 'choice' : 'review',
+      'prompt_mode': _effectivePromptMode.name,
+      'question': _feedbackQuestionText,
+      'correct_answer': _feedbackSpeciesLabel(bird),
+      'deck': _deckSummary,
+      'card_index': '${_idx - _groupOffset + 1}/${_groupEnd - _groupOffset}',
+    };
+    final cardContext = _cardKey.currentState?.feedbackContext();
+    if (cardContext != null) {
+      context.addAll(cardContext);
+    }
+    if (_mode == StudyMode.quiz) {
+      context['options'] = _quizChoices.map(_feedbackSpeciesLabel).toList();
+      if (_selectedChoiceSci != null) {
+        Species? selected;
+        for (final choice in _quizChoices) {
+          if (choice.sci == _selectedChoiceSci) {
+            selected = choice;
+            break;
+          }
+        }
+        context['selected_answer'] = selected == null
+            ? _selectedChoiceSci
+            : _feedbackSpeciesLabel(selected);
+      }
+    }
+    return context;
+  }
+
+  String get _feedbackQuestionText {
+    if (_mode == StudyMode.quiz) {
+      return _effectivePromptMode == PromptMode.audio
+          ? '选择题：这是什么鸟的声音？'
+          : '选择题：这是什么鸟？';
+    }
+    return _effectivePromptMode == PromptMode.audio
+        ? '复习题：这是什么鸟的声音？'
+        : '复习题：这是什么鸟？';
+  }
+
+  String _feedbackSpeciesLabel(Species species) {
+    final parts = <String>[
+      if (species.cn.trim().isNotEmpty) species.cn.trim(),
+      if (species.en.trim().isNotEmpty) species.en.trim(),
+      species.sci.trim(),
+    ].where((part) => part.isNotEmpty).toList();
+    return parts.join(' · ');
   }
 
   Future<void> _editIdentificationNote() async {
@@ -1082,17 +1147,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }
 
   Future<void> _applyEBirdDeckFilter() async {
-    final apiKey = widget.storage.getEBirdApiKey();
-    if (apiKey.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
-      return;
-    }
-
     final regionNames = await EBirdService.loadRegionNames();
     if (!mounted) return;
     final controller = TextEditingController(text: _ebirdFilterLabel);
+    final coordController = TextEditingController();
     // 时间范围：full=完整名录 / recent=近 N 天 / date=指定历史日期
     var timeMode = 'full';
     var backDays = 14;
@@ -1121,18 +1179,20 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   children: [
                     const Text(
                       'eBird 地点筛选',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '输入国家/地区/热点代码，或经纬度，把当前闪卡范围收窄到这个地点出现过的鸟种。',
+                      '输入国家/地区/热点代码，或直接填经纬度，把当前闪卡范围收窄到这个地点出现过的鸟种。',
                       style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: controller,
                       decoration: InputDecoration(
-                        hintText: '搜地名如 湖北、云南、日本，或代码 CN-42、热点 L3124991',
+                        labelText: '地点、热点或地区代码',
+                        hintText: '湖北、云南、日本、CN-42、L3124991',
                         prefixIcon: const Icon(Icons.search),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -1160,8 +1220,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                 title: Text(s.value),
                                 trailing: Text(s.key,
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[500])),
+                                        fontSize: 12, color: Colors.grey[500])),
                                 onTap: () => setModal(() {
                                   controller.text = s.value;
                                   suggestions = [];
@@ -1171,6 +1230,21 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: coordController,
+                      keyboardType: TextInputType.text,
+                      decoration: InputDecoration(
+                        labelText: '经纬度筛选（可选）',
+                        hintText: '纬度, 经度, 半径km，例如 24.7,97.6,25',
+                        helperText: '填写后优先按经纬度筛选；半径不填默认 25km。',
+                        prefixIcon: const Icon(Icons.explore_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+                    ),
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
@@ -1243,7 +1317,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         ChoiceChip(
                           label: const Text('近期记录'),
                           selected: timeMode == 'recent',
-                          onSelected: (_) => setModal(() => timeMode = 'recent'),
+                          onSelected: (_) =>
+                              setModal(() => timeMode = 'recent'),
                         ),
                         ChoiceChip(
                           label: Text(histDate == null
@@ -1291,8 +1366,15 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         ),
                         const Spacer(),
                         FilledButton(
-                          onPressed: () =>
-                              Navigator.pop(ctx, controller.text.trim()),
+                          onPressed: () {
+                            final coords = coordController.text.trim();
+                            Navigator.pop(
+                              ctx,
+                              coords.isNotEmpty
+                                  ? coords
+                                  : controller.text.trim(),
+                            );
+                          },
                           child: const Text('应用'),
                         ),
                       ],
@@ -1306,6 +1388,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       ),
     );
     controller.dispose();
+    coordController.dispose();
     if (query == null) return;
     if (query == '__clear__') {
       await widget.storage.clearEbirdFilter();
@@ -1322,6 +1405,14 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请选择历史日期')),
       );
+      return;
+    }
+    final apiKey = widget.storage.getEBirdApiKey();
+    if (apiKey.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先在设置页填写 eBird API key')));
       return;
     }
 
@@ -1346,8 +1437,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           backDays: timeMode == 'recent' ? backDays : 30,
         );
       } else if (timeMode == 'recent') {
-        matches = await service.fetchRecentSpeciesMatches(loc,
-            backDays: backDays);
+        matches =
+            await service.fetchRecentSpeciesMatches(loc, backDays: backDays);
       } else if (timeMode == 'date') {
         matches = await service.fetchHistoricSpeciesMatches(
           loc,
@@ -1536,6 +1627,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       _groupCorrect = 0;
       _groupWrong = 0;
       _groupWrongSpecies.clear();
+      _answeredCardKeys.clear();
       _showGroupComplete = false;
     });
     _buildDeck();
@@ -2100,12 +2192,19 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     if (modes.contains('cn')) {
-      add(choice.cn,
-          TextStyle(fontWeight: FontWeight.w800, fontSize: 16, height: 1.15, color: color));
+      add(
+          choice.cn,
+          TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              height: 1.15,
+              color: color));
     }
     if (modes.contains('en')) {
-      add(choice.en,
-          TextStyle(fontSize: 13, height: 1.15, color: color ?? Colors.grey[700]));
+      add(
+          choice.en,
+          TextStyle(
+              fontSize: 13, height: 1.15, color: color ?? Colors.grey[700]));
     }
     if (modes.contains('sci')) {
       add(

@@ -116,6 +116,9 @@ class BirdCardState extends State<BirdCard>
         credit: widget.imageCredit.isNotEmpty
             ? widget.imageCredit
             : widget.species.imageCredit,
+        contributor: sourceImage?.contributor ?? '',
+        location: sourceImage?.location ?? '',
+        date: sourceImage?.date ?? '',
         sourceFile: sourceFile,
         difficulty: sourceImage?.difficulty ?? widget.species.difficulty,
       ));
@@ -142,11 +145,26 @@ class BirdCardState extends State<BirdCard>
         path: p,
         isNetwork: isNet,
         credit: credit,
+        contributor: sourceImage?.contributor ?? '',
+        location: sourceImage?.location ?? '',
+        date: sourceImage?.date ?? '',
         sourceFile: sourceFile,
         difficulty: sourceImage?.difficulty ?? widget.species.difficulty,
       ));
     }
     return result;
+  }
+
+  /// 图片署名行：@作者 · 地点 · 时间（缺的自动省略）。
+  /// 作者优先用干净的 contributor，没有再退回 credit。
+  String _imageCaption(_ImageEntry e) {
+    final author = e.contributor.isNotEmpty ? e.contributor : e.credit;
+    final parts = <String>[
+      if (author.isNotEmpty) '@$author',
+      if (e.location.isNotEmpty) e.location,
+      if (e.date.isNotEmpty) e.date,
+    ];
+    return parts.join(' · ');
   }
 
   @override
@@ -213,6 +231,69 @@ class BirdCardState extends State<BirdCard>
       setState(() => _showFront = true);
       _controller.reverse();
     }
+  }
+
+  Map<String, dynamic> feedbackContext() {
+    if (widget.promptMode == PromptMode.image) {
+      final images = _allImages;
+      if (images.isEmpty) {
+        return {
+          'media_kind': 'image',
+          'media_file': '',
+          'media_url': '',
+        };
+      }
+      final idx = _imagePageIndex.clamp(0, images.length - 1).toInt();
+      final image = images[idx];
+      final sourceFile = (image.sourceFile ?? '').trim();
+      final mediaFile = sourceFile.isNotEmpty
+          ? sourceFile
+          : image.isNetwork
+              ? image.path
+              : image.path.split(Platform.pathSeparator).last;
+      return {
+        'media_kind': 'image',
+        'media_file': mediaFile,
+        'media_url': _publicMediaUrl(mediaFile, 'images'),
+        'media_credit': image.credit,
+        'image_index': '${idx + 1}/${images.length}',
+      };
+    }
+
+    final paths = widget.audioPaths;
+    final idx = (_currentAudioIndex >= 0 && _currentAudioIndex < paths.length)
+        ? _currentAudioIndex
+        : 0;
+    final path = idx < paths.length ? paths[idx].trim() : '';
+    final label =
+        idx < widget.audioLabels.length ? widget.audioLabels[idx] : '';
+    final spectrogram = idx < widget.audioSpectrogramPaths.length
+        ? widget.audioSpectrogramPaths[idx].trim()
+        : '';
+    return {
+      'media_kind': 'audio',
+      'media_file': path.startsWith('http://') || path.startsWith('https://')
+          ? path
+          : path.split(Platform.pathSeparator).last,
+      'media_url':
+          path.startsWith('http://') || path.startsWith('https://') ? path : '',
+      'audio_label': label,
+      'spectrogram_url': spectrogram.startsWith('http://') ||
+              spectrogram.startsWith('https://')
+          ? spectrogram
+          : '',
+    };
+  }
+
+  String _publicMediaUrl(String mediaFile, String kind) {
+    final file = mediaFile.trim();
+    if (file.startsWith('http://') || file.startsWith('https://')) return file;
+    if (file.isEmpty) return '';
+    final expectedPrefix = kind == 'audio' ? 'audio/' : 'images/';
+    if (!file.startsWith(expectedPrefix)) return '';
+    final speciesKey =
+        widget.species.sci.trim().split(RegExp(r'\s+')).join('_');
+    return 'https://birding.today/species/$speciesKey/$file';
   }
 
   @override
@@ -490,12 +571,14 @@ class BirdCardState extends State<BirdCard>
               ),
           ],
         ),
-        if (images[_imagePageIndex].credit.isNotEmpty) ...[
+        if (_imageCaption(images[_imagePageIndex]).isNotEmpty) ...[
           const SizedBox(height: 4),
           Text(
-            '© ${images[_imagePageIndex].credit}',
+            _imageCaption(images[_imagePageIndex]),
             style: TextStyle(fontSize: 10, color: Colors.grey[500]),
             textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ],
@@ -848,56 +931,56 @@ class BirdCardState extends State<BirdCard>
             // 答案未揭晓时不显示鸟名/学名，避免放大频谱图泄露答案（做题作弊）
             if (!_showFront)
               Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.78),
-                      Colors.black.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 56, 36),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.species.cn.isEmpty
-                              ? widget.species.en
-                              : widget.species.cn,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${widget.species.sci} · $audioLabel',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
+                left: 0,
+                right: 0,
+                top: 0,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.78),
+                        Colors.black.withValues(alpha: 0.0),
                       ],
+                    ),
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 56, 36),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.species.cn.isEmpty
+                                ? widget.species.en
+                                : widget.species.cn,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${widget.species.sci} · $audioLabel',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
             Positioned(
               left: 16,
               right: 16,
@@ -941,12 +1024,18 @@ class _ImageEntry {
   final String path;
   final bool isNetwork;
   final String credit;
+  final String contributor;
+  final String location;
+  final String date;
   final String? sourceFile;
   final int difficulty;
   const _ImageEntry({
     required this.path,
     required this.isNetwork,
     required this.credit,
+    this.contributor = '',
+    this.location = '',
+    this.date = '',
     this.sourceFile,
     this.difficulty = 1,
   });

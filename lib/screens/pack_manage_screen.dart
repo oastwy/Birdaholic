@@ -535,7 +535,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
     if (countryCode == null || !mounted) return;
     final country = countries.firstWhere((c) => c.code == countryCode);
 
-    // 选省（地区只有一个时直接用）
+    // 选省；有国家级名录时先提供“整个国家/地区”。
     ChecklistRegion region;
     if (country.provinces.length <= 1) {
       region = country.provinces.isNotEmpty
@@ -551,6 +551,14 @@ class _PackManageScreenState extends State<PackManageScreen> {
         title: '${country.display} · 选择省 / 州',
         hint: '搜索省 / 州',
         items: [
+          (
+            code: country.code,
+            title: '整个国家 / 地区',
+            subtitle: '下载 ${country.display} 全部名录',
+            search:
+                '${country.display} ${country.name} ${country.code} entire country'
+                    .toLowerCase(),
+          ),
           for (final r in country.provinces)
             (
               code: r.code,
@@ -561,7 +569,14 @@ class _PackManageScreenState extends State<PackManageScreen> {
         ],
       );
       if (regionCode == null || !mounted) return;
-      region = country.provinces.firstWhere((r) => r.code == regionCode);
+      region = regionCode == country.code
+          ? ChecklistRegion(
+              code: country.code,
+              name: country.name,
+              nameZh: country.nameZh,
+              count: 0,
+            )
+          : country.provinces.firstWhere((r) => r.code == regionCode);
     }
 
     // 包名用地名：国家级用国名，省级用「国家·省」
@@ -594,7 +609,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
           cn: cn.isNotEmpty ? cn : en,
           en: en.isNotEmpty ? en : sci,
           sci: sci,
-          cons: _normalizeProtection((item['protection'] as String? ?? '').trim()),
+          cons: _normalizeProtection(
+              (item['protection'] as String? ?? '').trim()),
           habitat: 'ebird:${region.code}',
         ));
       }
@@ -742,6 +758,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
 
   Future<void> _showLocationSpeciesDownloadSheet() async {
     final controller = TextEditingController(text: 'CN-53');
+    final coordController = TextEditingController();
     final distanceController = TextEditingController(text: '25');
     final result = await showModalBottomSheet<String>(
       context: context,
@@ -765,7 +782,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                '输入 eBird 地区/热点代码，或输入经纬度。系统会先获取该地点鸟种，再逐个从服务器下载媒体。',
+                '输入地区/热点代码，或直接填经纬度。系统会先获取该地点鸟种，再逐个从服务器下载媒体。',
                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
               const SizedBox(height: 14),
@@ -773,13 +790,31 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 controller: controller,
                 textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
-                  labelText: '地点、热点或经纬度',
-                  hintText: '例如 云南、那邦、CN-53、L3124991、24.7,97.6',
+                  labelText: '地点、热点或地区代码',
+                  hintText: '例如 云南、那邦、CN-53、L3124991',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: coordController,
+                keyboardType: TextInputType.text,
+                decoration: InputDecoration(
+                  labelText: '经纬度（可选）',
+                  hintText: '纬度, 经度，例如 24.7, 97.6',
+                  helperText: '填写后优先按经纬度下载；半径在下方设置。',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onSubmitted: (value) {
+                  final dist = distanceController.text.trim();
+                  Navigator.pop(ctx,
+                      dist.isEmpty ? value.trim() : '${value.trim()}|$dist');
+                },
               ),
               const SizedBox(height: 10),
               TextField(
@@ -809,7 +844,9 @@ class _PackManageScreenState extends State<PackManageScreen> {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () {
-                    final value = controller.text.trim();
+                    final coords = coordController.text.trim();
+                    final value =
+                        coords.isNotEmpty ? coords : controller.text.trim();
                     final dist = distanceController.text.trim();
                     Navigator.pop(
                       ctx,
@@ -828,6 +865,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
     final query = result?.trim();
     final distanceKm = int.tryParse(distanceController.text.trim()) ?? 25;
     controller.dispose();
+    coordController.dispose();
     distanceController.dispose();
     if (query == null || query.isEmpty) return;
     if (query == '__current_location__') {
@@ -835,8 +873,10 @@ class _PackManageScreenState extends State<PackManageScreen> {
       return;
     }
     final parts = query.split('|');
+    final location = parts.first.trim();
+    if (location.isEmpty) return;
     await _downloadLocationSpecies(
-      parts.first,
+      location,
       distanceKm: parts.length > 1 ? int.tryParse(parts[1]) ?? 25 : distanceKm,
     );
   }
@@ -1488,8 +1528,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
         ),
         _PackModuleCard(
           icon: Icons.tune_outlined,
-          title: '自定义下载（需 API）',
-          subtitle: '按地点筛选，或用清单批量补充媒体',
+          title: '自定义下载',
+          subtitle: '按地点、热点或经纬度生成清单',
           onTap: () =>
               setState(() => _section = _PackManageSection.customDownload),
         ),
@@ -1501,11 +1541,11 @@ class _PackManageScreenState extends State<PackManageScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        _buildSectionHeader('自定义下载（需 API）', '用外部 API 生成物种清单，再逐物种从服务器或公开来源补媒体。'),
+        _buildSectionHeader('自定义下载', '用地点、经纬度或外部清单生成物种范围，再逐物种补媒体。'),
         _PackModuleCard(
           icon: Icons.place_outlined,
-          title: '按地点逐物种下载（需 eBird API）',
-          subtitle: '地区、热点或经纬度用于获取附近鸟种；媒体优先从服务器下载',
+          title: '按地点或经纬度下载',
+          subtitle: '地区、热点、经纬度都可以；媒体优先从服务器下载',
           onTap: _loading ? null : _showLocationSpeciesDownloadSheet,
         ),
         _PackModuleCard(

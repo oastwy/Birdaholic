@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 本地存储服务
@@ -13,8 +14,10 @@ class StorageService {
   static const _userRoleKey = 'upload_user_role'; // admin / beta / ''
   static const _userNameKey = 'upload_user_name';
   static const _contributorKey = 'upload_contributor';
+  static const _uploadLocationKey = 'upload_location';
   static const _consentAcceptedKey = 'consent_accepted_version';
   static const _feedbackJournalKey = 'feedback_journal';
+  static const _feedbackClientIdKey = 'feedback_client_id';
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
   static const _flashcardGroupSizeKey = 'flashcard_group_size';
@@ -82,10 +85,22 @@ class StorageService {
   String getUserRole() => _prefs.getString(_userRoleKey) ?? '';
   String getUserName() => _prefs.getString(_userNameKey) ?? '';
   String getContributorName() => _prefs.getString(_contributorKey) ?? '';
+  String getUploadLocation() => _prefs.getString(_uploadLocationKey) ?? '';
 
   bool get isAdminMode => getUserRole() == 'admin';
   bool get isBetaMode => getUserRole() == 'beta';
-  bool get hasUploadAccess => getAdminUploadToken().isNotEmpty && getUserRole().isNotEmpty;
+  bool get hasUploadAccess =>
+      getAdminUploadToken().isNotEmpty && getUserRole().isNotEmpty;
+
+  Future<String> ensureFeedbackClientId() async {
+    final existing = _prefs.getString(_feedbackClientIdKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    final id = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    await _prefs.setString(_feedbackClientIdKey, id);
+    return id;
+  }
 
   Future<void> setAdminUploadToken(String value) async {
     final normalized = value.trim();
@@ -98,7 +113,8 @@ class StorageService {
     await _prefs.setString(_adminUploadTokenKey, normalized);
   }
 
-  Future<void> setUserIdentity({required String role, required String name}) async {
+  Future<void> setUserIdentity(
+      {required String role, required String name}) async {
     if (role.isEmpty) {
       await _prefs.remove(_userRoleKey);
       await _prefs.remove(_userNameKey);
@@ -122,6 +138,15 @@ class StorageService {
       return;
     }
     await _prefs.setString(_contributorKey, normalized);
+  }
+
+  Future<void> setUploadLocation(String value) async {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      await _prefs.remove(_uploadLocationKey);
+      return;
+    }
+    await _prefs.setString(_uploadLocationKey, normalized);
   }
 
   bool get isNewUserGuideDismissed =>

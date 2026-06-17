@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-const String kPrivacyPolicyVersion = '1.0';
-const String kPrivacyPolicyEffectiveDate = '2026-05-22';
+const String kPrivacyPolicyVersion = '1.1';
+const String kPrivacyPolicyEffectiveDate = '2026-06-16';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
@@ -33,31 +33,34 @@ class PrivacyPolicyBody extends StatelessWidget {
 
 1.1 本机保存的数据（不上传服务器）
 - 学习记录：闪卡答题情况、收藏的鸟种、打卡日历；
-- 设置：API Key、上传 Token、署名、闪卡每组数量等偏好；
+- 设置：API Key、上传 Token、署名、上传地点、闪卡每组数量等偏好；
 - 笔记：识别笔记、纠错日记的本机备份。
 以上数据存于本设备的 SharedPreferences 中，**不会**主动上传服务器，卸载 App 即删除。
 
 1.2 上传到服务器的内容（仅受邀用户主动触发）
 服务器上传功能仅向受邀用户和管理员开放。仅当受邀用户主动点击"上传"按钮时，下列内容会发送到我们的服务器（birding.today），并需经管理员审核后才会公开：
 - 您选择的照片 / 录音文件；
-- 您填写的署名、描述、识别特征、难度评级；
+- 您填写的署名、拍摄/录音地点、描述、识别特征、难度评级；
 - 上传 Token（若已配置）：用于识别您的身份并归属署名；
 - 上传时间。
 此外，当您在闪卡中点"记录纠错"时，纠错内容、所涉物种、当前页面会同步发送，便于我们核对修正。
 
-1.3 网络请求
+1.3 上传权限申请（可选）
+如果您在 App 内申请上传权限，App 会向我们的服务器发送本机匿名申请号、App 版本、平台信息和您主动填写的备注，用于管理员审核并回传上传 Token。该申请不要求手机号、微信、邮箱、姓名或其他实名信息。
+
+1.4 网络请求
 - 调用您配置的 eBird API Key 查询鸟种名录（请求直接发给 ebird.org）；
 - 从 birding.today 拉取鸟种媒体（图片、音频、识别特征）；
 - 从 GitHub 检查 App 更新版本。
 
-1.4 我们 **不会** 收集
+1.5 我们 **不会** 收集
 - 您的精确定位用于追踪（仅在您主动选用"按位置查询"时由您的设备获取一次，见第六节）；
 - 您的通讯录、短信、通话记录；
 - 您相册中除您主动选取上传文件以外的内容；
 - 您的手机号、身份证号、银行卡号等敏感信息；
 - 设备唯一标识符、IMEI、MAC、广告 ID 等。
 
-1.5 第三方 SDK
+1.6 第三方 SDK
 本 App **未集成任何统计、广告、推送、社交 SDK**，无任何第三方代码在后台采集您的信息。
 
 二、个人信息收集清单
@@ -66,8 +69,9 @@ class PrivacyPolicyBody extends StatelessWidget {
 | --- | --- | --- | --- |
 | 学习记录、收藏、笔记 | 使用 App | 学习进度统计 | 否（仅本机） |
 | API Key / 上传 Token | 您手动填写 | 调用 eBird / 归属上传署名 | 仅随对应请求发送 |
+| 匿名申请号 + App 版本/平台 | 申请上传权限 | 管理员审核并回传上传 Token | 是 → 我方服务器 |
 | 位置坐标（经纬度） | 您点"按位置查询" | 查询附近鸟种名录 | 是 → 发往 eBird（境外，见第六节），我方不接收 |
-| 照片 / 录音 + 署名/描述 | 受邀用户点"上传" | 审核后公开到对应物种页 | 是 → 我方服务器 |
+| 照片 / 录音 + 署名/地点/描述 | 受邀用户点"上传" | 审核后公开到对应物种页 | 是 → 我方服务器 |
 
 除上表外，我们不收集任何其他个人信息。
 

@@ -27,8 +27,9 @@ class AppUpdateService {
   static DateTime? _cachedAt;
   static const _cacheTtl = Duration(hours: 1);
 
-  static Future<AppUpdateInfo> fetchLatest() async {
-    if (_cached != null &&
+  static Future<AppUpdateInfo> fetchLatest({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _cached != null &&
         _cachedAt != null &&
         DateTime.now().difference(_cachedAt!) < _cacheTtl) {
       return _cached!;
@@ -87,6 +88,10 @@ class AppUpdateService {
     _cached = info;
     _cachedAt = DateTime.now();
     return info;
+  }
+
+  static bool isNewerThanCurrent(String version) {
+    return _compareVersions(version, appVersionName) > 0;
   }
 
   static String? _parseVersion(String html) {
