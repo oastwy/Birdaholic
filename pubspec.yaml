@@ -38,7 +38,10 @@ dependencies:
     path: /Users/wuyang/ohos-geolocator
 
 # ── 鸿蒙(ohos)构建专用覆盖：audioplayers 全子包指向本地 6.1.0-ohos fork
-#    （fork 内部 git URL 写坏了，必须全部 path 覆盖绕开）。勿提交进发布分支。
+#    （fork 内部 git URL 写坏了，必须全部 path 覆盖绕开）。
+# ⚠️ 安卓打包要注释掉这块（ohos fork 在普通安卓编不过）；iOS/鸿蒙保持开启。
+#    用 scripts/build_*.sh 打包会自动切换下面 START/END 之间的块，勿手动改这两行标记。
+# BUILD-SCRIPT-OVERRIDES-START
 dependency_overrides:
   audioplayers:
     path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers
@@ -56,6 +59,7 @@ dependency_overrides:
     path: /Users/wuyang/ohos-flutter_audioplayers/packages/audioplayers_ohos
   audioplayers_platform_interface: ^7.0.0
   path_provider: ^2.1.0
+# BUILD-SCRIPT-OVERRIDES-END
 
 dev_dependencies:
   flutter_test:

@@ -2,12 +2,26 @@
 
 最后更新：2026-06-26  
 项目路径：`/Users/wuyang/Documents/bird_flashcard_repo`  
-当前 App 版本：**`1.7.0+86`**（以 `pubspec.yaml` / `lib/app_version.dart` 为准；用户要求从 1.6.27 改名升 1.7）。**安卓包已打、用户已测过、待发布到 GitHub Release + birding.today**：
-- 安卓 `releases/Birdaholic_v1.7.0_android.apk`（71.7MB / vc86 / sha256 见 `.sha256`）。
-- **鸿蒙 1.7.0 .app 未打**（用户本轮只要 github+birding.today；要上 AppGallery 时照下「鸿蒙配方」打，bump ohos/local.properties 到 1.7.0/86 即可）。
-- **环境为鸿蒙态**：pubspec overrides 反注释 + `android/local.properties` flutter.sdk→flutter-ohos + `flutter-ohos pub get`（lock audioplayers 回 ohos fork）。
-- **服务器 `upload_server.py`（含审核通知 + 安全/正确性修复）已部署 124.223.101.188 并实测**，备份 `.bak_20260626_173246` / `.bak_20260626_210912`。
-- ⏳ **收尾中**：commit+push main → 建 GitHub Release v1.7.0（挂 APK）→ 更新 birding.today `download.html` 到 1.7.0。
+当前 App 版本：**`1.7.0+86`**（1.6.27 改名升 1.7）。**已发布**：
+- 安卓 `releases/Birdaholic_v1.7.0_android.apk`（vc86）→ **已 commit/push main（5343ba9）+ GitHub Release v1.7.0（挂 APK，Latest）+ birding.today `download.html` 已更到 1.7.0**。
+- 鸿蒙 `releases/Birdaholic_v1.7.0_ohos_api22_release.app`（1.7.0/86, api22·Release·已签名）→ **待传华为 AGC**。
+- iOS：工程已 archive-ready（Pods 同步、版本注入 1.7.0/86），**用户在 Xcode 自行 archive+上传**（team 4X6MA7WX67 / bundle `today.birding.birdaholic` / App Store profile 在本地但缺 Distribution 证书，需 Xcode 自动创建）。⚠️ iOS 打包用 `.flutter-sdk`，**overrides 保持反注释即可**——ohos fork 的 `audioplayers_darwin` 就是上游 iOS 实现、能用，**别像安卓那样注释**；只需 `cd ios && pod install` 同步沙盒。
+- 服务器 `upload_server.py`（审核通知 + 安全/正确性修复）已部署 124.223.101.188 实测，备份 `.bak_20260626_173246` / `.bak_20260626_210912`。
+- **环境为鸿蒙态**（pubspec overrides 反注释 + `flutter-ohos pub get`，lock=ohos fork）。
+
+## 🔧 1.7.1 待改（2026-06-26 用户记录，下一版做）
+- **鸟种界面加载慢 → 服务器媒体加持久缓存**：`bird_preview_screen.dart` 每打开/翻一种就 `_loadServerMedia`→`fetchSpeciesMedia(sci)` 现拉服务器 manifest，且远程图用裸 `Image.network`（约 line 825）加载；`_serverCache` 只在内存、远程图无磁盘缓存 → 每次启动/装新版都重拉重下（服务器腾讯云国内、跨网慢）。本地包图（`_localPreviewImages`→`Image.file`）秒出，慢的是「本地包没有、去服务器够的额外图」。**用户选 A+B**：A) 远程图持久磁盘缓存（换 `cached_network_image` 或自落盘）；B) manifest 缓存落盘，免每次启动重拉。可选 C) 默认只显示本地包图、服务器额外图改「点击加载更多」按需拉；D) 鸟种页加「把这种服务器图存进本地包」一键钮。
+
+## 🛠 打包/发版改用脚本（2026-06-26 起，别再手搓配方）
+
+打包配方已固化成 `scripts/`（详见 `scripts/README.md`），下面这套手活不用再做：
+- `scripts/bump_version.sh 1.7.1` —— 4 处版本号同步。
+- `scripts/build_android.sh` —— 自动注释 overrides + .flutter-sdk + clean/pubget/build apk + 复制 releases + sha256 + **打完自动恢复鸿蒙态**。
+- `scripts/build_harmony.sh` —— 保持鸿蒙态 + 删 hwsdk.dir + hvigor assembleApp → AGC .app。
+- `scripts/build_ios.sh [--ipa]` —— 保持 overrides on（ohos fork 的 darwin 即上游 iOS）+ pod install，archive-ready。
+- `scripts/release.sh 1.7.1 [--all]` —— bump + 打包 + 打印发布清单（gh release / download.html / AGC / iOS，不自动对外）。
+- `pubspec.yaml` 的 `# BUILD-SCRIPT-OVERRIDES-START/END` 标记之间是脚本切换的 overrides 块，**勿手动改标记**。
+- **hooks**（`.claude/`）：`guard_commit.sh` 拦误入库的 APK/.app/签名/大文件；`guard_build.sh` 拦「overrides 开着却直接 flutter build apk」。下方旧「鸿蒙配方/安卓配方」文字留作原理参考，日常用脚本即可。
 
 ## ✅ v1.6.27 已打包待发版（2026-06-26，全量 analyze No issues；服务器已部署实测）
 

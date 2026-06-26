@@ -74,3 +74,6 @@ android/local.properties
 *.csr
 *.p7b
 *.keystore
+
+# 打包脚本切换 overrides 的瞬态文件
+pubspec.yaml.tmp
