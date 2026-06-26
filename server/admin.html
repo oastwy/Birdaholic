@@ -218,6 +218,10 @@
     .del:disabled { opacity: .5; cursor: default; }
     .fb-media { margin-top: 10px; }
     .fb-media-body { margin-top: 8px; }
+    .fb-imgreport { margin-top: 10px; display: flex; gap: 12px; align-items: flex-start; padding: 8px; background: var(--green-2); border-radius: 8px; }
+    .fb-report-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; flex: none; }
+    .fb-imgreport-info { flex: 1; min-width: 0; }
+    .fb-imgreport-info .reply-row { margin-top: 8px; }
     .upload-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
     .fb-reply { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
     .quick-replies { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -330,6 +334,7 @@
       <button class="tab" data-tab="review">待审核</button>
       <button class="tab" data-tab="feedback">纠错审核</button>
       <button class="tab" data-tab="tokenreq">权限申请</button>
+      <button class="tab" data-tab="rate">逐种评级</button>
       <button class="tab" data-tab="users">用户密钥</button>
       <button class="tab" data-tab="discover">发现页运营</button>
       <button class="tab" data-tab="stats">媒体统计</button>
@@ -486,6 +491,37 @@
       <thead><tr><th>申请时间</th><th>名称/备注</th><th>平台·版本</th><th>申请号</th><th>状态</th><th>操作</th></tr></thead>
       <tbody id="tokenReqRows"></tbody>
     </table>
+  </section>
+
+  <section class="panel" id="panel-rate">
+    <h2>逐种评级</h2>
+    <div class="toolbar">
+      <button id="rateLoadBtn">加载/刷新队列</button>
+      <label><input type="checkbox" id="rateOnlyUnrated"> 只看未评（物种）</label>
+      <input id="rateJump" placeholder="跳到 中文名/学名" style="min-width:200px">
+      <button id="ratePrev" class="ghost">← 上一种</button>
+      <button id="rateNext" class="ghost">下一种 →</button>
+      <span class="hint" id="rateProgress">未加载</span>
+    </div>
+    <div class="hint" style="margin:4px 0 10px">
+      键盘：<b>1–5</b> 给当前物种打难度；<b>Shift+1–5</b> 给当前选中图打质量难度；<b>←/→</b> 翻页；<b>Enter</b> 下一种。点缩略图可切换“当前图”。
+    </div>
+    <div id="rateCard" style="display:none">
+      <div style="font-size:18px;font-weight:700" id="rateName"></div>
+      <div class="hint" id="rateMeta" style="margin-bottom:8px"></div>
+      <div style="margin:8px 0">
+        <span style="font-weight:600">物种难度：</span>
+        <span id="rateSpeciesStars"></span>
+        <span class="hint" id="rateSpeciesVal"></span>
+      </div>
+      <div style="margin:8px 0">
+        <span style="font-weight:600">当前图质量/难度：</span>
+        <span id="rateImageStars"></span>
+        <span class="hint" id="rateImageVal"></span>
+      </div>
+      <div id="rateImages" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px"></div>
+    </div>
+    <div id="rateEmpty" class="hint" style="display:none">该物种在服务器上没有图片（无法评图，可只给物种难度）。</div>
   </section>
 
   <section class="panel" id="panel-users">
@@ -664,6 +700,12 @@ function token(){ return tokenEl.value.trim(); }
 function authHeaders(extra){ return Object.assign({ 'Authorization': 'Bearer ' + token() }, extra || {}); }
 function esc(s){
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function safeMediaUrl(u){
+  // 反馈图 URL 来自客户端提交，可能被构造成 javascript:/data: 等危险 scheme。
+  // 只放行本站媒体（去掉 http(s) 源后是以单个 / 开头的路径），其余一律置空、不渲染链接。
+  const r = String(u || '').replace(/^https?:\/\/[^/]+/, '');
+  return /^\/[^/]/.test(r) ? r : '';
 }
 function showToast(msg){
   toastEl.textContent = msg;
@@ -987,6 +1029,18 @@ function renderFeedback(){
       ${(row.status || 'open') === 'open' ? '<button data-action="resolve">标记已处理</button>' : ''}
     </div>
     <div style="margin-top:10px; line-height:1.6">${esc(row.message)}</div>
+    ${(row.report_type === 'image' || row.image_file || row.image_contributor || row.image_url) ? `<div class="fb-imgreport">
+      ${safeMediaUrl(row.image_url) ? `<a href="${esc(safeMediaUrl(row.image_url))}" target="_blank"><img src="${esc(safeMediaUrl(row.image_url))}" class="fb-report-thumb" loading="lazy" alt=""></a>` : ''}
+      <div class="fb-imgreport-info">
+        <div class="meta">被反馈图片 · 提交者：${esc(row.image_contributor || '未知')}${row.image_source ? ' · ' + esc(row.image_source) : ''}</div>
+        ${row.image_file ? `<div class="hint" style="word-break:break-all">${esc(row.image_file)}</div>` : ''}
+        ${row.relayed_at ? `<div class="hint">已回达提交者 · ${esc(fmtTime(row.relayed_at))}</div>` : ''}
+        ${row.image_source === 'birdaholic-upload' ? `<div class="reply-row">
+          <input type="text" class="relay-input" placeholder="回达图片提交者…（不会暴露举报者）">
+          <button data-relay="1">${row.relayed_at ? '再次回达' : '回达提交者'}</button>
+        </div>` : `<div class="hint">该图非 App 用户上传，无法回达提交者</div>`}
+      </div>
+    </div>` : ''}
     ${row.species_sci ? `<div class="fb-media" data-sci="${esc(row.species_sci)}">
       <button class="ghost" data-fbmedia="1">管理该物种图片/音频</button>
       <div class="fb-media-body" style="display:none"></div>
@@ -1069,6 +1123,25 @@ document.querySelector('#feedbackList').addEventListener('click', async event =>
       showToast('已回复用户');
       await loadFeedback();
     } catch (e) { showToast('回复失败：' + e.message); reply.disabled = false; }
+    return;
+  }
+  const relay = event.target.closest('button[data-relay]');
+  if(relay){
+    if(!requireToken()) return;
+    const item = relay.closest('.item');
+    const input = item.querySelector('.relay-input');
+    const text = input ? input.value.trim() : '';
+    if(!text){ showToast('请先输入回达内容'); return; }
+    relay.disabled = true;
+    try {
+      const r = await getJson('/api/admin/feedback/relay?token=' + encodeURIComponent(token()), {
+        method:'POST', headers: authHeaders({ 'Content-Type':'application/json' }),
+        body: JSON.stringify({ id: item.dataset.id, message: text }),
+      });
+      if(r && r.ok === false){ showToast('无法回达：该图非 App 用户上传'); relay.disabled = false; return; }
+      showToast('已回达图片提交者');
+      await loadFeedback();
+    } catch (e) { showToast('回达失败：' + e.message); relay.disabled = false; }
     return;
   }
   const toggleBtn = event.target.closest('button[data-fbmedia]');
@@ -1690,6 +1763,7 @@ function refreshActive(){
   if(activeTab === 'review') loadPending();
   if(activeTab === 'feedback') loadFeedback();
   if(activeTab === 'tokenreq') loadTokenReqs();
+  if(activeTab === 'rate') rateInit();
   if(activeTab === 'users') loadUsers();
   if(activeTab === 'discover') loadDiscover();
   if(activeTab === 'stats') loadStats();
@@ -1699,6 +1773,169 @@ function refreshActive(){
   if(activeTab === 'ops') loadOpsLog();
   if(activeTab === 'quiz') loadQuizLog();
 }
+
+// ── 逐种评级 ───────────────────────────────────────────────
+const rateState = { items: [], idx: 0, loaded: false, manifest: null, curImg: 0, onlyUnrated: false };
+function rateHttpsUrl(u){ return String(u || '').replace('http://124.223.101.188:8080', 'https://birding.today'); }
+function rateStars(containerId, value, onPick){
+  const el = document.querySelector('#' + containerId);
+  el.innerHTML = '';
+  for(let n=1; n<=5; n++){
+    const span = document.createElement('span');
+    span.textContent = n <= value ? '★' : '☆';
+    span.style.cssText = 'cursor:pointer;font-size:22px;color:' + (n<=value?'#e6a700':'#bbb') + ';margin-right:2px';
+    span.onclick = () => onPick(n);
+    el.appendChild(span);
+  }
+}
+async function rateInit(){
+  if(!requireToken()) return;
+  if(!rateState.loaded){ await rateLoad(); }
+  else { rateRender(); }
+}
+async function rateLoad(){
+  if(!requireToken()) return;
+  document.querySelector('#rateProgress').textContent = '加载中…';
+  try{
+    const data = await getJson('/api/admin/rate/queue?token=' + encodeURIComponent(token()), { headers: authHeaders() });
+    rateState.items = data.items || [];
+    rateState.loaded = true;
+    rateState.idx = 0;
+    rateRender();
+  }catch(e){ document.querySelector('#rateProgress').textContent = '加载失败：' + e.message; }
+}
+function ratePassFilter(it){ return !rateState.onlyUnrated || !it.species_rated; }
+function rateStep(dir){
+  const items = rateState.items;
+  if(!items.length) return;
+  let i = rateState.idx;
+  for(let k=0;k<items.length;k++){
+    i += dir;
+    if(i < 0) i = items.length - 1;
+    if(i >= items.length) i = 0;
+    if(ratePassFilter(items[i])){ rateState.idx = i; rateRender(); return; }
+  }
+  rateState.idx = i; rateRender();
+}
+async function rateRender(){
+  const items = rateState.items;
+  const ratedCount = items.filter(x => x.species_rated).length;
+  if(!items.length){ document.querySelector('#rateProgress').textContent = '队列为空'; return; }
+  const it = items[rateState.idx];
+  document.querySelector('#rateProgress').textContent =
+    `已评 ${ratedCount} / ${items.length} 物种 · 当前第 ${rateState.idx+1} 个`;
+  document.querySelector('#rateCard').style.display = 'block';
+  document.querySelector('#rateName').textContent = `${it.zh}  ${it.en || ''}`;
+  document.querySelector('#rateMeta').textContent = `${it.sci} · ${it.order} ${it.family}`;
+  rateStars('rateSpeciesStars', it.species_difficulty || 0, rateSetSpecies);
+  document.querySelector('#rateSpeciesVal').textContent = it.species_rated ? `（${it.species_difficulty}）` : '（未评）';
+  // 拉 manifest 看图
+  rateState.manifest = null; rateState.curImg = 0;
+  document.querySelector('#rateImages').innerHTML = '加载图片…';
+  document.querySelector('#rateEmpty').style.display = 'none';
+  if(!it.has_manifest || it.image_count === 0){
+    document.querySelector('#rateImages').innerHTML = '';
+    document.querySelector('#rateEmpty').style.display = 'block';
+    rateStars('rateImageStars', 0, ()=>showToast('该物种没有图片'));
+    document.querySelector('#rateImageVal').textContent = '';
+    return;
+  }
+  try{
+    const m = await getJson('/species/' + it.key + '/manifest.json');
+    rateState.manifest = m;
+    rateRenderImages();
+  }catch(e){ document.querySelector('#rateImages').innerHTML = '图片加载失败：' + e.message; }
+}
+function rateImageList(){
+  const m = rateState.manifest || {};
+  return (m.images || []).filter(x => !x.pending && !x.placeholder && x.source !== 'placeholder');
+}
+function rateRenderImages(){
+  const imgs = rateImageList();
+  const wrap = document.querySelector('#rateImages');
+  wrap.innerHTML = '';
+  imgs.forEach((img, i) => {
+    const d = document.createElement('div');
+    const sel = i === rateState.curImg;
+    d.style.cssText = 'border:3px solid ' + (sel?'#2d5016':'transparent') + ';border-radius:8px;padding:1px;cursor:pointer;position:relative';
+    const im = document.createElement('img');
+    im.src = rateHttpsUrl(img.url);
+    im.style.cssText = 'width:120px;height:90px;object-fit:cover;border-radius:6px;display:block';
+    d.appendChild(im);
+    if(img.difficulty !== undefined){
+      const badge = document.createElement('span');
+      badge.textContent = '★' + img.difficulty;
+      badge.style.cssText = 'position:absolute;left:3px;bottom:3px;background:rgba(0,0,0,.6);color:#ffd84d;font-size:11px;padding:1px 4px;border-radius:4px';
+      d.appendChild(badge);
+    }
+    d.onclick = () => { rateState.curImg = i; rateRenderImages(); };
+    wrap.appendChild(d);
+  });
+  const cur = imgs[rateState.curImg];
+  rateStars('rateImageStars', (cur && cur.difficulty) || 0, rateSetImage);
+  document.querySelector('#rateImageVal').textContent =
+    cur ? (cur.difficulty !== undefined ? `（${cur.difficulty}）` : '（未评）') : '';
+}
+async function rateSetSpecies(n){
+  if(!requireToken()) return;
+  const it = rateState.items[rateState.idx];
+  try{
+    await getJson('/api/set_difficulty?token=' + encodeURIComponent(token()),
+      { method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify({ sci: it.sci, difficulty: n }) });
+    it.species_difficulty = n; it.species_rated = true;
+    rateStars('rateSpeciesStars', n, rateSetSpecies);
+    document.querySelector('#rateSpeciesVal').textContent = `（${n}）`;
+    const ratedCount = rateState.items.filter(x => x.species_rated).length;
+    document.querySelector('#rateProgress').textContent =
+      `已评 ${ratedCount} / ${rateState.items.length} 物种 · 当前第 ${rateState.idx+1} 个`;
+    showToast('物种难度 = ' + n);
+  }catch(e){ showToast('保存失败：' + e.message); }
+}
+async function rateSetImage(n){
+  if(!requireToken()) return;
+  const imgs = rateImageList();
+  const cur = imgs[rateState.curImg];
+  if(!cur){ showToast('没有可评的图'); return; }
+  const it = rateState.items[rateState.idx];
+  try{
+    await getJson('/api/set_image_difficulty?token=' + encodeURIComponent(token()),
+      { method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+        body: JSON.stringify({ sci: it.sci, file: cur.file, difficulty: n }) });
+    cur.difficulty = n;
+    rateRenderImages();
+    showToast('图片难度 = ' + n);
+  }catch(e){ showToast('保存失败：' + e.message); }
+}
+document.querySelector('#rateLoadBtn').onclick = rateLoad;
+document.querySelector('#ratePrev').onclick = () => rateStep(-1);
+document.querySelector('#rateNext').onclick = () => rateStep(1);
+document.querySelector('#rateOnlyUnrated').onchange = (e) => {
+  rateState.onlyUnrated = e.target.checked;
+  if(rateState.onlyUnrated && rateState.items[rateState.idx] && rateState.items[rateState.idx].species_rated) rateStep(1);
+};
+document.querySelector('#rateJump').addEventListener('keydown', (e) => {
+  if(e.key !== 'Enter') return;
+  const q = e.target.value.trim().toLowerCase();
+  if(!q) return;
+  const i = rateState.items.findIndex(x =>
+    (x.zh||'').toLowerCase().includes(q) || (x.sci||'').toLowerCase().includes(q));
+  if(i >= 0){ rateState.idx = i; rateRender(); } else showToast('没找到');
+});
+document.addEventListener('keydown', (e) => {
+  if(activeTab !== 'rate' || !rateState.items.length) return;
+  if(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  if(e.key === 'ArrowRight'){ rateStep(1); e.preventDefault(); return; }
+  if(e.key === 'ArrowLeft'){ rateStep(-1); e.preventDefault(); return; }
+  if(e.key === 'Enter'){ rateStep(1); e.preventDefault(); return; }
+  // 用 e.code（Digit1..Digit5）以兼容 Shift+数字（Shift 时 e.key 是符号）
+  const m = (e.code || '').match(/^(?:Digit|Numpad)([1-5])$/);
+  if(m){
+    const n = Number(m[1]);
+    if(e.shiftKey) rateSetImage(n); else rateSetSpecies(n);
+    e.preventDefault();
+  }
+});
 
 loadOverview();
 if(token()) verifyToken();

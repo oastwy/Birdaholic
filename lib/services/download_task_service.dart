@@ -146,6 +146,14 @@ class DownloadTaskService extends ChangeNotifier {
   Future<void>? _runningTask;
   bool _cancelRequested = false;
 
+  // 上次任务参数（内存态），供「继续下载」在失败/取消后重跑（下载幂等：已下好的跳过、补缺）。
+  DownloadTaskKind _lastKind = DownloadTaskKind.speciesPack;
+  List<SpeciesEntry>? _lastSpeciesList;
+  String _lastPackName = '';
+  String _lastRegion = '';
+  bool _lastAllowApiFallback = true;
+  RemotePackInfo? _lastRemoteInfo;
+
   bool get isRunning => _snapshot.isRunning;
 
   bool get hasActiveOrFinishedTask =>
@@ -164,6 +172,44 @@ class DownloadTaskService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 上次下载失败/取消、且内存里还留着任务参数时，可「继续下载」补齐未完成的。
+  bool get canResume =>
+      _runningTask == null &&
+      (_snapshot.status == DownloadTaskStatus.failed ||
+          _snapshot.status == DownloadTaskStatus.canceled) &&
+      ((_lastKind == DownloadTaskKind.speciesPack &&
+              (_lastSpeciesList?.isNotEmpty ?? false)) ||
+          (_lastKind == DownloadTaskKind.remotePack && _lastRemoteInfo != null));
+
+  /// 用上次任务参数重跑，把没下完的接着补齐（下载幂等：已下好的会自动跳过）。
+  bool retryLast({
+    required PackManager packManager,
+    required StorageService storage,
+    VoidCallback? onPackActivated,
+  }) {
+    if (_runningTask != null) return false;
+    if (_lastKind == DownloadTaskKind.remotePack && _lastRemoteInfo != null) {
+      return startRemotePack(
+        info: _lastRemoteInfo!,
+        packManager: packManager,
+        onPackActivated: onPackActivated,
+      );
+    }
+    if (_lastKind == DownloadTaskKind.speciesPack &&
+        (_lastSpeciesList?.isNotEmpty ?? false)) {
+      return start(
+        speciesList: _lastSpeciesList!,
+        packName: _lastPackName,
+        region: _lastRegion,
+        packManager: packManager,
+        storage: storage,
+        allowApiFallback: _lastAllowApiFallback,
+        onPackActivated: onPackActivated,
+      );
+    }
+    return false;
+  }
+
   bool start({
     required List<SpeciesEntry> speciesList,
     required String packName,
@@ -175,6 +221,22 @@ class DownloadTaskService extends ChangeNotifier {
   }) {
     if (_runningTask != null) return false;
     _cancelRequested = false;
+    // 记下任务参数，供失败/取消后「继续下载」重跑。
+    // 存副本——调用方（如 online_import_screen）可能在下载后原地 clear/removeAt 这个 list，
+    // 持活引用会让保存的 resume 参数被腐蚀。
+    _lastKind = DownloadTaskKind.speciesPack;
+    _lastSpeciesList = List<SpeciesEntry>.of(speciesList);
+    _lastPackName = packName;
+    _lastRegion = region;
+    _lastAllowApiFallback = allowApiFallback;
+    _lastRemoteInfo = null;
+
+    // 持久化「打算下载的完整物种清单」，供数据包管理「继续下载（还差 N 种）」跨重启补齐。
+    unawaited(storage.savePendingDownload(packName, {
+      'region': region,
+      'allowApiFallback': allowApiFallback,
+      'species': speciesList.map((e) => e.toJson()).toList(),
+    }));
 
     _snapshot = DownloadTaskSnapshot(
       status: DownloadTaskStatus.running,
@@ -191,6 +253,7 @@ class DownloadTaskService extends ChangeNotifier {
       region: region,
       apiKey: allowApiFallback ? storage.getXenoCantoApiKey() : '',
       packManager: packManager,
+      storage: storage,
       allowApiFallback: allowApiFallback,
       onPackActivated: onPackActivated,
       shouldCancel: () => _cancelRequested,
@@ -205,6 +268,10 @@ class DownloadTaskService extends ChangeNotifier {
   }) {
     if (_runningTask != null) return false;
     _cancelRequested = false;
+    // 记下任务参数，供失败/取消后「继续下载」重跑
+    _lastKind = DownloadTaskKind.remotePack;
+    _lastRemoteInfo = info;
+    _lastSpeciesList = null;
 
     final startedAt = DateTime.now();
     _snapshot = DownloadTaskSnapshot(
@@ -285,6 +352,7 @@ class DownloadTaskService extends ChangeNotifier {
     required String region,
     required String apiKey,
     required PackManager packManager,
+    required StorageService storage,
     required bool allowApiFallback,
     VoidCallback? onPackActivated,
     required bool Function() shouldCancel,
@@ -320,6 +388,9 @@ class DownloadTaskService extends ChangeNotifier {
       );
       await packManager.setActivePack(packDir);
       onPackActivated?.call();
+
+      // 整个意图清单已跑完（即便个别种服务器无数据）：清掉续传记录，不再提示「继续下载」。
+      unawaited(storage.clearPendingDownload(packName));
 
       final hasSuccess =
           _snapshot.successCount > 0 || _snapshot.skippedCount > 0;

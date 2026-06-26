@@ -59,11 +59,13 @@ class FilePickerGuard {
     required FileType type,
     List<String>? allowedExtensions,
     bool allowMultiple = false,
+    bool withData = false,
   }) {
     return FilePicker.pickFiles(
       type: type,
       allowedExtensions: allowedExtensions,
       allowMultiple: allowMultiple,
+      withData: withData,
     ).timeout(_pickerTimeout);
   }
 
@@ -71,6 +73,7 @@ class FilePickerGuard {
     required FileType type,
     List<String>? allowedExtensions,
     bool allowMultiple = false,
+    bool withData = false,
   }) async {
     for (var attempt = 0; attempt < 2; attempt++) {
       await _waitForCooldown();
@@ -86,6 +89,7 @@ class FilePickerGuard {
           type: type,
           allowedExtensions: allowedExtensions,
           allowMultiple: allowMultiple,
+          withData: withData,
         );
       } on TimeoutException {
         forceReset();

@@ -335,7 +335,7 @@ class _NewsScreenState extends State<NewsScreen> {
     );
   }
 
-  /// 点入群直接弹出微信群二维码截图，无多余文字/按钮。
+  /// 点入群弹出微信群二维码：顶部有「关闭」按钮，长按二维码可保存/在浏览器打开。
   void _showWechatSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -344,18 +344,67 @@ class _NewsScreenState extends State<NewsScreen> {
         final maxH = MediaQuery.of(ctx).size.height * 0.7;
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxH),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: _qrImage(_groupQrUrl, fit: BoxFit.contain),
-              ),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text('入群交流',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
+                    ),
+                    IconButton(
+                      tooltip: '关闭',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                Flexible(
+                  child: GestureDetector(
+                    onLongPress: () => _saveGroupQr(ctx),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: maxH),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: _qrImage(_groupQrUrl, fit: BoxFit.contain),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '长按二维码保存到相册 / 用微信扫一扫加群',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
             ),
           ),
         );
       },
     );
+  }
+
+  /// 长按二维码「下载」：有网络图就在浏览器打开（可长按存相册），否则提示截图。
+  Future<void> _saveGroupQr(BuildContext ctx) async {
+    final url = _groupQrUrl;
+    if (!url.startsWith('http')) {
+      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+        content: Text('请对二维码截图保存')));
+      return;
+    }
+    // 直接拿 launchUrl 的结果决定提示，避免「成功条 + _open 的失败条」同时弹出。
+    final ok = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+      content: Text(ok
+          ? '已在浏览器打开二维码，长按图片即可保存到相册'
+          : '无法打开二维码，请改用截图保存')));
   }
 
   Widget _podcastCard(BuildContext context) {

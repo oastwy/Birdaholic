@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../models/data_pack.dart';
+import '../models/species.dart';
 import '../services/checklist_service.dart';
 import '../services/download_task_service.dart';
 import '../services/ebird_service.dart';
@@ -15,11 +16,10 @@ import '../services/pack_downloader.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import '../utils/file_picker_guard.dart';
+import 'bird_preview_screen.dart';
 import 'online_import_screen.dart';
 import 'feedback_review_section.dart';
-import 'audit_history_section.dart';
 import 'upload_section.dart';
-import 'upload_review_section.dart';
 import 'user_management_section.dart';
 import 'server_media_manager_section.dart';
 
@@ -30,8 +30,6 @@ enum _PackManageSection {
   customDownload,
   installed,
   upload,
-  uploadReview,
-  uploadHistory,
   serverMediaManager,
   userManagement,
   feedbackReview,
@@ -96,14 +94,20 @@ class _PackManageScreenState extends State<PackManageScreen> {
 
   Future<void> _importPack() async {
     try {
+      // withData: true 让选择器同时回传内存字节。鸿蒙(HarmonyOS)等平台 path 可能
+      // 为 null 或指向 dart:io File 读不了的 URI（之前"本地导入提示导入失败"的根因），
+      // 此时改用字节流导入；Android/iOS 仍优先走 path。
       final result = await FilePickerGuard.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['zip'],
+        withData: true,
       );
       if (result == null || result.files.isEmpty) return;
 
-      final path = result.files.single.path;
-      if (path == null) return;
+      final picked = result.files.single;
+      final path = picked.path;
+      final bytes = picked.bytes;
+      if (path == null && bytes == null) return;
 
       setState(() => _loading = true);
       if (!mounted) return;
@@ -111,7 +115,14 @@ class _PackManageScreenState extends State<PackManageScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('正在导入数据包...')));
 
-      final pack = await widget.packManager.importPack(path);
+      // 优先用字节：鸿蒙上 path 可能非空但 dart:io 读不了，字节流最可靠；
+      // 缺字节（少数平台不回传）才退回 path。
+      final DataPack pack;
+      if (bytes != null) {
+        pack = await widget.packManager.importPackFromBytes(bytes, picked.name);
+      } else {
+        pack = await widget.packManager.importPack(path!);
+      }
       await _loadPacks();
       widget.onPackChanged?.call();
 
@@ -182,23 +193,41 @@ class _PackManageScreenState extends State<PackManageScreen> {
       );
       return;
     }
+    var prune = false;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('更新已下载媒体'),
-        content: const Text(
-          '会逐个检查当前数据包里的物种，只下载服务器新增的图片/音频，不会清空学习进度。',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('更新已下载媒体'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '会逐个检查当前数据包里的物种，下载服务器新增的图片/音频，不会清空学习进度。',
+              ),
+              const SizedBox(height: 6),
+              CheckboxListTile(
+                value: prune,
+                onChanged: (v) => setDialog(() => prune = v ?? true),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('同时删除服务器已淘汰的图片/音频'),
+                subtitle: const Text('管理员删掉的图会从本地一并清除；你本机自加的图不受影响'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('开始更新'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('开始更新'),
-          ),
-        ],
       ),
     );
     if (confirmed != true) return;
@@ -210,6 +239,7 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _mediaUpdateSci = '';
       });
       final result = await widget.packManager.updateActivePackFromServer(
+        pruneRemoved: prune,
         onProgress: (current, total, speciesName) {
           if (!mounted) return;
           setState(() {
@@ -221,15 +251,18 @@ class _PackManageScreenState extends State<PackManageScreen> {
       await _loadPacks();
       widget.onPackChanged?.call();
       if (!mounted) return;
+      final removedText = (result.imageRemoved + result.audioRemoved) > 0
+          ? '，清除淘汰图片 ${result.imageRemoved} 张、音频 ${result.audioRemoved} 个'
+          : '';
       setState(() {
         _mediaUpdateStatus =
-            '完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个，更新 ${result.updatedSpecies} 种';
+            '完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个$removedText，更新 ${result.updatedSpecies} 种';
         _mediaUpdateSci = '';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '✅ 更新完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个'
+            '✅ 更新完成：新增图片 ${result.imageAdded} 张，音频 ${result.audioAdded} 个$removedText'
             '${result.failed > 0 ? '，失败 ${result.failed} 种' : ''}',
           ),
           duration: const Duration(seconds: 5),
@@ -1185,6 +1218,8 @@ class _PackManageScreenState extends State<PackManageScreen> {
     );
     if (confirm == true) {
       await widget.packManager.deletePack(pack.packDir);
+      // 连带清掉这个包的断点续传记录，避免删包后 prefs 里留下孤儿意图清单。
+      await widget.storage.clearPendingDownload(pack.name);
       await _loadPacks();
       widget.onPackChanged?.call();
     }
@@ -1365,22 +1400,85 @@ class _PackManageScreenState extends State<PackManageScreen> {
               const SizedBox(height: 12),
               if (orders.isEmpty)
                 const Text('这个数据包暂时没有目分类信息。')
-              else
+              else ...[
+                Text('点目可查看该目的鸟种',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: orders
                       .map(
-                        (order) => Chip(
+                        (order) => ActionChip(
                           label: Text(
                             '${BirdOrderTaxonomy.label(order)} ${counts[order]}',
                           ),
+                          onPressed: () {
+                            Navigator.pop(ctx); // 关闭概览 sheet
+                            _openOrderSpecies(order, rows);
+                          },
                         ),
                       )
                       .toList(),
                 ),
+              ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 断点续传：用持久化的「意图物种清单」重跑下载，补齐没下完的种（createPack 幂等，已下的跳过）。
+  void _resumePackDownload(DataPack pack, Map<String, dynamic> pending) {
+    final species = ((pending['species'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(SpeciesEntry.fromJson)
+        .toList();
+    if (species.isEmpty) return;
+    final started = DownloadTaskService.instance.start(
+      speciesList: species,
+      packName: pack.name,
+      region: (pending['region'] as String?) ?? pack.region,
+      packManager: widget.packManager,
+      storage: widget.storage,
+      allowApiFallback: (pending['allowApiFallback'] as bool?) ?? true,
+      onPackActivated: () async {
+        await _loadPacks();
+        widget.onPackChanged?.call();
+      },
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(started
+            ? '继续下载「${pack.name}」剩余物种…（已下好的会跳过，进度见首页）'
+            : '已有下载任务在进行，请等它结束再继续'),
+      ),
+    );
+  }
+
+  /// 从类群概览点某目 → 打开该目鸟种的预览（可左右翻看、点进详情）。
+  void _openOrderSpecies(String order, List<Map<String, dynamic>> rows) {
+    final species = rows
+        .where((r) => (r['order'] as String? ?? '').trim() == order)
+        .map((r) => Species.fromJson(r))
+        .where((s) => s.cn.isNotEmpty || s.sci.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.cn.compareTo(b.cn));
+    if (species.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这个目下暂时没有可显示的鸟种')),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BirdPreviewScreen.list(
+          speciesList: species,
+          packManager: widget.packManager,
+          storage: widget.storage,
         ),
       ),
     );
@@ -1401,8 +1499,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
         _PackManageSection.customDownload => _buildCustomDownloadSection(),
         _PackManageSection.installed => _buildInstalledSection(),
         _PackManageSection.upload => _buildUploadSection(),
-        _PackManageSection.uploadReview => _buildUploadReviewSection(),
-        _PackManageSection.uploadHistory => _buildUploadHistorySection(),
         _PackManageSection.serverMediaManager =>
           _buildServerMediaManagerSection(),
         _PackManageSection.userManagement => _buildUserManagementSection(),
@@ -1579,8 +1675,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
       storage: widget.storage,
       packManager: widget.packManager,
       onBackToRoot: () => setState(() => _section = _PackManageSection.root),
-      onOpenReview: () =>
-          setState(() => _section = _PackManageSection.uploadReview),
       onOpenUserManagement: () =>
           setState(() => _section = _PackManageSection.userManagement),
       onOpenFeedbackReview: () =>
@@ -1637,46 +1731,6 @@ class _PackManageScreenState extends State<PackManageScreen> {
     );
   }
 
-  Widget _buildUploadReviewSection() {
-    if (!widget.storage.isAdminMode) {
-      return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => setState(() => _section = _PackManageSection.root),
-          ),
-          title: const Text('待审核'),
-        ),
-        body: const Center(child: Text('仅管理员可访问')),
-      );
-    }
-    return UploadReviewSection(
-      storage: widget.storage,
-      onBack: () => setState(() => _section = _PackManageSection.upload),
-      onOpenHistory: () =>
-          setState(() => _section = _PackManageSection.uploadHistory),
-    );
-  }
-
-  Widget _buildUploadHistorySection() {
-    if (!widget.storage.isAdminMode) {
-      return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => setState(() => _section = _PackManageSection.root),
-          ),
-          title: const Text('审核历史'),
-        ),
-        body: const Center(child: Text('仅管理员可访问')),
-      );
-    }
-    return AuditHistorySection(
-      storage: widget.storage,
-      onBack: () => setState(() => _section = _PackManageSection.uploadReview),
-    );
-  }
-
   Widget _buildInstalledSection() {
     final missingBuiltin = PackManager.builtinPacks.where((info) {
       return !_packs.any((pack) => _isBuiltinPack(pack, info));
@@ -1726,14 +1780,74 @@ class _PackManageScreenState extends State<PackManageScreen> {
                     style: TextStyle(color: Colors.grey[500]),
                   ),
                 )
-              : ListView.builder(
+              : ListView(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                  itemCount: _packs.length,
-                  itemBuilder: (context, i) => _buildPackCard(_packs[i]),
+                  children: _buildGroupedPackList(),
                 ),
         ),
       ],
     );
+  }
+
+  /// 从数据包推断「国家/地区」分组键，用于把同一国家的不同地点包归到一起。
+  /// 兼容多种 region 写法：「中国 · 湖北」「CN-42」「CN」「日本」「湖北」等。
+  String _packCountry(DataPack pack) {
+    final r = pack.region.trim();
+    final n = pack.name;
+    if (n.contains('中国') ||
+        n.contains('全国') ||
+        r == 'CN' ||
+        r.toLowerCase() == 'china') {
+      return '中国';
+    }
+    if (r.contains('·')) return r.split('·').first.trim();
+    if (r.contains('-')) return r.split('-').first.trim();
+    return r.isEmpty ? '其它' : r;
+  }
+
+  /// 已安装数据包按国家分组渲染：仅一个分组时退回平铺，多个分组时加国家小标题。
+  List<Widget> _buildGroupedPackList() {
+    final groups = <String, List<DataPack>>{};
+    for (final p in _packs) {
+      groups.putIfAbsent(_packCountry(p), () => []).add(p);
+    }
+    if (groups.length <= 1) {
+      return _packs.map(_buildPackCard).toList();
+    }
+    final keys = groups.keys.toList()
+      ..sort((a, b) {
+        if (a == '中国') return -1;
+        if (b == '中国') return 1;
+        if (a == '其它') return 1;
+        if (b == '其它') return -1;
+        return a.compareTo(b);
+      });
+    final widgets = <Widget>[];
+    for (final k in keys) {
+      final list = groups[k]!;
+      widgets.add(Padding(
+        padding: const EdgeInsets.fromLTRB(6, 12, 6, 4),
+        child: Row(
+          children: [
+            const Icon(Icons.public, size: 15, color: Color(0xFF2d5016)),
+            const SizedBox(width: 6),
+            Text(
+              k,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF2d5016),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text('${list.length} 个',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          ],
+        ),
+      ));
+      widgets.addAll(list.map(_buildPackCard));
+    }
+    return widgets;
   }
 
   bool _isBuiltinPack(DataPack pack, [BuiltinPackInfo? info]) {
@@ -1746,6 +1860,11 @@ class _PackManageScreenState extends State<PackManageScreen> {
   Widget _buildPackCard(DataPack pack) {
     final isActive = pack.packDir == _activePackDir;
     final isBuiltin = _isBuiltinPack(pack);
+    // 断点续传：这个包当初打算下的种数 - 现有种数 = 还差多少没下。
+    final pending = widget.storage.getPendingDownload(pack.name);
+    final remaining = pending == null
+        ? 0
+        : ((pending['species'] as List?)?.length ?? 0) - pack.speciesCount;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
       child: Padding(
@@ -1804,6 +1923,23 @@ class _PackManageScreenState extends State<PackManageScreen> {
                   ),
               ],
             ),
+            if (remaining > 0) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loading
+                      ? null
+                      : () => _resumePackDownload(pack, pending!),
+                  icon: const Icon(Icons.download_for_offline_outlined,
+                      size: 18),
+                  label: Text('继续下载（还差 $remaining 种）'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2d5016),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [

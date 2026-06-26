@@ -30,6 +30,8 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+        // flutter_local_notifications 在 minSdk<26 时需要核心库脱糖
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -68,6 +70,11 @@ android {
 
 flutter {
     source "../.."
+}
+
+dependencies {
+    // flutter_local_notifications 脱糖依赖（每日打卡提醒）
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
 }
 
 dependencies {}

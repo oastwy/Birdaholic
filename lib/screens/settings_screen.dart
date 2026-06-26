@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -6,11 +8,18 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app_version.dart';
 import '../services/admin_upload_service.dart';
 import '../services/app_update_service.dart';
+import '../services/notification_service.dart';
 import '../services/storage.dart';
 import '../services/pack_manager.dart';
+import 'audit_history_section.dart';
 import 'data_attribution_screen.dart';
+import 'life_list_screen.dart';
 import 'pack_manage_screen.dart';
 import 'privacy_policy_screen.dart';
+import 'rate_review_screen.dart';
+import 'rate_species_screen.dart';
+import 'tutorial_screen.dart';
+import 'upload_review_section.dart';
 import 'user_agreement_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -214,11 +223,202 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _openContentReview() async {
+    final navigator = Navigator.of(context);
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (ctx) => UploadReviewSection(
+          storage: widget.storage,
+          onBack: () => Navigator.of(ctx).maybePop(),
+          onOpenHistory: () => Navigator.of(ctx).push(
+            MaterialPageRoute(
+              builder: (hctx) => AuditHistorySection(
+                storage: widget.storage,
+                onBack: () => Navigator.of(hctx).maybePop(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openTokenRequests() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _AdminTokenRequestsScreen(storage: widget.storage),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _switchAppMode() async {
+    final current = widget.storage.appMode;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 6, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('学习模式',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              ),
+            ),
+            RadioListTile<String>(
+              value: 'beginner',
+              groupValue: current,
+              onChanged: (v) => Navigator.pop(ctx, v),
+              title: const Text('新手模式'),
+              subtitle: const Text('只学中国常见鸟 100，界面更简单，隐藏进阶功能'),
+            ),
+            RadioListTile<String>(
+              value: 'free',
+              groupValue: current,
+              onChanged: (v) => Navigator.pop(ctx, v),
+              title: const Text('自由模式'),
+              subtitle: const Text('全部功能：自定义数据包、各国名录、地点筛选、上传等'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == current) return;
+    await widget.storage.setAppMode(picked);
+    if (picked == 'beginner') {
+      // 切到新手：把激活包切回内置「中国常见鸟 100」（带图那份）。
+      try {
+        await widget.packManager.ensureBuiltinPackInstalled();
+        final dir = await widget.packManager.builtinPackDirIfInstalled();
+        if (dir != null) await widget.packManager.setActivePack(dir);
+      } catch (_) {}
+      widget.onPackChanged?.call();
+    }
+    if (mounted) setState(() {});
+  }
+
+  Widget _groupHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey[600],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final beginner = widget.storage.isBeginnerMode;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
+        if (widget.storage.isAdminMode) ...[
+          _groupHeader('审核'),
+          Card(
+            color: const Color(0xFFFFF7E6),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.verified_outlined,
+                      color: Color(0xFF8a5a00)),
+                  title: const Text('内容审核'),
+                  subtitle: const Text('审核用户上传的鸟图 / 鸟鸣（通过 / 通过置顶 / 拒绝）'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _openContentReview,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.how_to_reg_outlined,
+                      color: Color(0xFF8a5a00)),
+                  title: const Text('上传权限审批'),
+                  subtitle: const Text('查看并审批用户的上传权限申请'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _openTokenRequests,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.rule_outlined,
+                      color: Color(0xFF8a5a00)),
+                  title: const Text('评级审核'),
+                  subtitle: const Text('审核内测用户提交的评级'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RateReviewScreen(storage: widget.storage),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _groupHeader('管理员工具'),
+          Card(
+            color: const Color(0xFFFFF7E6),
+            child: ListTile(
+              leading: const Icon(Icons.star_rate_outlined,
+                  color: Color(0xFF8a5a00)),
+              title: const Text('逐种评级'),
+              subtitle: const Text('给物种难度与图片质量打分（直接生效）'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RateSpeciesScreen(storage: widget.storage),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (widget.storage.isBetaMode && !widget.storage.isAdminMode) ...[
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.star_rate_outlined,
+                  color: Color(0xFF2d5016)),
+              title: const Text('逐种评级'),
+              subtitle: const Text('给物种难度与图片质量打分 · 提交后由管理员审核'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RateSpeciesScreen(storage: widget.storage),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        _groupHeader('学习'),
+        Card(
+          child: ListTile(
+            leading: Icon(
+              beginner ? Icons.school_outlined : Icons.explore_outlined,
+              color: const Color(0xFF2d5016),
+            ),
+            title: const Text('学习模式'),
+            subtitle: Text(beginner
+                ? '新手模式 · 专注中国常见鸟 100'
+                : '自由模式 · 全部功能与数据包'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _switchAppMode,
+          ),
+        ),
+        const SizedBox(height: 10),
         Card(
           child: ListTile(
             leading: const Icon(Icons.style_outlined, color: Color(0xFF2d5016)),
@@ -239,25 +439,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
         ),
-        const SizedBox(height: 10),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.folder_zip, color: Color(0xFF2d5016)),
-            title: const Text('数据包管理'),
-            subtitle: const Text('安装、下载、导入、更新和删除数据包'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => SettingsScreen.openPackManager(
-              context,
-              packManager: widget.packManager,
-              storage: widget.storage,
-              onPackChanged: widget.onPackChanged,
+        if (!beginner) ...[
+          const SizedBox(height: 10),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.folder_zip, color: Color(0xFF2d5016)),
+              title: const Text('数据包管理'),
+              subtitle: const Text('安装、下载、导入、更新和删除数据包'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => SettingsScreen.openPackManager(
+                context,
+                packManager: widget.packManager,
+                storage: widget.storage,
+                onPackChanged: widget.onPackChanged,
+              ),
             ),
           ),
-        ),
+        ],
         const SizedBox(height: 10),
+        _groupHeader('账号与上传'),
         Card(
           child: Column(
             children: [
+              if (!beginner) ...[
               ListTile(
                 leading: const Icon(Icons.key, color: Color(0xFF2d5016)),
                 title: const Text('API Key 与上传身份'),
@@ -277,6 +481,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const Divider(height: 1),
               ListTile(
+                leading: const Icon(Icons.checklist_rtl,
+                    color: Color(0xFF2d5016)),
+                title: const Text('我的观鸟清单 (life list)'),
+                subtitle: Text(
+                  widget.storage.lifeListCount > 0
+                      ? '已记录 ${widget.storage.lifeListCount} 种 · 导入 eBird / 记录中心 或手动标记'
+                      : '导入 eBird CSV / 记录中心 Excel / 手动标记，打卡可筛「未见过」',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => LifeListScreen(storage: widget.storage),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
                 leading: const Icon(
                   Icons.cloud_upload_outlined,
                   color: Color(0xFF2d5016),
@@ -290,7 +515,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _openUploadAccessRequest,
               ),
-              const Divider(height: 1),
+              ],
               ListTile(
                 leading: const Icon(
                   Icons.notifications_none_outlined,
@@ -309,9 +534,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 10),
+        _groupHeader('帮助与关于'),
         Card(
           child: Column(
             children: [
+              ListTile(
+                leading: const Icon(Icons.menu_book_outlined,
+                    color: Color(0xFF2d5016)),
+                title: const Text('新手教程'),
+                subtitle: const Text('打卡 / 预习 / 上传 / API 申请 / 抽象图理念，看这一篇'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TutorialScreen()),
+                ),
+              ),
+              const Divider(height: 0),
               ListTile(
                 leading:
                     const Icon(Icons.shield_outlined, color: Color(0xFF2d5016)),
@@ -449,6 +687,8 @@ class _UploadAccessRequestScreenState
         return 'linux';
       case TargetPlatform.fuchsia:
         return 'fuchsia';
+      // 保留 default 兜底跨工具链（见上方注释，勿删）；普通 SDK 下分析器视其为冗余，故抑制。
+      // ignore: unreachable_switch_default
       default:
         return platform.name;
     }
@@ -1080,6 +1320,11 @@ class _FlashcardSettingsScreenState extends State<_FlashcardSettingsScreen> {
   late final TextEditingController _groupController;
   late int _groupSize;
   late List<String> _quizNameModes;
+  late bool _startFullscreen;
+  late int _dailyGoal;
+  late bool _reminderOn;
+  late int _reminderHour;
+  late int _reminderMinute;
 
   @override
   void initState() {
@@ -1087,6 +1332,66 @@ class _FlashcardSettingsScreenState extends State<_FlashcardSettingsScreen> {
     _groupSize = widget.storage.flashcardGroupSize;
     _groupController = TextEditingController(text: '$_groupSize');
     _quizNameModes = List.of(widget.storage.quizNameModes);
+    _startFullscreen = widget.storage.flashcardStartFullscreen;
+    _dailyGoal = widget.storage.dailyGoal;
+    _reminderOn = widget.storage.reminderEnabled;
+    _reminderHour = widget.storage.reminderHour;
+    _reminderMinute = widget.storage.reminderMinute;
+  }
+
+  String get _reminderTimeLabel =>
+      '${_reminderHour.toString().padLeft(2, '0')}:${_reminderMinute.toString().padLeft(2, '0')}';
+
+  Future<void> _toggleReminder(bool on) async {
+    if (on) {
+      final granted = await NotificationService.requestPermission();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('未获得通知权限，请在系统设置里允许通知后再开启')),
+          );
+        }
+        return;
+      }
+      await NotificationService.scheduleDaily(_reminderHour, _reminderMinute);
+    } else {
+      await NotificationService.cancel();
+    }
+    await widget.storage.setReminderEnabled(on);
+    if (!mounted) return;
+    setState(() => _reminderOn = on);
+  }
+
+  Future<void> _pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: _reminderHour, minute: _reminderMinute),
+    );
+    if (picked == null) return;
+    await widget.storage.setReminderTime(picked.hour, picked.minute);
+    if (_reminderOn) {
+      await NotificationService.scheduleDaily(picked.hour, picked.minute);
+    }
+    if (!mounted) return;
+    setState(() {
+      _reminderHour = picked.hour;
+      _reminderMinute = picked.minute;
+    });
+  }
+
+  Future<void> _setStartFullscreen(bool value) async {
+    await widget.storage.setFlashcardStartFullscreen(value);
+    if (!mounted) return;
+    setState(() => _startFullscreen = value);
+    widget.onSettingsChanged?.call();
+  }
+
+  Future<void> _setDailyGoal(int value) async {
+    final v = value.clamp(1, 200);
+    await widget.storage.setDailyGoal(v);
+    if (!mounted) return;
+    setState(() => _dailyGoal = v);
+    widget.onSettingsChanged?.call();
   }
 
   Future<void> _toggleQuizMode(String mode) async {
@@ -1142,6 +1447,73 @@ class _FlashcardSettingsScreenState extends State<_FlashcardSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
         children: [
+          Card(
+            child: SwitchListTile(
+              value: _startFullscreen,
+              onChanged: _setStartFullscreen,
+              title: const Text('开始打卡直接进入全屏'),
+              subtitle: const Text('关闭时，开始打卡先停在带筛选条的窗口视图，方便先选范围；点「开始打卡」按钮再进全屏'),
+              activeColor: const Color(0xFF2d5016),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('每日目标'),
+                  const SizedBox(height: 4),
+                  Text('每天打卡多少张算达标（首页显示进度与连续天数）',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final g in [5, 10, 20, 30, 50])
+                        ChoiceChip(
+                          label: Text('$g 张'),
+                          selected: _dailyGoal == g,
+                          onSelected: (_) => _setDailyGoal(g),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // 每日打卡提醒：仅 Android 提供系统通知（iOS/鸿蒙暂不支持）
+          if (Platform.isAndroid) ...[
+            const SizedBox(height: 10),
+            Card(
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    value: _reminderOn,
+                    onChanged: _toggleReminder,
+                    title: const Text('每日打卡提醒'),
+                    subtitle: const Text('到点用系统通知提醒你来打卡（App 关着也会提醒）'),
+                    activeColor: const Color(0xFF2d5016),
+                  ),
+                  if (_reminderOn) ...[
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.schedule_outlined,
+                          color: Color(0xFF2d5016)),
+                      title: const Text('提醒时间'),
+                      trailing: Text(_reminderTimeLabel,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      onTap: _pickReminderTime,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1308,6 +1680,301 @@ class _FollowUsCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 管理员审批用户上传权限申请（/api/admin/token_requests）。
+class _AdminTokenRequestsScreen extends StatefulWidget {
+  final StorageService storage;
+  const _AdminTokenRequestsScreen({required this.storage});
+
+  @override
+  State<_AdminTokenRequestsScreen> createState() =>
+      _AdminTokenRequestsScreenState();
+}
+
+class _AdminTokenRequestsScreenState extends State<_AdminTokenRequestsScreen> {
+  final AdminUploadService _service = AdminUploadService();
+  bool _loading = true;
+  String? _error;
+  List<AdminTokenRequest> _items = const [];
+  bool _showAll = false;
+  final Set<String> _busy = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final token = widget.storage.getAdminUploadToken();
+    if (token.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = '未配置管理员 Token';
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final items = await _service.fetchTokenRequests(token: token);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _approve(AdminTokenRequest r) async {
+    final controller = TextEditingController(text: r.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批准上传权限'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: '给该用户的署名（可选）',
+            hintText: '留空则自动生成',
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('批准'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null) return;
+    await _act(
+      r,
+      () => _service.approveTokenRequest(
+        clientId: r.clientId,
+        name: name,
+        token: widget.storage.getAdminUploadToken(),
+      ),
+      '已批准，已为该用户生成上传 Token',
+    );
+  }
+
+  Future<void> _reject(AdminTokenRequest r) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('拒绝申请？'),
+        content: const Text('确定拒绝该用户的上传权限申请？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('拒绝'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _act(
+      r,
+      () => _service.rejectTokenRequest(
+        clientId: r.clientId,
+        token: widget.storage.getAdminUploadToken(),
+      ),
+      '已拒绝',
+    );
+  }
+
+  Future<void> _act(
+      AdminTokenRequest r, Future<void> Function() action, String okMsg) async {
+    if (_busy.contains(r.clientId)) return;
+    setState(() => _busy.add(r.clientId));
+    try {
+      await action();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(okMsg)));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('操作失败：$e')));
+    } finally {
+      if (mounted) setState(() => _busy.remove(r.clientId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = _items.where((r) => r.isPending).toList();
+    final shown = _showAll ? _items : pending;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('上传权限申请 (${pending.length})'),
+        actions: [
+          IconButton(
+            tooltip: _showAll ? '只看待处理' : '查看全部',
+            icon: Icon(_showAll ? Icons.filter_alt : Icons.filter_alt_outlined),
+            onPressed: () => setState(() => _showAll = !_showAll),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loading ? null : _load,
+          ),
+        ],
+      ),
+      body: _buildBody(shown),
+    );
+  }
+
+  Widget _buildBody(List<AdminTokenRequest> shown) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 36),
+              const SizedBox(height: 8),
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: _load, child: const Text('重试')),
+            ],
+          ),
+        ),
+      );
+    }
+    if (shown.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(_showAll ? '暂无任何申请记录。' : '没有待处理的申请。',
+              style: const TextStyle(fontSize: 14)),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemCount: shown.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (ctx, i) => _buildItem(shown[i]),
+      ),
+    );
+  }
+
+  Widget _buildItem(AdminTokenRequest r) {
+    final busy = _busy.contains(r.clientId);
+    final theme = Theme.of(context);
+    final statusLabel = r.status == 'approved'
+        ? '已通过'
+        : r.status == 'rejected'
+            ? '已拒绝'
+            : '待处理';
+    final statusColor = r.status == 'approved'
+        ? Colors.green
+        : r.status == 'rejected'
+            ? Colors.red
+            : Colors.orange;
+    final shortId =
+        r.clientId.length > 8 ? r.clientId.substring(0, 8) : r.clientId;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  r.name.isEmpty ? '匿名申请号 $shortId' : r.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(statusLabel,
+                    style: TextStyle(color: statusColor, fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text('申请号：${r.clientId}',
+              style: TextStyle(fontSize: 12, color: theme.hintColor)),
+          if (r.platform.isNotEmpty || r.appVersion.isNotEmpty)
+            Text(
+              '${r.platform}${r.appVersion.isNotEmpty ? ' · v${r.appVersion}' : ''}',
+              style: TextStyle(fontSize: 12, color: theme.hintColor),
+            ),
+          if (r.note.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('留言：${r.note}'),
+            ),
+          if (r.status == 'rejected' && r.reason.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('拒绝理由：${r.reason}',
+                  style: const TextStyle(color: Colors.red, fontSize: 12)),
+            ),
+          if (r.isPending) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: busy ? null : () => _reject(r),
+                    icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                    label: const Text('拒绝',
+                        style: TextStyle(color: Colors.red)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: busy ? null : () => _approve(r),
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('批准'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

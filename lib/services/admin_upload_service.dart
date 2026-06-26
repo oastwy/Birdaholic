@@ -199,6 +199,46 @@ class UploadUser {
   bool get isAdmin => role == 'admin';
 }
 
+/// 上传权限申请（管理员视角，来自 /api/admin/token_requests）。
+class AdminTokenRequest {
+  final String clientId;
+  final String status; // pending / approved / rejected
+  final String note;
+  final String platform;
+  final String appVersion;
+  final int createdAt;
+  final String reason;
+  final String name;
+
+  const AdminTokenRequest({
+    required this.clientId,
+    required this.status,
+    required this.note,
+    required this.platform,
+    required this.appVersion,
+    required this.createdAt,
+    required this.reason,
+    required this.name,
+  });
+
+  bool get isPending => status == 'pending' || status.isEmpty;
+
+  static int _asInt(dynamic v) =>
+      v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
+
+  factory AdminTokenRequest.fromJson(Map<String, dynamic> j) =>
+      AdminTokenRequest(
+        clientId: (j['client_id'] ?? '').toString(),
+        status: (j['status'] ?? 'pending').toString(),
+        note: (j['note'] ?? '').toString(),
+        platform: (j['platform'] ?? '').toString(),
+        appVersion: (j['app_version'] ?? '').toString(),
+        createdAt: _asInt(j['created_at']),
+        reason: (j['reason'] ?? '').toString(),
+        name: (j['name'] ?? '').toString(),
+      );
+}
+
 class PendingMediaItem {
   final String sci;
   final String cn;
@@ -565,6 +605,7 @@ class AdminUploadService {
     required String sci,
     required String file,
     required String token,
+    bool pin = false,
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/admin/approve'),
@@ -572,7 +613,7 @@ class AdminUploadService {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({'sci': sci, 'file': file, 'token': token}),
+      body: jsonEncode({'sci': sci, 'file': file, 'token': token, 'pin': pin}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('审批失败: ${response.statusCode} ${response.body}');
@@ -591,6 +632,66 @@ class AdminUploadService {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({'sci': sci, 'file': file, 'token': token}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('拒绝失败: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  // ── 上传权限申请审核（仅 admin） ──────────────────────────
+
+  Future<List<AdminTokenRequest>> fetchTokenRequests({
+    required String token,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/admin/token_requests?token=$token');
+    final response =
+        await _client.get(uri).timeout(const Duration(seconds: 15));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('获取申请列表失败: ${response.statusCode} ${response.body}');
+    }
+    final decoded = jsonDecode(response.body);
+    // 服务器返回 {"items":[...]}（dict）；老格式可能是裸列表，两者都兼容。
+    final list = decoded is List
+        ? decoded
+        : (decoded is Map<String, dynamic>
+            ? (decoded['items'] as List<dynamic>? ?? const [])
+            : const []);
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(AdminTokenRequest.fromJson)
+        .toList();
+  }
+
+  Future<void> approveTokenRequest({
+    required String clientId,
+    String name = '',
+    required String token,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/admin/token_requests/approve'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'client_id': clientId, 'name': name}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('批准失败: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  Future<void> rejectTokenRequest({
+    required String clientId,
+    String reason = '',
+    required String token,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/admin/token_requests/reject'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'client_id': clientId, 'reason': reason}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('拒绝失败: ${response.statusCode} ${response.body}');
@@ -791,6 +892,68 @@ class AdminUploadService {
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('难度上传失败: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  /// 逐种评级提交：管理员直接生效、内测进待审队列（服务器按 token 角色判定）。
+  /// file 为空=物种难度；否则=该图质量难度。返回是否进入待审队列（pending）。
+  Future<bool> submitRating({
+    required String sci,
+    String file = '',
+    String zh = '',
+    required int difficulty,
+    required String token,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/rate/submit'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'sci': sci,
+        if (file.isNotEmpty) 'file': file,
+        if (zh.isNotEmpty) 'zh': zh,
+        'difficulty': difficulty,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('评级提交失败: ${response.statusCode} ${response.body}');
+    }
+    final data = jsonDecode(response.body);
+    return data is Map && data['pending'] == true;
+  }
+
+  /// 管理员：拉取内测用户的待审评级队列。
+  Future<List<Map<String, dynamic>>> fetchPendingRatings({
+    required String token,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/admin/rate/pending?token=$token');
+    final response = await _client.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception('待审评级加载失败: ${response.statusCode}');
+    }
+    final data = jsonDecode(response.body);
+    final list = data is Map ? (data['items'] as List<dynamic>? ?? const []) : const [];
+    return list.whereType<Map<String, dynamic>>().toList();
+  }
+
+  /// 管理员：审核一条待审评级（approve=true 写入 manifest，否则丢弃）。
+  Future<void> resolveRating({
+    required String id,
+    required bool approve,
+    required String token,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/admin/rate/resolve'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'id': id, 'approve': approve}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('评级审核失败: ${response.statusCode} ${response.body}');
     }
   }
 

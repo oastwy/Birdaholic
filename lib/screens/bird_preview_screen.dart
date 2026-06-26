@@ -58,6 +58,9 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
   Set<String> _ebirdFilterSci = const {};
   String _ebirdFilterLabel = '';
 
+  // 鸟种页下半部：辨识特征 / 鸟鸣 用左右滑切换（0=辨识特征，1=鸟鸣）
+  int _detailTab = 0;
+
   // 音频互斥：每个播放器一个稳定 key，开始播放时停掉其他播放器
   final Map<String, GlobalKey<AudioPlayerWidgetState>> _audioKeys = {};
 
@@ -76,6 +79,9 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
   final Map<String, PageController> _photoControllers = {};
   final Map<String, int> _imageDifficultyOverrides = {};
   final Set<String> _imageDifficultyBusy = {};
+  // 本地预览图存在性缓存：避免每次 build/翻页都对每张图在 UI 线程跑 existsSync。
+  // key 是含包目录的绝对路径，换包后 key 自然不同；切包时在 _warmCachedPackDir 里清空。
+  final Map<String, bool> _localFileExists = {};
 
   @override
   void initState() {
@@ -315,6 +321,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
   Widget build(BuildContext context) {
     final sp = _current;
     final isFav = widget.storage.isFavorite(sp.cn);
+    final seen = widget.storage.hasSeen(sp.sci);
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D1B0A),
@@ -338,6 +345,17 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: seen ? '已见过（点按移出清单）' : '标记已见',
+            onPressed: () async {
+              await widget.storage.setSeen(sp.sci, !seen);
+              if (mounted) setState(() {});
+            },
+            icon: Icon(
+              seen ? Icons.check_circle : Icons.check_circle_outline,
+              color: seen ? Colors.greenAccent : Colors.white70,
+            ),
+          ),
           IconButton(
             tooltip: _ebirdFilterLabel.isEmpty ? 'eBird 筛选' : _ebirdFilterLabel,
             onPressed: _applyEBirdFilter,
@@ -485,10 +503,8 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
             ],
           ),
         ),
-        // Audio section
-        _buildAudioSection(sp),
-        // Identification features
-        _buildFeaturesSection(sp),
+        // 辨识特征 / 鸟鸣：左右滑切换
+        _buildDetailTabs(sp),
         // Upload actions
         _buildUploadRow(),
       ],
@@ -514,6 +530,8 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
             credit: img.contributor.isNotEmpty
                 ? img.contributor
                 : (img.source.isNotEmpty ? img.source : ''),
+            contributor: img.contributor,
+            contributorUrl: img.contributorUrl,
             difficulty: img.difficulty,
             source: img.source,
           )),
@@ -550,7 +568,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
             controller: ctrl,
             itemCount: allImages.length,
             onPageChanged: (i) => setState(() => _photoPageIndex[sp.sci] = i),
-            itemBuilder: (_, i) => _buildPhotoPage(allImages[i]),
+            itemBuilder: (_, i) => _buildPhotoPage(sp, allImages[i]),
           ),
         ),
         if (allImages.length > 1) ...[
@@ -606,7 +624,14 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
     return sp.imageFiles
         .map((sourceFile) {
           final path = '$dir/$sourceFile';
-          if (!File(path).existsSync()) return null;
+          // 只缓存「存在」的结果：已存在的图不必每次翻页/重建都 existsSync；
+          // 不缓存「不存在」——本屏上传/下载补进来的新文件下次 build 能立刻被发现。
+          var exists = _localFileExists[path] ?? false;
+          if (!exists) {
+            exists = File(path).existsSync();
+            if (exists) _localFileExists[path] = true;
+          }
+          if (!exists) return null;
           final info = _imageInfoForFile(sp, sourceFile);
           return _PreviewImage(
             path: path,
@@ -615,6 +640,8 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
             serverFile: _matchServerImageFile(sourceFile, info, serverImages),
             credit:
                 info?.credit.isNotEmpty == true ? info!.credit : sp.imageCredit,
+            contributor: info?.contributor ?? '',
+            contributorUrl: info?.contributorUrl ?? '',
             difficulty: info?.difficulty ?? sp.difficulty,
             source: info?.source ?? '',
           );
@@ -792,7 +819,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
     _list[_idx] = sp.copyWith(images: images);
   }
 
-  Widget _buildPhotoPage(_PreviewImage img) {
+  Widget _buildPhotoPage(Species sp, _PreviewImage img) {
     Widget image;
     if (img.isNetwork) {
       image = Image.network(
@@ -814,16 +841,194 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
       );
     }
 
-    return GestureDetector(
-      onTap: () => _showFullscreenImage(img),
-      child: Container(
-        color: const Color(0xFF1A2B17),
-        child: image,
-      ),
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () => _showFullscreenImage(sp, img),
+            onLongPress: () => _deleteLocalImage(sp, img),
+            child: Container(
+              color: const Color(0xFF1A2B17),
+              child: image,
+            ),
+          ),
+        ),
+        // 图片问题反馈：核实后由管理员同步给图片提交者
+        Positioned(
+          right: 8,
+          top: 8,
+          child: Material(
+            color: Colors.black38,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: IconButton(
+              tooltip: '反馈图片问题',
+              iconSize: 20,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.bug_report_outlined, color: Colors.white),
+              onPressed: () => _reportImageIssue(sp, img),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  void _showFullscreenImage(_PreviewImage img) {
+  /// 鸟种图片上的「反馈图片问题」：把这张图的提交者身份（贡献者/来源/图 URL）
+  /// 一并带进反馈，进管理员后台；管理员核实后再同步给图片提交者（不做用户↔用户直连）。
+  Future<void> _reportImageIssue(Species sp, _PreviewImage img) async {
+    final submitter = img.contributor.trim().isNotEmpty
+        ? img.contributor.trim()
+        : (img.credit.trim().isNotEmpty ? img.credit.trim() : '未知');
+    final controller = TextEditingController();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('反馈图片问题'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '反馈这张「${sp.cn}」的图片（提交者：$submitter）。\n核实后会由管理员同步给图片提交者。',
+              style: const TextStyle(fontSize: 12.5, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 6,
+              decoration: InputDecoration(
+                hintText: '例如：这张图不是该鸟种／拍的是别的动物／图不清晰',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('提交反馈'),
+          ),
+        ],
+      ),
+    );
+
+    final text = controller.text.trim();
+    controller.dispose();
+    if (saved != true || text.isEmpty) return;
+
+    final imageContext = <String, dynamic>{
+      'report_type': 'image',
+      'image_url': img.isNetwork ? img.path : '',
+      'image_file': img.serverFile ?? img.sourceFile ?? _basename(img.path),
+      'image_source': img.source,
+      'image_contributor': img.contributor,
+      'image_contributor_url': img.contributorUrl,
+    };
+
+    await widget.storage.addFeedbackEntry(
+      message: text,
+      page: '鸟种图片',
+      speciesCn: sp.cn,
+      speciesSci: sp.sci,
+    );
+    final token = widget.storage.getAdminUploadToken();
+    final clientId = await widget.storage.ensureFeedbackClientId();
+    // 无 token 走匿名；图片提交者身份在 context 里带给管理员后台。
+    // 等服务器确认再提示，失败时如实告知（本地日记已留底）。
+    var synced = true;
+    try {
+      await AdminUploadService()
+          .submitFeedback(
+            token: token,
+            clientId: clientId,
+            message: text,
+            page: '鸟种图片',
+            speciesCn: sp.cn,
+            speciesSci: sp.sci,
+            context: imageContext,
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      synced = false;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(synced
+          ? '已提交，核实后会同步给图片提交者'
+          : '已记录，但网络异常未能同步，联网后可重新反馈'),
+    ));
+  }
+
+  /// 长按图片删除：仅本地数据包里的图可删（服务器图走后台管理）。删后即时从本机消失。
+  Future<void> _deleteLocalImage(Species sp, _PreviewImage img) async {
+    final sourceFile = img.sourceFile;
+    if (img.isNetwork || sourceFile == null || sourceFile.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('这是服务器图片，请在后台「内容审核 / 媒体管理」里处理'),
+      ));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除这张图片？'),
+        content: Text('将从本地数据包的「${sp.cn}」中删除这张图片，仅影响本机，不影响服务器。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final updated = await widget.packManager
+          .removeSpeciesImageFromActivePack(sp.sci, sourceFile);
+      if (!mounted) return;
+      if (updated == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('删除失败：未在当前数据包找到这张图'),
+        ));
+        return;
+      }
+      _localFileExists.clear();
+      _serverCache.remove(sp.sci);
+      // 删图后该种照片轮播会变短：丢弃旧 PageController（可能停在已越界的旧页码），
+      // 让 _pageControllerFor 重建一个从第 0 页开始的新 controller，避免越界/圆点错位。
+      final oldCtrl = _photoControllers.remove(sp.sci);
+      setState(() {
+        _list[_idx] = updated;
+        _photoPageIndex[sp.sci] = 0;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => oldCtrl?.dispose());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('已从本地数据包删除这张图片'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除失败：$e')),
+      );
+    }
+  }
+
+  void _showFullscreenImage(Species sp, _PreviewImage img) {
     Widget src;
     if (img.isNetwork) {
       src = Image.network(img.path, fit: BoxFit.contain);
@@ -857,9 +1062,100 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
                 icon: const Icon(Icons.close),
               ),
             ),
+            // 放大看清后也能直接反馈这张图的问题
+            Positioned(
+              left: 8,
+              top: 8,
+              child: IconButton.filled(
+                tooltip: '反馈图片问题',
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _reportImageIssue(sp, img);
+                },
+                icon: const Icon(Icons.bug_report_outlined),
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  /// 辨识特征 / 鸟鸣 两段改成左右滑切换的 Tab，避免一长页来回滚。
+  Widget _buildDetailTabs(Species sp) {
+    Widget tabBtn(int idx, IconData icon, String label) {
+      final selected = _detailTab == idx;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => setState(() => _detailTab = idx),
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            decoration: BoxDecoration(
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.16)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: selected ? Colors.white70 : Colors.white24),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon,
+                    size: 16,
+                    color: selected ? Colors.white : Colors.white60),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: selected ? Colors.white : Colors.white60,
+                    fontWeight:
+                        selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            children: [
+              tabBtn(0, Icons.notes_outlined, '辨识特征'),
+              const SizedBox(width: 10),
+              tabBtn(1, Icons.graphic_eq, '鸟鸣'),
+            ],
+          ),
+        ),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragEnd: (details) {
+            final v = details.primaryVelocity ?? 0;
+            if (v < -120 && _detailTab == 0) {
+              setState(() => _detailTab = 1); // 左滑 → 鸟鸣
+            } else if (v > 120 && _detailTab == 1) {
+              setState(() => _detailTab = 0); // 右滑 → 辨识特征
+            }
+          },
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: KeyedSubtree(
+              key: ValueKey(_detailTab),
+              child: _detailTab == 0
+                  ? _buildFeaturesSection(sp)
+                  : _buildAudioSection(sp),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1235,6 +1531,7 @@ class _BirdPreviewScreenState extends State<BirdPreviewScreen> {
     final dir = await widget.packManager.getActivePackDir();
     if (!mounted) return;
     if (dir != _cachedPackDir) {
+      _localFileExists.clear();
       setState(() => _cachedPackDir = dir);
     }
   }
@@ -1261,6 +1558,8 @@ class _PreviewImage {
   final String? sourceFile;
   final String? serverFile;
   final String credit;
+  final String contributor;
+  final String contributorUrl;
   final int difficulty;
   final String source;
   const _PreviewImage({
@@ -1269,6 +1568,8 @@ class _PreviewImage {
     required this.sourceFile,
     required this.serverFile,
     required this.credit,
+    this.contributor = '',
+    this.contributorUrl = '',
     this.difficulty = 1,
     this.source = '',
   });

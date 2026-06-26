@@ -57,12 +57,21 @@ class HomeScreenState extends State<HomeScreen> {
   void _startSession(String filter, StudyMode mode, PromptMode promptMode) {
     setState(() => _tab = 1);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 进/不进全屏由 FlashcardScreen 按「本次启动是否已配置」自行决定（打卡/复习一致）。
       _flashcardKey.currentState?.startSession(
         filter: filter,
         mode: mode,
         promptMode: promptMode,
-        autoFocus: false,
       );
+    });
+  }
+
+  /// 学习指定的一批物种（到期复习 / 关卡 / 鸟单）。切到闪卡 tab 后下一帧开始。
+  void startCustomFlashcard(List<String> scis, String label) {
+    if (scis.isEmpty) return;
+    setState(() => _tab = 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _flashcardKey.currentState?.startCustomSession(scis: scis, label: label);
     });
   }
 
@@ -259,13 +268,27 @@ class HomeScreenState extends State<HomeScreen> {
                   ],
                 )
               else if (task.isFinished)
-                InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: DownloadTaskService.instance.clearFinished,
-                  child: const Padding(
-                    padding: EdgeInsets.all(4),
-                    child: Icon(Icons.close, size: 16),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (DownloadTaskService.instance.canResume)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: _resumeDownload,
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(Icons.refresh, size: 16, color: color),
+                        ),
+                      ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: DownloadTaskService.instance.clearFinished,
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.close, size: 16),
+                      ),
+                    ),
+                  ],
                 ),
             ],
           ),
@@ -274,80 +297,130 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// 「继续下载」：用上次任务参数重跑，把没下完的物种补齐（已下好的会跳过）。
+  void _resumeDownload() {
+    final started = DownloadTaskService.instance.retryLast(
+      packManager: widget.packManager,
+      storage: widget.storage,
+      onPackActivated: () {
+        if (mounted) setState(() {});
+      },
+    );
+    if (!mounted) return;
+    if (started) {
+      setState(() => _downloadMiniMinimized = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('继续下载：补齐未完成的物种（已下好的会跳过）')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有可继续的下载任务')),
+      );
+    }
+  }
+
   void _showDownloadDetails(DownloadTaskSnapshot task) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      // 弹层包 ListenableBuilder：读实时快照而非开时冻结的 task，避免「开着弹层时任务
+      // 状态变了，弹层不更新」（继续下载/取消/知道了 的显隐与服务保持一致）。
       builder: (ctx) {
-        final isRemote = task.kind == DownloadTaskKind.remotePack;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  task.isFinished ? '后台下载结果' : '后台下载中',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(task.packName, style: const TextStyle(height: 1.35)),
-                const SizedBox(height: 8),
-                if (task.isFinished)
-                  Text(task.message ?? '下载已结束')
-                else if (isRemote)
-                  Text(
-                    '${task.byteProgressLabel}'
-                    '${task.speedLabel.isEmpty ? '' : '\n速度 ${task.speedLabel} · 剩余 ${task.etaLabel}'}'
-                    '${task.statusMessage.isEmpty ? '' : '\n${task.statusMessage}'}',
-                  )
-                else
-                  Text(
-                    '正在下载：${task.currentSpecies.isEmpty ? '准备中' : task.currentSpecies}\n'
-                    '进度：${task.speciesProgressLabel}',
-                  ),
-                if (!task.isFinished) ...[
-                  const SizedBox(height: 12),
-                  LinearProgressIndicator(value: task.progress),
-                ],
-                const SizedBox(height: 14),
-                Row(
+        return ListenableBuilder(
+          listenable: DownloadTaskService.instance,
+          builder: (ctx, _) {
+            final svc = DownloadTaskService.instance;
+            final task = svc.snapshot;
+            final isRemote = task.kind == DownloadTaskKind.remotePack;
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextButton.icon(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _openPackManager();
-                      },
-                      icon: const Icon(Icons.folder_zip_outlined),
-                      label: const Text('去数据包'),
+                    Text(
+                      task.isFinished ? '后台下载结果' : '后台下载中',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    const Spacer(),
-                    if (!task.isFinished)
-                      TextButton.icon(
-                        onPressed: () {
-                          DownloadTaskService.instance.cancel();
-                          Navigator.pop(ctx);
-                        },
-                        icon: const Icon(Icons.close),
-                        label: const Text('取消下载'),
-                      ),
+                    const SizedBox(height: 10),
+                    Text(task.packName, style: const TextStyle(height: 1.35)),
+                    const SizedBox(height: 8),
                     if (task.isFinished)
-                      FilledButton(
-                        onPressed: () {
-                          DownloadTaskService.instance.clearFinished();
-                          Navigator.pop(ctx);
-                        },
-                        child: const Text('知道了'),
+                      Text(task.message ?? '下载已结束')
+                    else if (isRemote)
+                      Text(
+                        '${task.byteProgressLabel}'
+                        '${task.speedLabel.isEmpty ? '' : '\n速度 ${task.speedLabel} · 剩余 ${task.etaLabel}'}'
+                        '${task.statusMessage.isEmpty ? '' : '\n${task.statusMessage}'}',
+                      )
+                    else
+                      Text(
+                        '正在下载：${task.currentSpecies.isEmpty ? '准备中' : task.currentSpecies}\n'
+                        '进度：${task.speciesProgressLabel}',
                       ),
+                    if (!task.isFinished) ...[
+                      const SizedBox(height: 12),
+                      LinearProgressIndicator(value: task.progress),
+                    ],
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _openPackManager();
+                          },
+                          icon: const Icon(Icons.folder_zip_outlined),
+                          label: const Text('去数据包'),
+                        ),
+                        // Expanded(Wrap)：动作按钮多于一行时换行，窄屏/大字体不再溢出。
+                        Expanded(
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              if (!task.isFinished)
+                                TextButton.icon(
+                                  onPressed: () {
+                                    DownloadTaskService.instance.cancel();
+                                    Navigator.pop(ctx);
+                                  },
+                                  icon: const Icon(Icons.close),
+                                  label: const Text('取消下载'),
+                                ),
+                              if (task.isFinished && svc.canResume)
+                                TextButton.icon(
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _resumeDownload();
+                                  },
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('继续下载'),
+                                ),
+                              if (task.isFinished)
+                                FilledButton(
+                                  onPressed: () {
+                                    DownloadTaskService.instance.clearFinished();
+                                    Navigator.pop(ctx);
+                                  },
+                                  child: const Text('知道了'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -385,6 +458,7 @@ class HomeScreenState extends State<HomeScreen> {
                         packManager: widget.packManager,
                         storage: widget.storage,
                         onStartSession: _startSession,
+                        onStartCustom: startCustomFlashcard,
                         onJumpToFlashcard: jumpToFlashcard,
                         onJumpToPreview: jumpToPreview,
                         refreshToken: _packVersion,

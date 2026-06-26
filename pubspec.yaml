@@ -1,7 +1,7 @@
 name: bird_flashcard
 description: 鸟鸣闪卡学习工具
 publish_to: none
-version: 1.6.17+74
+version: 1.7.0+86
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
@@ -18,6 +18,11 @@ dependencies:
   url_launcher: ^6.3.0
   wakelock_plus: ^1.4.0
   lpinyin: ^2.0.3
+  # 本地打卡提醒（仅 Android 启用，代码内 Platform.isAndroid 守卫）。
+  # ⚠️ 这三个无鸿蒙(ohos)实现：打鸿蒙包若 pub get/构建报错，临时注释掉本段再打。
+  flutter_local_notifications: ^17.2.4
+  timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
 
   # ── 鸿蒙(OpenHarmony)平台实现：仅 ohos 构建用，在其他平台惰性、不激活。
   #    路径指向本地 clone（~/ohos-flutter_packages），勿提交进发布分支。
@@ -64,8 +69,10 @@ flutter:
     - assets/data/ebird_sample_checklist.csv
     - assets/data/china_birds.json
     - assets/data/china_birds_zheng.json
+    - assets/data/china_quiz_bank.json
     - assets/data/china_common_100.json
     - assets/data/world_birds.json
+    - assets/data/taxonomy_synonyms.json
     - assets/data/region_names_zh.json
     - assets/data/provinces/
     - assets/brand/birdaholic_logo.png

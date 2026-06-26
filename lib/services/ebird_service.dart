@@ -134,6 +134,27 @@ class EBirdService {
     return trimmed.toUpperCase();
   }
 
+  /// 用 eBird API 查地区代码的真实地名（如 NO-03 → "Oslo, Norway"）。
+  /// 本地「代码→中文名」表只覆盖国家+中国省级，外国子地区查不到时用它兜底。失败返回 null。
+  Future<String?> fetchRegionName(String code) async {
+    final c = code.trim();
+    if (c.isEmpty || c.contains(',')) return null; // 经纬度不查
+    try {
+      // 用 Uri.https 让 path 段自动百分号编码——别字符串插值进 Uri.parse，
+      // code 里若有空格/#/? 等会破坏 URL、静默查不到。
+      final uri = Uri.https('api.ebird.org', '/v2/ref/region/info/$c');
+      final resp = await _client
+          .get(uri, headers: {'X-eBirdApiToken': apiKey})
+          .timeout(const Duration(seconds: 12));
+      if (resp.statusCode != 200) return null;
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final name = (data['result'] as String?)?.trim();
+      return (name == null || name.isEmpty) ? null : name;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<Set<String>> fetchSpeciesCodes(String locationCode) async {
     final matches = await fetchSpeciesMatches(locationCode);
     return matches
@@ -203,6 +224,73 @@ class EBirdService {
         .where((code) => code.isNotEmpty)
         .toSet();
     return _fetchTaxonomyMatches(codes);
+  }
+
+  /// 「可能性」排序近似：近期(默认30天)被观测到的鸟种，按最近观测日期倒序返回学名(小写)。
+  /// 越靠前 = 最近越常被记录 = 越可能现在遇到。注：eBird 公开 API 无真·出现频率，
+  /// 这里用「最近观测」作近似。经纬度/无地区时不可用。
+  Future<List<String>> fetchRecentObsBySci(
+    String regionCode, {
+    int backDays = 30,
+  }) async {
+    final normalizedCode = normalizeLocationCode(regionCode);
+    final uri = Uri.https(
+      'api.ebird.org',
+      '/v2/data/obs/$normalizedCode/recent',
+      {'back': backDays.clamp(1, 30).toString()},
+    );
+    final resp =
+        await _client.get(uri, headers: {'X-eBirdApiToken': apiKey});
+    if (resp.statusCode == 401) throw Exception('eBird API key 无效或已失效');
+    if (resp.statusCode != 200) {
+      throw Exception('eBird 近期观测请求失败: ${resp.statusCode}');
+    }
+    return _rankObsBySci(resp.body);
+  }
+
+  /// 「可能性」坐标版：某点(lat,lng,半径km)附近近期观测，按最近观测日期排名学名。
+  /// 用 eBird geo 端点，弥补地区码筛选之外的经纬度筛选。
+  Future<List<String>> fetchRecentObsByCoords(
+    double lat,
+    double lng, {
+    int distanceKm = 25,
+    int backDays = 30,
+  }) async {
+    final uri = Uri.https('api.ebird.org', '/v2/data/obs/geo/recent', {
+      'lat': lat.toStringAsFixed(4),
+      'lng': lng.toStringAsFixed(4),
+      'dist': distanceKm.clamp(1, 50).toString(),
+      'back': backDays.clamp(1, 30).toString(),
+    });
+    final resp = await _client.get(uri, headers: {'X-eBirdApiToken': apiKey});
+    if (resp.statusCode == 401) throw Exception('eBird API key 无效或已失效');
+    if (resp.statusCode != 200) {
+      throw Exception('eBird 附近观测请求失败: ${resp.statusCode}');
+    }
+    return _rankObsBySci(resp.body);
+  }
+
+  /// 把 obs 响应解析成「按最近观测日期倒序、去重」的学名(小写)列表。
+  List<String> _rankObsBySci(String body) {
+    final data = jsonDecode(body) as List<dynamic>;
+    final rows = data
+        .whereType<Map<String, dynamic>>()
+        .map((m) => (
+              (m['sciName'] as String? ?? '').trim().toLowerCase(),
+              (m['obsDt'] as String? ?? ''),
+            ))
+        .where((r) => r.$1.isNotEmpty)
+        .toList();
+    // 只按日期(前 10 位 yyyy-MM-dd)倒序：obsDt 混了「日期」与「日期+时间」两种格式，
+    // 直接字符串比较会让同一天的「纯日期」与「带时间」次序错乱。时间精度对「可能性」无意义。
+    String obsDate(String dt) => dt.length >= 10 ? dt.substring(0, 10) : dt;
+    rows.sort((a, b) => obsDate(b.$2).compareTo(obsDate(a.$2)));
+    final seen = <String>{};
+    final ordered = <String>[];
+    for (final r in rows) {
+      if (seen.add(r.$1)) ordered.add(r.$1);
+    }
+    return ordered;
   }
 
   /// 指定历史某一天该地点记录到的鸟种（eBird historic 端点）。

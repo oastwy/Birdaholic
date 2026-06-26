@@ -63,7 +63,7 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
     }
   }
 
-  Future<void> _approve(PendingMediaItem it) async {
+  Future<void> _approve(PendingMediaItem it, {bool pin = false}) async {
     final key = _itemKey(it);
     if (_busy.contains(key)) return;
     setState(() => _busy.add(key));
@@ -72,11 +72,13 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
         sci: it.sci,
         file: it.file,
         token: widget.storage.getAdminUploadToken(),
+        pin: pin,
       );
       if (!mounted) return;
       setState(() => _items.removeWhere((x) => _itemKey(x) == key));
+      final name = it.cn.isEmpty ? it.sci : it.cn;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已通过：${it.cn.isEmpty ? it.sci : it.cn}')),
+        SnackBar(content: Text(pin ? '已通过并置顶：$name' : '已通过：$name')),
       );
     } catch (e) {
       _showSnack('通过失败：$e');
@@ -448,12 +450,24 @@ class _UploadReviewSectionState extends State<UploadReviewSection> {
                         ),
                       ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: busy ? null : () => _approve(it, pin: false),
+                        icon: const Icon(Icons.check, size: 18),
+                        label: const Text('通过'),
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: busy ? null : () => _approve(it),
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text('通过并置顶'),
+                        onPressed: busy ? null : () => _approve(it, pin: true),
+                        icon: const Icon(Icons.vertical_align_top, size: 18),
+                        label: const Text('通过置顶'),
                       ),
                     ),
                   ],

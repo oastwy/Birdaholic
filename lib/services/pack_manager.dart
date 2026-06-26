@@ -81,6 +81,14 @@ class PackManager {
     return prefs.getString(_activePackKey);
   }
 
+  /// 内置「中国常见鸟 100」包已安装时返回其目录（新手模式锁定激活包用），否则 null。
+  Future<String?> builtinPackDirIfInstalled() async {
+    if (builtinPacks.isEmpty) return null;
+    final docDir = await getApplicationDocumentsDirectory();
+    final packDir = '${docDir.path}/packs/${builtinPacks.first.dirName}';
+    return await File('$packDir/manifest.json').exists() ? packDir : null;
+  }
+
   /// 设置当前激活的数据包
   Future<void> setActivePack(String packDir) async {
     final prefs = await SharedPreferences.getInstance();
@@ -882,6 +890,22 @@ class PackManager {
   }
 
   /// 加载物种列表
+  /// 只读取单个数据包的物种（闪卡按「当前选中包」出题用，不合并其它已启用包）。
+  Future<List<Species>> loadSpeciesForPack(String packDir) async {
+    final speciesFile = File('$packDir/species.json');
+    if (!await speciesFile.exists()) {
+      throw Exception('数据包缺少 species.json');
+    }
+    final taxonomy = await _loadTaxonomyIndex();
+    final str = await speciesFile.readAsString();
+    final list = (jsonDecode(str) as List<dynamic>)
+        .map((e) => Species.fromJson(e as Map<String, dynamic>))
+        .map((species) => _normalizeSpecies(species, taxonomy))
+        .toList();
+    if (list.isEmpty) throw Exception('数据包损坏，缺少 species.json');
+    return list..sort((a, b) => a.cn.compareTo(b.cn));
+  }
+
   Future<List<Species>> loadSpecies() async {
     final packDirs = await getEnabledPackDirs();
     final active = await getActivePackDir();
@@ -1170,6 +1194,75 @@ class PackManager {
     return Species.fromJson(updatedItem);
   }
 
+  /// 从当前(可写)数据包删除某鸟种的一张本地图片：移除 species.json 的 images 条目、
+  /// 删物理文件、必要时把主图改为剩余第一张，返回更新后的 Species（找不到该图返回 null）。
+  Future<Species?> removeSpeciesImageFromActivePack(
+      String sci, String sourceFile) async {
+    final packDir = await findWritablePackDirForSpecies(sci);
+    if (packDir == null) return null;
+    final speciesFile = File('$packDir/species.json');
+    final manifestFile = File('$packDir/manifest.json');
+    if (!await speciesFile.exists()) return null;
+
+    final speciesList =
+        (jsonDecode(await speciesFile.readAsString()) as List<dynamic>)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+
+    Map<String, dynamic>? updatedItem;
+    for (final item in speciesList) {
+      // 与 findWritablePackDirForSpecies / addUploadedSpeciesImageFromFile 一致用归一化匹配，
+      // 避免大小写/空白差异导致「找到了包却匹配不到种」而误报删除失败。
+      if ((item['sci'] as String? ?? '').trim().toLowerCase() !=
+          sci.trim().toLowerCase()) {
+        continue;
+      }
+      final images = _imageEntriesFromItem(item);
+      final before = images.length;
+      images.removeWhere((image) => image['file'] == sourceFile);
+      if (images.length == before) return null; // 这张图不在本地包里
+      item['images'] = images;
+      // 删的若是主图：主图改为剩余第一张并同步 credit/source/license，没有则清空主图字段。
+      // 必须连 image_source/image_license 一起换——只改 image/credit 会残留旧主图的
+      // image_source，使 _isUserProvidedCover 误判、冻结后续服务器主图刷新并显示错许可。
+      if ((item['image'] as String? ?? '') == sourceFile) {
+        if (images.isNotEmpty) {
+          _setCoverFromEntry(item, images.first);
+        } else {
+          item.remove('image');
+          item.remove('image_credit');
+          item.remove('image_source');
+          item.remove('image_license');
+        }
+      }
+      updatedItem = item;
+      break;
+    }
+    if (updatedItem == null) return null;
+
+    try {
+      final f = File('$packDir/$sourceFile');
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+
+    await speciesFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(speciesList),
+    );
+    if (await manifestFile.exists()) {
+      final manifest = Map<String, dynamic>.from(
+        jsonDecode(await manifestFile.readAsString()) as Map,
+      );
+      manifest['image_count'] = speciesList.fold<int>(
+        0,
+        (sum, item) => sum + _imageCountForManifest(item),
+      );
+      await manifestFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(manifest),
+      );
+    }
+    return Species.fromJson(updatedItem);
+  }
+
   Future<Species?> addUploadedSpeciesImageFromFile({
     required String sci,
     required String sourcePath,
@@ -1423,6 +1516,7 @@ class PackManager {
 
   Future<MediaUpdateResult> updateActivePackFromServer({
     void Function(int current, int total, String speciesName)? onProgress,
+    bool pruneRemoved = false,
   }) async {
     final packDir = await getActivePackDir();
     if (packDir == null) throw Exception('未加载任何数据包');
@@ -1444,6 +1538,8 @@ class PackManager {
     var updatedSpecies = 0;
     var imageAdded = 0;
     var audioAdded = 0;
+    var imageRemoved = 0;
+    var audioRemoved = 0;
     var failed = 0;
 
     for (var i = 0; i < speciesList.length; i++) {
@@ -1502,6 +1598,69 @@ class PackManager {
           }
         }
 
+        // 对账删除：服务器已淘汰（被管理员删/拒）的图片，从本地清掉。
+        // 只动「能在服务器识别身份」的条目（有 contributor_url）——用户本机自加的
+        // 图没有该字段，不会被误删。用 allImages（含 pending）作「服务器仍知道」集合，
+        // 避免把正在重审(pending)的图当成已删而删掉本地文件；allImages 为空（服务器
+        // 暂态/未返回）时跳过，防误删。
+        if (pruneRemoved && media.allImages.isNotEmpty) {
+          final serverImgIds = <String>{};
+          for (final im in media.allImages) {
+            if (im.url.isNotEmpty) {
+              serverImgIds.add(im.url);
+              serverImgIds.add(_basenameFromUrl(im.url));
+            }
+            if (im.contributorUrl.isNotEmpty) {
+              serverImgIds.add(im.contributorUrl);
+            }
+          }
+          final kept = <Map<String, dynamic>>[];
+          for (final im in images) {
+            final cu = (im['contributor_url'] as String? ?? '').trim();
+            final file = (im['file'] as String? ?? '').trim();
+            final url = (im['url'] as String? ?? '').trim();
+            final base = file.split('/').last;
+            final inServer = (cu.isNotEmpty && serverImgIds.contains(cu)) ||
+                (url.isNotEmpty &&
+                    (serverImgIds.contains(url) ||
+                        serverImgIds.contains(_basenameFromUrl(url)))) ||
+                (base.isNotEmpty && serverImgIds.contains(base));
+            if (cu.isNotEmpty && !inServer) {
+              if (file.isNotEmpty) {
+                final f = File('$packDir/$file');
+                if (await f.exists()) {
+                  try {
+                    await f.delete();
+                  } catch (_) {}
+                }
+              }
+              imageRemoved++;
+              changed = true;
+            } else {
+              kept.add(im);
+            }
+          }
+          if (kept.length != images.length) {
+            images
+              ..clear()
+              ..addAll(kept);
+            final mainImg = (item['image'] as String? ?? '').trim();
+            final hasMain =
+                images.any((e) => (e['file'] as String? ?? '') == mainImg);
+            if (!hasMain) {
+              if (images.isNotEmpty) {
+                _setCoverFromEntry(item, images.first);
+              } else {
+                item.remove('image');
+                item.remove('image_credit');
+                item.remove('image_source');
+                item.remove('image_license');
+              }
+            }
+          }
+          item['images'] = images;
+        }
+
         final audios = (item['audios'] as List<dynamic>? ?? const [])
             .map((audio) => Map<String, dynamic>.from(audio as Map))
             .toList();
@@ -1549,6 +1708,56 @@ class PackManager {
           }
           audioAdded++;
           changed = true;
+        }
+        // 对账删除：服务器已淘汰的鸟鸣（连同声谱图）从本地清掉。用 allAudio（含 pending）
+        // 作「服务器仍知道」集合，避免误删重审中的音频；空返回时跳过，防误删。
+        if (pruneRemoved && media.allAudio.isNotEmpty) {
+          final serverAudIds = <String>{};
+          for (final a in media.allAudio) {
+            if (a.url.isNotEmpty) {
+              serverAudIds.add(a.url);
+              serverAudIds.add(_basenameFromUrl(a.url));
+            }
+            if (a.contributorUrl.isNotEmpty) {
+              serverAudIds.add(a.contributorUrl);
+            }
+          }
+          final kept = <Map<String, dynamic>>[];
+          for (final a in audios) {
+            final cu = (a['contributor_url'] as String? ?? '').trim();
+            final file = (a['file'] as String? ?? '').trim();
+            final base = file.split('/').last;
+            final inServer = (cu.isNotEmpty && serverAudIds.contains(cu)) ||
+                (base.isNotEmpty && serverAudIds.contains(base));
+            if (cu.isNotEmpty && !inServer) {
+              if (file.isNotEmpty) {
+                final f = File('$packDir/$file');
+                if (await f.exists()) {
+                  try {
+                    await f.delete();
+                  } catch (_) {}
+                }
+              }
+              final spec = (a['spectrogram'] as String? ?? '').trim();
+              if (spec.isNotEmpty) {
+                final sf = File('$packDir/$spec');
+                if (await sf.exists()) {
+                  try {
+                    await sf.delete();
+                  } catch (_) {}
+                }
+              }
+              audioRemoved++;
+              changed = true;
+            } else {
+              kept.add(a);
+            }
+          }
+          if (kept.length != audios.length) {
+            audios
+              ..clear()
+              ..addAll(kept);
+          }
         }
         item['audios'] = audios;
 
@@ -1599,6 +1808,8 @@ class PackManager {
       updatedSpecies: updatedSpecies,
       imageAdded: imageAdded,
       audioAdded: audioAdded,
+      imageRemoved: imageRemoved,
+      audioRemoved: audioRemoved,
       failed: failed,
     );
   }
@@ -1653,19 +1864,10 @@ class PackManager {
   static List<Map<String, dynamic>> _imageEntriesFromItem(
     Map<String, dynamic> item,
   ) {
-    final result = <Map<String, dynamic>>[];
-    final image = (item['image'] as String? ?? '').trim();
-    if (image.isNotEmpty) {
-      result.add({
-        'file': image,
-        if ((item['image_credit'] as String? ?? '').trim().isNotEmpty)
-          'credit': item['image_credit'],
-        if ((item['image_source'] as String? ?? '').trim().isNotEmpty)
-          'source': item['image_source'],
-        if ((item['image_license'] as String? ?? '').trim().isNotEmpty)
-          'license': item['image_license'],
-      });
-    }
+    // 先收集 images[] 里的完整条目（带 contributor_url/location/difficulty 等元数据），
+    // 按出现顺序去重。
+    final rich = <String, Map<String, dynamic>>{};
+    final order = <String>[];
     for (final raw in (item['images'] as List<dynamic>? ?? const [])) {
       Map<String, dynamic>? entry;
       if (raw is String) {
@@ -1674,12 +1876,33 @@ class PackManager {
         entry = Map<String, dynamic>.from(raw);
       }
       final file = (entry?['file'] as String? ?? '').trim();
-      if (entry == null ||
-          file.isEmpty ||
-          result.any((old) => old['file'] == file)) {
-        continue;
+      if (entry == null || file.isEmpty || rich.containsKey(file)) continue;
+      rich[file] = entry;
+      order.add(file);
+    }
+    final result = <Map<String, dynamic>>[];
+    final cover = (item['image'] as String? ?? '').trim();
+    // 主图排第一：若它在 images[] 里有完整条目，直接用那条（**保住 contributor_url/
+    // location/difficulty**，否则会被顶层字段合成的精简条目覆盖、回写时永久丢失，破坏
+    // 后续对账的 contributor_url 匹配，属署名/版权数据丢失）；没有才用顶层字段合成。
+    if (cover.isNotEmpty) {
+      if (rich.containsKey(cover)) {
+        result.add(rich[cover]!);
+      } else {
+        result.add({
+          'file': cover,
+          if ((item['image_credit'] as String? ?? '').trim().isNotEmpty)
+            'credit': item['image_credit'],
+          if ((item['image_source'] as String? ?? '').trim().isNotEmpty)
+            'source': item['image_source'],
+          if ((item['image_license'] as String? ?? '').trim().isNotEmpty)
+            'license': item['image_license'],
+        });
       }
-      result.add(entry);
+    }
+    for (final file in order) {
+      if (cover.isNotEmpty && file == cover) continue;
+      result.add(rich[file]!);
     }
     return result;
   }
@@ -1687,6 +1910,26 @@ class PackManager {
   static int _imageCountForManifest(dynamic item) {
     if (item is! Map) return 0;
     return _imageEntriesFromItem(Map<String, dynamic>.from(item)).length;
+  }
+
+  /// 把某条图片条目设为主图，同步 image/credit/source/license 四个顶层字段。
+  /// 漏改 source/license 会让 _isUserProvidedCover 误判、冻结服务器主图刷新并显示错许可。
+  static void _setCoverFromEntry(
+      Map<String, dynamic> item, Map<String, dynamic> entry) {
+    item['image'] = entry['file'];
+    item['image_credit'] = entry['credit'] ?? entry['contributor'] ?? '';
+    final src = (entry['source'] as String? ?? '').trim();
+    if (src.isNotEmpty) {
+      item['image_source'] = src;
+    } else {
+      item.remove('image_source');
+    }
+    final lic = (entry['license'] as String? ?? '').trim();
+    if (lic.isNotEmpty) {
+      item['image_license'] = lic;
+    } else {
+      item.remove('image_license');
+    }
   }
 
   static Set<String> _mediaKeys(List<Map<String, dynamic>> items) {
@@ -1852,6 +2095,8 @@ class MediaUpdateResult {
   final int updatedSpecies;
   final int imageAdded;
   final int audioAdded;
+  final int imageRemoved;
+  final int audioRemoved;
   final int failed;
 
   const MediaUpdateResult({
@@ -1859,6 +2104,8 @@ class MediaUpdateResult {
     required this.updatedSpecies,
     required this.imageAdded,
     required this.audioAdded,
+    this.imageRemoved = 0,
+    this.audioRemoved = 0,
     required this.failed,
   });
 }

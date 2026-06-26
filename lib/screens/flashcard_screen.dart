@@ -19,6 +19,7 @@ import '../widgets/audio_player_widget.dart';
 import '../widgets/bird_card.dart';
 import 'bird_preview_screen.dart';
 import 'in_flashcard_upload_modal.dart';
+import 'pack_manage_screen.dart';
 
 enum AnswerMode {
   learning,
@@ -75,15 +76,23 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   final Map<String, List<Species>> _quizChoiceCache = {};
 
   String _filter = 'all';
+  // 自定义牌组（到期复习 / 关卡 / 鸟单 等指定一批 sci 学习时用，_filter=='custom'）
+  Set<String> _customScis = const {};
+  String _customLabel = '自定义';
   String _order = 'random';
-  String _taxonomicOrder = 'all';
-  int _imageDifficultyFilter = 0;
+  // 「可能性」排序：近期 eBird 观测排名（sci 小写 → 名次，越小越可能遇到；空=未加载）
+  Map<String, int> _likelihoodRank = const {};
+  int _imageDifficultyFilter = 0; // 0=全部，1-5=只练该图片难度
+  int _speciesDifficultyFilter = 0; // 0=全部，1-5=只练该物种难度（管理员评分）
   Set<String> _ebirdFilterSci = const {};
   String _ebirdFilterLabel = '';
   AnswerMode _answerMode = AnswerMode.review;
   StudyMode _mode = StudyMode.review;
   PromptMode _promptMode = PromptMode.audio;
   bool _focusMode = false;
+  // 本次 app 启动后是否已在「闪卡筛选页」确认过配置；app 重启时随 State 重建归零，
+  // 所以每次重启首次进入(打卡/复习)都停在筛选页，确认后本次会话不再弹。
+  bool _configuredThisLaunch = false;
 
   int _correctCount = 0; // session totals (used in restart resets)
   int _wrongCount = 0;
@@ -130,11 +139,26 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     widget.onFocusChanged?.call(value);
   }
 
+  /// 可被「记住上次筛选」恢复的范围值（必须与筛选下拉的选项一致）。
+  static const _restorableFilters = {
+    'all',
+    'studied',
+    'unseen',
+    'unfamiliar',
+    'favorites',
+    'lifer',
+  };
+
   @override
   void initState() {
     super.initState();
     _ebirdFilterLabel = widget.storage.getEbirdFilterLabel();
     _ebirdFilterSci = widget.storage.getEbirdFilterSci();
+    // 恢复上次打卡用的筛选（如「未学习」），只接受筛选下拉里有的值，避免下拉断言失败。
+    final savedFilter = widget.storage.lastFlashcardFilter;
+    if (_restorableFilters.contains(savedFilter)) {
+      _filter = savedFilter;
+    }
     _loadSpecies();
   }
 
@@ -165,11 +189,22 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     try {
-      final list = await widget.packManager.loadSpecies();
+      // 闪卡按「当前选中的单个数据包」出题（不合并其它已启用包）；
+      // 否则选了挪威包还会混进中国100。无激活包时退回合并加载。
+      final active = await widget.packManager.getActivePackDir();
+      final list = active != null
+          ? await widget.packManager.loadSpeciesForPack(active)
+          : await widget.packManager.loadSpecies();
       final media = await _buildMediaAvailability(list);
+      List<DataPack> installed = const [];
+      try {
+        installed = await widget.packManager.getInstalledPacks();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _allSpecies = list;
+        _installedPacks = installed;
+        _activePackDir = active;
         _speciesWithAudioFiles = media.audioSpecies;
         _speciesWithImageFiles = media.imageSpecies;
         _loading = false;
@@ -280,6 +315,17 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         final unfamiliar = widget.storage.getUnfamiliarSpecies();
         list = list.where((s) => unfamiliar.contains(s.cn)).toList();
         break;
+      case 'lifer':
+        // 未见过（潜在新种）：不在我的观鸟清单里的种。清单只取一次，避免逐个解析 JSON。
+        // 跨分类匹配：把每个种展开成等价学名组（郑四/eBird 任一写法在清单里即算已见）。
+        final seenSet = widget.storage.getLifeList();
+        list = list
+            .where((s) => !widget.storage.lifeGroup(s.sci).any(seenSet.contains))
+            .toList();
+        break;
+      case 'custom':
+        list = list.where((s) => _customScis.contains(s.sci)).toList();
+        break;
     }
 
     if (_ebirdFilterSci.isNotEmpty) {
@@ -289,14 +335,17 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           .toList();
     }
 
+    // 物种难度筛选（与图片难度独立；按管理员评分，0=全部）。难度 0/未评按 1 处理。
+    if (_speciesDifficultyFilter > 0) {
+      list = list
+          .where((s) => s.difficulty.clamp(1, 5) == _speciesDifficultyFilter)
+          .toList();
+    }
+
     list = list.where(_hasPromptMedia).toList();
     if (_effectivePromptMode == PromptMode.image &&
         _imageDifficultyFilter > 0) {
       list = list.where(_hasImageAtDifficulty).toList();
-    }
-
-    if (_taxonomicOrder != 'all') {
-      list = list.where((s) => s.order == _taxonomicOrder).toList();
     }
 
     switch (_order) {
@@ -340,6 +389,25 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                 ? 1
                 : 2;
         list.sort((a, b) => grade(a).compareTo(grade(b)));
+        break;
+      case 'likelihood':
+        // 可能性：近 30 天 eBird 观测越近名次越靠前；未上榜的排后，再按名称
+        list.sort((a, b) {
+          final ra = _likelihoodRank[StorageService.normalizeSci(a.sci)] ?? (1 << 30);
+          final rb = _likelihoodRank[StorageService.normalizeSci(b.sci)] ?? (1 << 30);
+          if (ra != rb) return ra.compareTo(rb);
+          return a.cn.compareTo(b.cn);
+        });
+        break;
+      case 'taxonomic':
+        // 分类关系：目(分类序号) → 科 → 属种
+        list.sort((a, b) {
+          final wa = BirdOrderTaxonomy.info(a.order).sortWeight;
+          final wb = BirdOrderTaxonomy.info(b.order).sortWeight;
+          if (wa != wb) return wa.compareTo(wb);
+          if (a.family != b.family) return a.family.compareTo(b.family);
+          return a.sci.compareTo(b.sci);
+        });
         break;
       case 'alpha':
         list.sort((a, b) => a.cn.compareTo(b.cn));
@@ -409,24 +477,27 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   bool get _isFinished => _isGroupFinished;
 
   String get _deckSummary {
-    final orderText = _taxonomicOrder == 'all' ? '' : ' · $_taxonomicOrder';
     final ebirdText = _ebirdFilterLabel.isEmpty ? '' : ' · $_ebirdFilterLabel';
     final promptText = _effectivePromptMode == PromptMode.audio ? '音频' : '图片';
     switch (_filter) {
       case 'studied':
-        return '当前牌组：已学习 · $promptText$orderText$ebirdText';
+        return '当前牌组：已学习 · $promptText$ebirdText';
       case 'unseen':
-        return '当前牌组：未学习 · $promptText$orderText$ebirdText';
+        return '当前牌组：未学习 · $promptText$ebirdText';
       case 'g1':
-        return '当前牌组：国家一级保护 · $promptText$orderText$ebirdText';
+        return '当前牌组：国家一级保护 · $promptText$ebirdText';
       case 'g2':
-        return '当前牌组：国家二级保护 · $promptText$orderText$ebirdText';
+        return '当前牌组：国家二级保护 · $promptText$ebirdText';
       case 'favorites':
-        return '当前牌组：收藏 · $promptText$orderText$ebirdText';
+        return '当前牌组：收藏 · $promptText$ebirdText';
       case 'unfamiliar':
-        return '当前牌组：不熟悉 · $promptText$orderText$ebirdText';
+        return '当前牌组：不熟悉 · $promptText$ebirdText';
+      case 'lifer':
+        return '当前牌组：未见过 · $promptText$ebirdText';
+      case 'custom':
+        return '当前牌组：$_customLabel · $promptText';
       default:
-        return '当前牌组：全部 · $promptText$orderText$ebirdText';
+        return '当前牌组：全部 · $promptText$ebirdText';
     }
   }
 
@@ -521,16 +592,6 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       extraCredits: credits.skip(1).toList(),
     );
   }
-
-  List<String> get _availableOrders {
-    final orders = _allSpecies
-        .map((species) => species.order)
-        .where((order) => order.trim().isNotEmpty)
-        .toSet();
-    return BirdOrderTaxonomy.sortOrders(orders);
-  }
-
-  String _orderLabel(String order) => BirdOrderTaxonomy.label(order);
 
   Future<List<String>> _getAudioPaths() async {
     final bird = _currentBird;
@@ -633,12 +694,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
     if (fromSwipe) {
       setState(() => _swipeCheckVisible = true);
-      Future.delayed(const Duration(milliseconds: 600),
+      Future.delayed(const Duration(milliseconds: 500),
           () => mounted ? setState(() => _swipeCheckVisible = false) : null);
     }
     _recordAnswer(bird, isCorrect: true);
     if (!_isFinished) {
-      Future.delayed(const Duration(milliseconds: 700), _nextCard);
+      Future.delayed(const Duration(milliseconds: 650), _nextCard);
     }
   }
 
@@ -651,12 +712,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (_mode == StudyMode.review) {
       _showAnswer();
       if (!_isFinished) {
-        Future.delayed(const Duration(milliseconds: 1500), _nextCard);
+        Future.delayed(const Duration(milliseconds: 1300), _nextCard);
       }
       return;
     }
     if (_mode == StudyMode.quiz && !_isFinished) {
-      Future.delayed(const Duration(milliseconds: 900), _nextCard);
+      Future.delayed(const Duration(milliseconds: 850), _nextCard);
     }
   }
 
@@ -693,8 +754,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (_isGroupFinished) {
       Future.delayed(
         _mode == StudyMode.review
-            ? const Duration(milliseconds: 1600)
-            : const Duration(milliseconds: 400),
+            ? const Duration(milliseconds: 1300)
+            : const Duration(milliseconds: 500),
         _triggerGroupComplete,
       );
     }
@@ -720,7 +781,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _recordAnswer(bird, isCorrect: choice.sci == bird.sci);
     setState(() => _revealed = true);
     if (!_isFinished) {
-      Future.delayed(const Duration(milliseconds: 1600), _nextCard);
+      Future.delayed(const Duration(milliseconds: 1300), _nextCard);
     }
   }
 
@@ -1116,6 +1177,39 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     );
   }
 
+  /// 合并的「上传」入口：让用户选上传照片还是上传音频。
+  Future<void> _uploadMedia() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_photo_alternate_outlined,
+                  color: Color(0xFF2d5016)),
+              title: const Text('上传照片'),
+              onTap: () => Navigator.pop(ctx, 'image'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.library_music_outlined,
+                  color: Color(0xFF2d5016)),
+              title: const Text('上传音频'),
+              onTap: () => Navigator.pop(ctx, 'audio'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'image') {
+      await _uploadBirdImage();
+    } else if (choice == 'audio') {
+      await _uploadBirdAudio();
+    }
+  }
+
   Future<void> _uploadBirdImage() async {
     final bird = _currentBird;
     if (bird == null) return;
@@ -1148,6 +1242,117 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _jumpToSpecies(
       _allSpecies.firstWhere((s) => s.sci == bird.sci, orElse: () => bird),
     );
+  }
+
+  /// 地点 / 数据包变了，「可能性」排名作废：清空排名缓存；若当前正按可能性排序，退回随机。
+  void _resetLikelihoodOnContextChange() {
+    _likelihoodRank = const {};
+    if (_order == 'likelihood') _order = 'random';
+  }
+
+  /// 选「可能性」排序：用上次 eBird 地区码 / 经纬度查近 30 天观测，按最近观测排名。
+  /// 需先做过地点筛选（地区代码或经纬度）+ 有 API Key。
+  Future<void> _selectLikelihoodOrder() async {
+    final region = widget.storage.getEbirdFilterRegion();
+    final coordsStr = widget.storage.getEbirdFilterCoords();
+    if (region.isEmpty && coordsStr.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('「可能性」需先做 eBird 地点筛选（地区代码或经纬度）'),
+        ));
+      }
+      return; // 不改 _order，下拉回弹
+    }
+    final apiKey = widget.storage.getEBirdApiKey();
+    if (apiKey.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('「可能性」需要 eBird API Key（在设置里填写）'),
+        ));
+      }
+      return;
+    }
+    setState(() => _order = 'likelihood');
+    try {
+      final service = EBirdService(apiKey: apiKey);
+      final List<String> ordered;
+      if (region.isNotEmpty) {
+        ordered = await service.fetchRecentObsBySci(region);
+      } else {
+        final p = coordsStr.split(',');
+        final lat = double.tryParse(p.isNotEmpty ? p[0] : '') ?? 0;
+        final lng = double.tryParse(p.length > 1 ? p[1] : '') ?? 0;
+        final dist = p.length > 2 ? (int.tryParse(p[2]) ?? 25) : 25;
+        ordered =
+            await service.fetchRecentObsByCoords(lat, lng, distanceKm: dist);
+      }
+      final rank = <String, int>{};
+      for (var i = 0; i < ordered.length; i++) {
+        // 与 _buildDeck 查表 key 一致：二名归一化（eBird 可能返回亚种三名）
+        rank.putIfAbsent(StorageService.normalizeSci(ordered[i]), () => i);
+      }
+      if (!mounted) return;
+      setState(() => _likelihoodRank = rank);
+      _buildDeck(); // 纯排序：整包保留，近期 eBird 观测到的种排到前面
+      // 统计本包里有多少种与该地区近期观测重合（仅作反馈 + 判断排序是否有意义）
+      final overlap = _deck
+          .map((c) => StorageService.normalizeSci(c.species.sci))
+          .toSet()
+          .where((n) => _likelihoodRank.containsKey(n))
+          .length;
+      if (overlap == 0) {
+        // 整包跟该地区近期记录无交集 → 排序没效果，提示并可去下载覆盖该地区的包（不动牌组）
+        await _promptLikelihoodInsufficient();
+        return;
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('已把该地区近 30 天最可能遇到的 $overlap 种排到前面'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _order = 'random');
+      _buildDeck();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('「可能性」获取失败：$e，已用随机'),
+      ));
+    }
+  }
+
+  /// 「可能性」整包与该地区近期记录无交集：排序没效果，提示并可去「数据包管理」下载/启用
+  /// 覆盖该地区的包。整包仍保留（无交集时退化为名称序），不清空、不强制改顺序。
+  Future<void> _promptLikelihoodInsufficient() async {
+    if (!mounted) return;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('该地区数据不足'),
+        content: const Text(
+            '当前数据包里，没有任何鸟出现在该地区近 30 天的 eBird 记录中，'
+            '「可能性」排序暂时没有效果。\n'
+            '可以去「数据包管理」下载 / 启用覆盖该地区的数据包，再用「可能性」。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('知道了')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('去下载数据包')),
+        ],
+      ),
+    );
+    if (go == true && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PackManageScreen(
+            packManager: widget.packManager,
+            storage: widget.storage,
+          ),
+        ),
+      );
+      if (mounted) await _loadSpecies();
+    }
   }
 
   Future<void> _applyEBirdDeckFilter() async {
@@ -1399,6 +1604,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       setState(() {
         _ebirdFilterSci = const {};
         _ebirdFilterLabel = '';
+        _resetLikelihoodOnContextChange();
       });
       _buildDeck();
       return;
@@ -1455,10 +1661,16 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       }
       final sciSet = await _matchEBirdToScientificNames(matches);
       if (!mounted) return;
-      final placeLabel = coords == null
-          ? EBirdService.regionDisplayName(
-              EBirdService.normalizeLocationCode(loc), regionNames)
+      final normCode = EBirdService.normalizeLocationCode(loc);
+      var placeLabel = coords == null
+          ? EBirdService.regionDisplayName(normCode, regionNames)
           : '${coords.$1.toStringAsFixed(3)},${coords.$2.toStringAsFixed(3)}';
+      // 本地「代码→中文名」表查不到的(如外国子地区 NO-03)，用 eBird API 反查真实地名，
+      // 避免界面上裸显地区代码。
+      if (coords == null && placeLabel == normCode) {
+        final apiName = await service.fetchRegionName(normCode);
+        if (apiName != null && apiName.isNotEmpty) placeLabel = apiName;
+      }
       final timeSuffix = timeMode == 'recent'
           ? ' · 近$backDays天'
           : timeMode == 'date'
@@ -1466,6 +1678,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               : '';
       final label = '$placeLabel$timeSuffix';
       await widget.storage.saveEbirdFilter(label, sciSet);
+      // 记住地区码供「可能性」排序按地区查近期观测；经纬度筛选时清空（坐标不适用）。
+      final region = coords == null ? normCode : '';
+      await widget.storage.setEbirdFilterRegion(region);
+      // 坐标筛选也记下，供「可能性」按附近近期观测排序
+      await widget.storage.setEbirdFilterCoords(
+          coords == null ? '' : '${coords.$1},${coords.$2},${coords.$3}');
       if (coords == null) {
         await widget.storage.addEbirdLocationHistory(placeLabel);
       }
@@ -1473,6 +1691,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       setState(() {
         _ebirdFilterSci = sciSet;
         _ebirdFilterLabel = label;
+        // 地点变了，旧可能性排名作废：清排名并把「可能性」退回随机——否则 _order 仍是
+        // 'likelihood' 但排名为空，_buildDeck 会静默按拼音字母排，而 UI 仍显示「可能性」。
+        _resetLikelihoodOnContextChange();
       });
       _buildDeck();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1555,21 +1776,49 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     required StudyMode mode,
     PromptMode promptMode = PromptMode.audio,
     String order = 'random',
-    bool autoFocus = true,
   }) {
+    // 沿用上次打卡的筛选（如「未学习」），没有存过才用调用方给的默认值。
+    final savedFilter = widget.storage.lastFlashcardFilter;
     setState(() {
-      _filter = filter;
+      _filter = _restorableFilters.contains(savedFilter) ? savedFilter : filter;
       _answerMode = AnswerMode.review;
       _mode = mode;
       _promptMode = promptMode;
       _order = order;
-      _taxonomicOrder = 'all';
       _correctCount = 0;
       _wrongCount = 0;
       _quizChoiceCache.clear();
     });
     _buildDeck();
-    if (autoFocus) enterFocusMode();
+    // 本次启动首次进入 → 停在「闪卡筛选页」；确认过(或用户设了"直接全屏")→ 进全屏沿用上次配置。
+    if (_configuredThisLaunch || widget.storage.flashcardStartFullscreen) {
+      enterFocusMode();
+    }
+  }
+
+  /// 学习指定的一批物种（到期复习 / 关卡 / 鸟单）。不走「记住上次筛选」。
+  void startCustomSession({
+    required List<String> scis,
+    String label = '自定义',
+    PromptMode promptMode = PromptMode.audio,
+  }) {
+    setState(() {
+      _customScis = scis.toSet();
+      _customLabel = label;
+      _filter = 'custom';
+      _answerMode = AnswerMode.review;
+      _mode = StudyMode.review;
+      _promptMode = promptMode;
+      _order = 'random';
+      _correctCount = 0;
+      _wrongCount = 0;
+      _quizChoiceCache.clear();
+    });
+    _buildDeck();
+    // 与打卡一致：本次启动首次进入停在筛选页，确认后(或设了"直接全屏")才进全屏。
+    if (_configuredThisLaunch || widget.storage.flashcardStartFullscreen) {
+      enterFocusMode();
+    }
   }
 
   void enterFocusMode() {
@@ -1578,48 +1827,89 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _scheduleAutoPlay();
   }
 
+  /// 从「打卡设置」窗口点「开始」进全屏：记一笔「已配置」，下次打卡直接全屏沿用上次设置。
+  void _startFromWindow() {
+    _configuredThisLaunch = true; // 本次会话内之后打卡/复习直接全屏沿用，重启后重新弹一次
+    enterFocusMode();
+  }
+
   void exitFocusMode() {
     if (!mounted || !_focusMode) return;
     _setFocusMode(false);
   }
 
-  Widget _difficultySelector([StateSetter? sheetSetState]) {
-    // Count images per difficulty level across all species
+  /// 单个难度下拉：species=true 物种难度（按物种评分），false 图片难度（按图评分）。
+  Widget _difficultyDropdown({
+    required bool species,
+    StateSetter? sheetSetState,
+  }) {
     final countByDifficulty = <int, int>{};
-    int totalImages = 0;
+    int total = 0;
     for (final sp in _allSpecies) {
-      for (final img in sp.images) {
-        final d = img.difficulty.clamp(1, 5);
+      if (species) {
+        final d = sp.difficulty.clamp(1, 5);
         countByDifficulty[d] = (countByDifficulty[d] ?? 0) + 1;
-        totalImages++;
+        total++;
+      } else {
+        for (final img in sp.images) {
+          final d = img.difficulty.clamp(1, 5);
+          countByDifficulty[d] = (countByDifficulty[d] ?? 0) + 1;
+          total++;
+        }
       }
     }
-
+    final current = species ? _speciesDifficultyFilter : _imageDifficultyFilter;
     String labelFor(int value) {
-      if (value == 0) return '全部 ($totalImages)';
+      if (value == 0) return '全部 ($total)';
       final count = countByDifficulty[value] ?? 0;
       return '${List.filled(value, '⭐').join()} ($count)';
     }
-
     return DropdownButtonFormField<int>(
-      value: _imageDifficultyFilter,
-      decoration: const InputDecoration(
-        labelText: '难度',
-        border: OutlineInputBorder(),
+      value: current,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: species ? '物种难度' : '图片难度',
+        border: const OutlineInputBorder(),
+        isDense: true,
       ),
       items: List.generate(
         6,
-        (i) => DropdownMenuItem<int>(
-          value: i,
-          child: Text(labelFor(i)),
-        ),
+        (i) => DropdownMenuItem<int>(value: i, child: Text(labelFor(i))),
       ),
       onChanged: (value) {
         if (value == null) return;
-        setState(() => _imageDifficultyFilter = value);
+        setState(() {
+          if (species) {
+            _speciesDifficultyFilter = value;
+          } else {
+            _imageDifficultyFilter = value;
+          }
+        });
         sheetSetState?.call(() {});
         _buildDeck();
       },
+    );
+  }
+
+  /// 难度筛选：物种难度始终可设（按物种评分、与图/音模式无关）；图片难度只在图片模式
+  /// 显示（只对图生效）。这样音频模式也能看到/清除物种难度，不会被静默过滤到空牌组。
+  Widget _difficultySelector([StateSetter? sheetSetState]) {
+    final showImage = _effectivePromptMode == PromptMode.image;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child:
+              _difficultyDropdown(species: true, sheetSetState: sheetSetState),
+        ),
+        if (showImage) ...[
+          const SizedBox(width: 10),
+          Expanded(
+            child: _difficultyDropdown(
+                species: false, sheetSetState: sheetSetState),
+          ),
+        ],
+      ],
     );
   }
 
@@ -1639,6 +1929,323 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   /// 提供给外部跳转
   void jumpTo(Species target) => _jumpToSpecies(target);
+
+  /// 独立的「闪卡筛选页」（非全屏时显示）。点「开始」才进学习页（全屏）。
+  Widget _buildFilterPage() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loadError != null) return Center(child: _buildMissingPackView());
+    void refresh(VoidCallback fn, {bool rebuildDeck = true}) {
+      setState(fn);
+      if (rebuildDeck) _buildDeck();
+    }
+
+    final total = _deck.length;
+    final beginner = widget.storage.isBeginnerMode;
+    return SafeArea(
+      child: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('闪卡筛选',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(
+                    total == 0 ? '当前范围没有可练习的题目' : '$_deckSummary · 共 $total 张',
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 16),
+                  // #8 数据包 + 地点 并列一行
+                  if (!beginner) ...[
+                    Row(
+                      children: [
+                        if (_installedPacks.length > 1) ...[
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: '数据包',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              value: _installedPacks
+                                      .any((p) => p.packDir == _activePackDir)
+                                  ? _activePackDir
+                                  : null,
+                              hint: const Text('选择'),
+                              items: [
+                                for (final p in _installedPacks)
+                                  DropdownMenuItem(
+                                    value: p.packDir,
+                                    child: Text(p.name,
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1),
+                                  ),
+                              ],
+                              onChanged: (dir) async {
+                                if (dir == null || dir == _activePackDir) {
+                                  return;
+                                }
+                                await widget.packManager.setActivePack(dir);
+                                _activePackDir = dir;
+                                await widget.storage.clearEbirdFilter();
+                                setState(() {
+                                  _correctCount = 0;
+                                  _wrongCount = 0;
+                                  _ebirdFilterSci = const {};
+                                  _ebirdFilterLabel = '';
+                                  _resetLikelihoodOnContextChange();
+                                });
+                                await _loadSpecies();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          // 地点筛选改成跟「数据包」下拉一样的方框（OutlineInputBorder + label）格式
+                          child: InkWell(
+                            onTap: _applyEBirdDeckFilter,
+                            borderRadius: BorderRadius.circular(4),
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: '地点筛选',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                      _ebirdFilterSci.isEmpty
+                                          ? Icons.place_outlined
+                                          : Icons.place,
+                                      size: 18),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      _ebirdFilterSci.isEmpty
+                                          ? '选择地点'
+                                          : _ebirdFilterLabel,
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_ebirdFilterSci.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.clear, size: 16),
+                          label: const Text('清除地点'),
+                          onPressed: () async {
+                            await widget.storage.clearEbirdFilter();
+                            refresh(() {
+                              _ebirdFilterSci = const {};
+                              _ebirdFilterLabel = '';
+                              _resetLikelihoodOnContextChange();
+                            });
+                            _buildDeck();
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                  ],
+                  // #9 学习模式 / 测试模式（整行，去「模式」标签）
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<AnswerMode>(
+                      segments: const [
+                        ButtonSegment(
+                            value: AnswerMode.learning,
+                            label: Text('学习模式')),
+                        ButtonSegment(
+                            value: AnswerMode.review, label: Text('测试模式')),
+                      ],
+                      selected: {_answerMode},
+                      onSelectionChanged: (v) => refresh(() {
+                        _answerMode = v.first;
+                        _correctCount = 0;
+                        _wrongCount = 0;
+                        _resetCardFace();
+                      }, rebuildDeck: false),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // #10 判断题 / 选择题（一行，去「题型」标签）
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<StudyMode>(
+                      segments: const [
+                        ButtonSegment(
+                            value: StudyMode.review, label: Text('判断题')),
+                        ButtonSegment(
+                            value: StudyMode.quiz, label: Text('选择题')),
+                      ],
+                      selected: {_mode},
+                      onSelectionChanged: (v) => refresh(() {
+                        _mode = v.first;
+                        _correctCount = 0;
+                        _wrongCount = 0;
+                        _resetCardFace();
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // #11 音频闪卡 / 图片闪卡（去「出题」标签）
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<PromptMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: PromptMode.audio,
+                          icon: Icon(Icons.headphones, size: 16),
+                          label: Text('音频闪卡'),
+                        ),
+                        ButtonSegment(
+                          value: PromptMode.image,
+                          icon: Icon(Icons.image_outlined, size: 16),
+                          label: Text('图片闪卡'),
+                        ),
+                      ],
+                      selected: {_promptMode},
+                      onSelectionChanged: (v) => refresh(() {
+                        _promptMode = v.first;
+                        _correctCount = 0;
+                        _wrongCount = 0;
+                        _resetCardFace();
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _difficultySelector(),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    value: _filter,
+                    decoration: const InputDecoration(
+                      labelText: '范围',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('全部')),
+                      DropdownMenuItem(value: 'studied', child: Text('已学习')),
+                      DropdownMenuItem(value: 'unseen', child: Text('未学习')),
+                      DropdownMenuItem(value: 'unfamiliar', child: Text('不熟悉')),
+                      DropdownMenuItem(value: 'favorites', child: Text('收藏')),
+                      DropdownMenuItem(
+                          value: 'lifer', child: Text('未见过（潜在新种）')),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      refresh(() => _filter = v);
+                      widget.storage.setLastFlashcardFilter(v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // #12 顺序：随机 / 分类关系（目科属种）。原「按目筛选」已移除。
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    value: const ['taxonomic', 'likelihood'].contains(_order)
+                        ? _order
+                        : 'random',
+                    decoration: const InputDecoration(
+                      labelText: '顺序',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'random', child: Text('随机')),
+                      DropdownMenuItem(
+                          value: 'taxonomic',
+                          child: Text('分类关系（目科属种）')),
+                      DropdownMenuItem(
+                          value: 'likelihood',
+                          child: Text('可能性（近期 eBird 观测）')),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      if (v == 'likelihood') {
+                        _selectLikelihoodOrder();
+                      } else {
+                        refresh(() => _order = v);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: total == 0 ? null : _startFromWindow,
+                style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2d7d32)),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text(
+                    _answerMode == AnswerMode.learning ? '开始学习' : '开始打卡'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 学习页里的快捷操作行（收藏/识别特征/上传/纠错/重来）。
+  Widget _buildStudyActions() {
+    final bird = _currentBird;
+    if (bird == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _roundIconAction(
+            icon: widget.storage.isFavorite(bird.cn)
+                ? Icons.star
+                : Icons.star_border,
+            activeColor:
+                widget.storage.isFavorite(bird.cn) ? Colors.amber : Colors.grey,
+            tooltip: '收藏',
+            onPressed: _toggleFav,
+          ),
+          _roundIconAction(
+            icon: Icons.help_outline,
+            tooltip: '识别特征',
+            onPressed: _editIdentificationNote,
+          ),
+          _roundIconAction(
+            icon: Icons.upload_outlined,
+            tooltip: '上传',
+            onPressed: _uploadMedia,
+          ),
+          _roundIconAction(
+            icon: Icons.bug_report_outlined,
+            tooltip: '纠错',
+            onPressed: _reportIssue,
+          ),
+          _roundIconAction(
+            icon: Icons.refresh,
+            tooltip: '重来',
+            onPressed: _restart,
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _openFilterSheet() async {
     // 打开筛选前载入已安装数据包，供「数据包」下拉切换
@@ -1677,12 +2284,14 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
-                  if (_installedPacks.length > 1) ...[
-                    const Text('数据包',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    DropdownButton<String>(
+                  if (_installedPacks.length > 1 &&
+                      !widget.storage.isBeginnerMode) ...[
+                    DropdownButtonFormField<String>(
                       isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: '数据包',
+                        border: OutlineInputBorder(),
+                      ),
                       value: _installedPacks
                               .any((p) => p.packDir == _activePackDir)
                           ? _activePackDir
@@ -1700,57 +2309,64 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         if (dir == null || dir == _activePackDir) return;
                         await widget.packManager.setActivePack(dir);
                         _activePackDir = dir;
+                        await widget.storage.clearEbirdFilter();
                         sheetSetState(() {});
                         setState(() {
                           _correctCount = 0;
                           _wrongCount = 0;
                           _ebirdFilterSci = const {};
                           _ebirdFilterLabel = '';
+                          _resetLikelihoodOnContextChange();
                         });
                         await _loadSpecies(); // 重载该包物种并重建牌组
                       },
                     ),
                     const SizedBox(height: 12),
                   ],
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ActionChip(
-                        avatar: const Icon(Icons.place_outlined, size: 18),
-                        label: Text(
-                          _ebirdFilterSci.isEmpty ? '地点筛选' : _ebirdFilterLabel,
-                        ),
-                        onPressed: () async {
-                          Navigator.pop(ctx);
-                          await _applyEBirdDeckFilter();
-                        },
-                      ),
-                      if (_ebirdFilterSci.isNotEmpty)
+                  if (!widget.storage.isBeginnerMode) ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
                         ActionChip(
-                          avatar: const Icon(Icons.clear, size: 18),
-                          label: const Text('清除地点'),
+                          avatar: const Icon(Icons.place_outlined, size: 18),
+                          label: Text(
+                            _ebirdFilterSci.isEmpty
+                                ? '地点筛选'
+                                : _ebirdFilterLabel,
+                          ),
                           onPressed: () async {
-                            await widget.storage.clearEbirdFilter();
-                            refresh(() {
-                              _ebirdFilterSci = const {};
-                              _ebirdFilterLabel = '';
-                            });
-                            _buildDeck();
+                            Navigator.pop(ctx);
+                            await _applyEBirdDeckFilter();
                           },
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                        if (_ebirdFilterSci.isNotEmpty)
+                          ActionChip(
+                            avatar: const Icon(Icons.clear, size: 18),
+                            label: const Text('清除地点'),
+                            onPressed: () async {
+                              await widget.storage.clearEbirdFilter();
+                              refresh(() {
+                                _ebirdFilterSci = const {};
+                                _ebirdFilterLabel = '';
+                                _resetLikelihoodOnContextChange();
+                              });
+                              _buildDeck();
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   const Text('模式',
                       style: TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
                   SegmentedButton<AnswerMode>(
                     segments: const [
                       ButtonSegment(
-                          value: AnswerMode.learning, label: Text('预习')),
+                          value: AnswerMode.learning, label: Text('学习')),
                       ButtonSegment(
-                          value: AnswerMode.review, label: Text('复习')),
+                          value: AnswerMode.review, label: Text('测试')),
                     ],
                     selected: {_answerMode},
                     onSelectionChanged: (v) => refresh(
@@ -1805,103 +2421,70 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                       _resetCardFace();
                     }),
                   ),
-                  // 难度按图片评分，只在图片模式下生效；音频模式隐藏以免误以为无效
-                  if (_promptMode == PromptMode.image) ...[
-                    const SizedBox(height: 12),
-                    _difficultySelector(sheetSetState),
-                  ],
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _filter,
-                          decoration: const InputDecoration(
-                            labelText: '范围',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('全部')),
-                            DropdownMenuItem(
-                                value: 'studied', child: Text('已学习')),
-                            DropdownMenuItem(
-                                value: 'unseen', child: Text('未学习')),
-                            DropdownMenuItem(
-                              value: 'unfamiliar',
-                              child: Text('不熟悉'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'favorites',
-                              child: Text('收藏'),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            refresh(() => _filter = v);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _order,
-                          decoration: const InputDecoration(
-                            labelText: '顺序',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'random', child: Text('随机')),
-                            DropdownMenuItem(
-                              value: 'review_time',
-                              child: Text('久未复习'),
-                            ),
-                            DropdownMenuItem(
-                                value: 'wrong', child: Text('错误多')),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            refresh(() => _order = v);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_availableOrders.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: _taxonomicOrder,
-                      decoration: const InputDecoration(
-                        labelText: '按目筛选',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                            value: 'all', child: Text('全部目')),
-                        ..._availableOrders.map(
-                          (order) => DropdownMenuItem(
-                            value: order,
-                            child: Text(_orderLabel(order)),
-                          ),
-                        ),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        refresh(() => _taxonomicOrder = v);
-                      },
+                  _difficultySelector(sheetSetState),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    value: _filter,
+                    decoration: const InputDecoration(
+                      labelText: '范围',
+                      border: OutlineInputBorder(),
                     ),
-                  ],
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('全部')),
+                      DropdownMenuItem(value: 'studied', child: Text('已学习')),
+                      DropdownMenuItem(value: 'unseen', child: Text('未学习')),
+                      DropdownMenuItem(value: 'unfamiliar', child: Text('不熟悉')),
+                      DropdownMenuItem(value: 'favorites', child: Text('收藏')),
+                      DropdownMenuItem(
+                          value: 'lifer', child: Text('未见过（潜在新种）')),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      refresh(() => _filter = v);
+                      widget.storage.setLastFlashcardFilter(v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    value: const ['taxonomic', 'likelihood'].contains(_order)
+                        ? _order
+                        : 'random',
+                    decoration: const InputDecoration(
+                      labelText: '顺序',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'random', child: Text('随机')),
+                      DropdownMenuItem(
+                          value: 'taxonomic',
+                          child: Text('分类关系（目科属种）')),
+                      DropdownMenuItem(
+                          value: 'likelihood',
+                          child: Text('可能性（近期 eBird 观测）')),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      if (v == 'likelihood') {
+                        _selectLikelihoodOrder();
+                      } else {
+                        refresh(() => _order = v);
+                      }
+                    },
+                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        enterFocusMode();
+                        _startFromWindow();
                       },
                       icon: const Icon(Icons.fullscreen),
                       label: Text(
-                        _answerMode == AnswerMode.learning ? '开始预习' : '开始打卡',
+                        _answerMode == AnswerMode.learning ? '开始学习' : '开始打卡',
                       ),
                     ),
                   ),
@@ -1917,6 +2500,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   @override
   Widget build(BuildContext context) {
     final bird = _currentBird;
+
+    // 非全屏 = 独立「闪卡筛选页」；全屏 = 学习页。两者分开，不再是同一视图大小切换。
+    if (!_focusMode) return _buildFilterPage();
 
     return Column(
       children: [
@@ -1945,15 +2531,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: _openFilterSheet,
-                  icon: const Icon(Icons.tune, size: 18),
-                  label: const Text('筛选'),
-                ),
-                TextButton.icon(
-                  onPressed: enterFocusMode,
+                  onPressed: _startFromWindow,
                   icon: const Icon(Icons.fullscreen, size: 18),
                   label: Text(
-                    _answerMode == AnswerMode.learning ? '开始预习' : '开始打卡',
+                    _answerMode == AnswerMode.learning ? '开始学习' : '开始打卡',
                   ),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF2d5016),
@@ -2139,6 +2720,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                               },
                             ),
         ),
+        if (_focusMode && bird != null && !_isFinished) _buildStudyActions(),
         if (_focusMode &&
             bird != null &&
             !_isFinished &&
@@ -2170,14 +2752,14 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                         onPressed: _editIdentificationNote,
                       ),
                       _roundIconAction(
-                        icon: Icons.add_photo_alternate_outlined,
-                        tooltip: '上传鸟图',
-                        onPressed: _uploadBirdImage,
+                        icon: Icons.upload_outlined,
+                        tooltip: '上传',
+                        onPressed: _uploadMedia,
                       ),
                       _roundIconAction(
-                        icon: Icons.library_music_outlined,
-                        tooltip: '上传音频',
-                        onPressed: _uploadBirdAudio,
+                        icon: Icons.tune,
+                        tooltip: '筛选',
+                        onPressed: _openFilterSheet,
                       ),
                       _roundIconAction(
                         icon: Icons.bug_report_outlined,
@@ -2395,7 +2977,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     _showAnswer();
                     if (!_isFinished) {
                       Future.delayed(
-                          const Duration(milliseconds: 1600), _nextCard);
+                          const Duration(milliseconds: 1300), _nextCard);
                     }
                   },
                   style:
@@ -2423,8 +3005,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
               children: [
                 TextButton.icon(
                   onPressed: exitFocusMode,
-                  icon: const Icon(Icons.fullscreen_exit, size: 18),
-                  label: const Text('退出全屏'),
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('退出'),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF2d5016),
                   ),

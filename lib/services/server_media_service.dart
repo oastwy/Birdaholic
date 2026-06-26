@@ -233,6 +233,11 @@ class ServerSpeciesMedia {
   final List<ServerImageMedia> images;
   final List<ServerAudioMedia> audio;
 
+  /// 含 pending 在内的全部条目（仅供本地「对账删除」判断服务器是否仍知道这张图/音频用），
+  /// 避免把正在重审(pending)的条目误判为「已删」而删掉本地文件。images/audio 仍只含已通过。
+  final List<ServerImageMedia> allImages;
+  final List<ServerAudioMedia> allAudio;
+
   const ServerSpeciesMedia({
     required this.sci,
     required this.cn,
@@ -242,12 +247,20 @@ class ServerSpeciesMedia {
     required this.identificationFeatures,
     required this.images,
     required this.audio,
+    this.allImages = const [],
+    this.allAudio = const [],
   });
 
   bool get hasImage => images.isNotEmpty;
   bool get hasAudio => audio.isNotEmpty;
 
   factory ServerSpeciesMedia.fromJson(Map<String, dynamic> json) {
+    final rawImages = (json['images'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    final rawAudio = (json['audio'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
     return ServerSpeciesMedia(
       sci: json['sci'] as String? ?? '',
       cn: json['cn'] as String? ?? '',
@@ -255,15 +268,21 @@ class ServerSpeciesMedia {
       order: json['order'] as String? ?? '',
       family: json['family'] as String? ?? '',
       identificationFeatures: json['identification_features'] as String? ?? '',
-      images: (json['images'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>()
+      images: rawImages
           .where((m) => m['pending'] != true)
           .map(ServerImageMedia.fromJson)
           .where((item) => item.url.isNotEmpty)
           .toList(),
-      audio: (json['audio'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>()
+      audio: rawAudio
           .where((m) => m['pending'] != true)
+          .map(ServerAudioMedia.fromJson)
+          .where((item) => item.url.isNotEmpty)
+          .toList(),
+      allImages: rawImages
+          .map(ServerImageMedia.fromJson)
+          .where((item) => item.url.isNotEmpty)
+          .toList(),
+      allAudio: rawAudio
           .map(ServerAudioMedia.fromJson)
           .where((item) => item.url.isNotEmpty)
           .toList(),

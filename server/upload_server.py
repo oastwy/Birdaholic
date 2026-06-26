@@ -36,6 +36,7 @@ WORLD_BIRDS_PATH = Path(
 try:
     from PIL import Image, ImageOps
     import pillow_heif
+
     pillow_heif.register_heif_opener()
     _PIL_OK = True
 except Exception:
@@ -52,11 +53,11 @@ DISCOVER_FILE = Path("/data/server/discover.json")
 DISCOVER_DIR = DATA_DIR / "discover"  # 二维码等图片，nginx 经 /discover/ 提供
 
 # ── 删除回收站 ─────────────────────────────────────────────────
-TRASH_DIR = DATA_DIR / "trash"            # 删除的媒体先移到这里
-TRASH_RETENTION_DAYS = 30                 # 超过此天数自动清除
+TRASH_DIR = DATA_DIR / "trash"  # 删除的媒体先移到这里
+TRASH_RETENTION_DAYS = 30  # 超过此天数自动清除
 DELETE_LOG_FILE = Path("/data/server/delete_log.json")  # 删除/恢复历史
-OPS_LOG_FILE = Path("/data/server/admin_ops.json")      # 统一管理操作日志
-QUIZ_LOG_FILE = Path("/data/server/quiz_log.json")      # 识别测验出题日志（App 回传）
+OPS_LOG_FILE = Path("/data/server/admin_ops.json")  # 统一管理操作日志
+QUIZ_LOG_FILE = Path("/data/server/quiz_log.json")  # 识别测验出题日志（App 回传）
 TOKEN_REQ_FILE = Path("/data/server/token_requests.json")  # 匿名上传权限申请队列
 DISCOVER_PUBLIC_BASE = os.environ.get(
     "BIRDAHOLIC_DISCOVER_BASE", "https://birding.today/discover"
@@ -71,6 +72,8 @@ def load_users() -> dict:
         except Exception:
             return {}
     return {}
+
+
 PUBLIC_BASE_URL = os.environ.get(
     "BIRDAHOLIC_PUBLIC_BASE_URL", "http://124.223.101.188:8080"
 ).rstrip("/")
@@ -85,7 +88,20 @@ app = FastAPI(title="Birdaholic Upload Server")
 
 
 def species_key(scientific_name: str) -> str:
-    return "_".join(scientific_name.strip().split())
+    key = "_".join(scientific_name.strip().split())
+    # 防路径穿越：key 会被拼进 SPECIES_DIR/<key>/... 做 mkdir / read / write。
+    # 合法学名不含 / \ 或 ..；拒绝可挡住 sci="../../x"、绝对路径等越界读写。
+    # match_species 只对 world_birds（干净二名）调本函数，正常调用不会触发。
+    if (
+        not key
+        or key in (".", "..")
+        or key.startswith(".")
+        or "/" in key
+        or "\\" in key
+        or ".." in key
+    ):
+        raise HTTPException(status_code=400, detail="Invalid species name")
+    return key
 
 
 def normalize_name(value: str) -> str:
@@ -129,7 +145,9 @@ try:
         if not text:
             return "", ""
         try:
-            initials = "".join(lazy_pinyin(text, style=_PyStyle.FIRST_LETTER, errors="ignore")).lower()
+            initials = "".join(
+                lazy_pinyin(text, style=_PyStyle.FIRST_LETTER, errors="ignore")
+            ).lower()
             full = "".join(lazy_pinyin(text, errors="ignore")).lower()
             return initials, full
         except Exception:
@@ -197,7 +215,12 @@ def authenticate(authorization: str | None, token: str | None) -> dict:
         u["token"] = provided
         return u
     if UPLOAD_TOKEN and provided == UPLOAD_TOKEN:
-        return {"id": "legacy_admin", "role": "admin", "name": "管理员", "token": provided}
+        return {
+            "id": "legacy_admin",
+            "role": "admin",
+            "name": "管理员",
+            "token": provided,
+        }
     raise HTTPException(status_code=401, detail="Invalid upload token")
 
 
@@ -326,8 +349,12 @@ def build_index_rows() -> list[dict[str, Any]]:
                 "family": world_item.get("family", "") or manifest.get("family", ""),
                 "species_dir": manifest_path.parent.name,
                 "manifest_url": f"{PUBLIC_BASE_URL}/species/{manifest_path.parent.name}/manifest.json",
-                "image_count": sum(1 for x in manifest.get("images", []) if not x.get("pending")),
-                "audio_count": sum(1 for x in manifest.get("audio", []) if not x.get("pending")),
+                "image_count": sum(
+                    1 for x in manifest.get("images", []) if not x.get("pending")
+                ),
+                "audio_count": sum(
+                    1 for x in manifest.get("audio", []) if not x.get("pending")
+                ),
                 "source_packs": manifest.get("source_packs", []),
             }
         )
@@ -430,7 +457,8 @@ def stats(q: str = "") -> dict[str, Any]:
         rows = [
             row
             for row in rows
-            if query in normalize_name(
+            if query
+            in normalize_name(
                 " ".join(
                     [
                         str(row.get("sci", "")),
@@ -678,17 +706,23 @@ async def upload(
         else:
             requested_kind = ""
         if requested_kind and kind and requested_kind != kind:
-            failed.append({"file": upload_file.filename, "reason": "media type mismatch"})
+            failed.append(
+                {"file": upload_file.filename, "reason": "media type mismatch"}
+            )
             continue
         if requested_kind and not kind:
             kind = requested_kind
         if kind is None:
-            failed.append({"file": upload_file.filename, "reason": "unsupported file type"})
+            failed.append(
+                {"file": upload_file.filename, "reason": "unsupported file type"}
+            )
             continue
 
         item = selected or match_species(upload_file.filename)
         if not item or not item.get("sci"):
-            failed.append({"file": upload_file.filename, "reason": "species not recognized"})
+            failed.append(
+                {"file": upload_file.filename, "reason": "species not recognized"}
+            )
             continue
 
         target_sci = item["sci"]
@@ -738,7 +772,9 @@ async def upload(
         else:
             normalized_audio_type = audio_type.strip().lower()
             if normalized_audio_type not in {"song", "call"}:
-                normalized_audio_type = "song" if "song" in upload_file.filename.lower() else "call"
+                normalized_audio_type = (
+                    "song" if "song" in upload_file.filename.lower() else "call"
+                )
             entry = {
                 "file": f"audio/{filename}",
                 "url": public_url(target_sci, "audio", filename),
@@ -768,18 +804,27 @@ async def upload(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        saved.append({
-            "file": upload_file.filename,
-            "sci": target_sci,
-            "kind": kind,
-            "entry": entry,
-        })
+        saved.append(
+            {
+                "file": upload_file.filename,
+                "sci": target_sci,
+                "kind": kind,
+                "entry": entry,
+            }
+        )
 
     update_index()
+    if is_admin and saved:
+        # 管理员上传即为非 pending，立刻计入致谢/评级队列；内测上传是 pending，两处都不计，无需失效
+        _invalidate_contributors_cache()
+        _invalidate_rate_queue_cache()
     if saved:
-        _log_op("上传媒体", user.get("id", ""),
-                ", ".join(sorted({s["sci"] for s in saved}))[:120],
-                f"{len(saved)} 个文件" + ("（待审核）" if not is_admin else ""))
+        _log_op(
+            "上传媒体",
+            user.get("id", ""),
+            ", ".join(sorted({s["sci"] for s in saved}))[:120],
+            f"{len(saved)} 个文件" + ("（待审核）" if not is_admin else ""),
+        )
     return {"saved": saved, "failed": failed}
 
 
@@ -818,9 +863,13 @@ async def set_difficulty(
     token: str = "",
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    check_token(authorization, token)
+    # 仅管理员直接写物种难度；内测用户走 /api/rate/submit 进待审队列。
+    _require_admin(authorization, token)
     sci = str(payload.get("sci", "")).strip()
-    difficulty = int(payload.get("difficulty", 0))
+    try:
+        difficulty = int(payload.get("difficulty", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="difficulty must be 1-5")
     if not sci:
         raise HTTPException(status_code=400, detail="Missing sci")
     if not (1 <= difficulty <= 5):
@@ -836,6 +885,7 @@ async def set_difficulty(
         encoding="utf-8",
     )
     update_index()
+    _invalidate_rate_queue_cache()
     return {"saved": True, "sci": sci, "difficulty": difficulty}
 
 
@@ -948,6 +998,19 @@ async def submit_feedback(
         "created_at": int(time.time()),
         "status": "open",
     }
+    # 图片问题反馈：保留被举报图片的定位信息（哪张图 / 谁传的），
+    # 供管理员核实后按 species_sci + image_file 反查并回达图片提交者。
+    for _k in (
+        "report_type",
+        "image_url",
+        "image_file",
+        "image_source",
+        "image_contributor",
+        "image_contributor_url",
+    ):
+        _v = str(payload.get(_k, "")).strip()
+        if _v:
+            entry[_k] = _v[:500]
     with _feedback_lock:
         items = _load_feedback()
         items.append(entry)
@@ -961,7 +1024,12 @@ def admin_feedback(
     authorization: str | None = Header(default=None),
 ) -> list[dict]:
     _require_admin(authorization, token)
-    items = _load_feedback()
+    # image_relay 是「回达提交者」生成的出站通知，不是收到的反馈，不进审核列表
+    items = [
+        it
+        for it in _load_feedback()
+        if it.get("kind") not in ("image_relay", "approve_notice")
+    ]
     items.sort(key=lambda x: x.get("created_at", 0), reverse=True)
     return items
 
@@ -1040,17 +1108,169 @@ def feedback_replies(
         if not it.get("reply"):
             continue
         match = (uid and uid != "anon" and it.get("uploader_id") == uid) or (
-            cid and it.get("client_id") == cid)
+            cid and it.get("client_id") == cid
+        )
         if match:
-            out.append({
-                "id": it.get("id"),
-                "message": it.get("message", ""),
-                "reply": it.get("reply", ""),
-                "replied_at": it.get("replied_at"),
-                "species_cn": it.get("species_cn", ""),
-                "species_sci": it.get("species_sci", ""),
-            })
+            out.append(
+                {
+                    "id": it.get("id"),
+                    "message": it.get("message", ""),
+                    "reply": it.get("reply", ""),
+                    "replied_at": it.get("replied_at"),
+                    "species_cn": it.get("species_cn", ""),
+                    "species_sci": it.get("species_sci", ""),
+                }
+            )
     return {"items": out}
+
+
+def _notify_upload_approved(
+    entry: dict, sci: str, cn: str, file: str, kind: str
+) -> None:
+    """审核通过后给上传者发「已过审」通知：复用 feedback replies 机制下发（App 端「反馈
+    与通知」按 uploader_id + reply 即可收到），不暴露任何第三方、单向、无互动——守去社交。
+    只对真·App 用户上传（source==birdaholic-upload、有 uploader_id）发；iNat/补图/占位图不发。"""
+    uid = str(entry.get("uploader_id", "")).strip()
+    if not uid or uid == "anon" or entry.get("source") != "birdaholic-upload":
+        return
+    label = (cn or sci or "").strip()
+    what = "鸟鸣" if kind == "audio" else "图片"
+    now = int(time.time())
+    notice = {
+        "id": secrets.token_urlsafe(9),
+        "uploader_id": uid,
+        "uploader_name": str(entry.get("contributor", "")).strip(),
+        "role": "user",
+        "client_id": "",
+        "message": f"你上传的「{label}」{what}审核结果",
+        "reply": f"你上传的「{label}」{what}已通过审核、已收录，感谢你的分享！",
+        "page": "上传审核通知",
+        "species_cn": cn,
+        "species_sci": sci,
+        "image_file": file,
+        "kind": "approve_notice",
+        "replied_at": now,
+        "created_at": now,
+        "status": "resolved",
+        "resolved_at": now,
+    }
+    with _feedback_lock:
+        items = _load_feedback()
+        # 同一上传者+同一文件的旧审核通知先移除，避免删/恢复反复审核刷出重复通知
+        items = [
+            it
+            for it in items
+            if not (
+                it.get("kind") == "approve_notice"
+                and it.get("uploader_id") == uid
+                and it.get("image_file") == file
+            )
+        ]
+        items.append(notice)
+        _save_feedback(items)
+
+
+def _resolve_image_uploader(species_sci: str, image_file: str, image_url: str) -> dict:
+    """按 sci + 图文件名在 manifest 里反查那张图的上传者。
+    只有 App 用户上传图（source==birdaholic-upload）才有真实 uploader_id 可回达；
+    iNat / Wikimedia / 占位图返回空。"""
+    if not species_sci:
+        return {}
+    try:
+        manifest = load_manifest(species_sci)
+    except Exception:
+        return {}
+
+    def _base(p: str) -> str:
+        return (p or "").rsplit("/", 1)[-1].strip().lower()
+
+    want_file = (image_file or "").strip().lower()
+    want_base = _base(image_file) or _base(image_url)
+    for img in manifest.get("images", []):
+        if img.get("pending"):
+            continue  # 未过审图不回达（其提交者身份尚不该被据此触达）
+        f = str(img.get("file", "")).strip().lower()
+        u = str(img.get("url", "")).strip()
+        if not f:
+            continue
+        # 优先精确文件名匹配；basename 仅作兜底（文件名带毫秒前缀，基本唯一）。
+        if (want_file and f == want_file) or (
+            want_base and (_base(f) == want_base or _base(u) == want_base)
+        ):
+            return {
+                "uploader_id": str(img.get("uploader_id", "")).strip(),
+                "uploader_name": str(
+                    img.get("uploader_name", "") or img.get("contributor", "")
+                ).strip(),
+                "source": str(img.get("source", "")).strip(),
+            }
+    return {}
+
+
+@app.post("/api/admin/feedback/relay")
+async def admin_feedback_relay(
+    payload: dict = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """把某条图片反馈核实后回达给图片提交者（仅 App 用户上传图）。
+    生成一条新的、定向给提交者 uploader_id 的通知记录（带 reply，
+    供 /api/feedback/replies 下发），不暴露举报者身份。"""
+    admin = _require_admin(authorization, token)
+    fid = str(payload.get("id", "")).strip()
+    message = str(payload.get("message", "")).strip()
+    if not fid:
+        raise HTTPException(status_code=400, detail="Missing id")
+    if not message:
+        raise HTTPException(status_code=400, detail="Empty message")
+    with _feedback_lock:
+        items = _load_feedback()
+        src = next((it for it in items if it.get("id") == fid), None)
+        if src is None:
+            raise HTTPException(status_code=404, detail="Feedback not found")
+        info = _resolve_image_uploader(
+            src.get("species_sci", ""),
+            src.get("image_file", ""),
+            src.get("image_url", ""),
+        )
+        sub_uid = info.get("uploader_id", "")
+        if (
+            not sub_uid
+            or sub_uid == "anon"
+            or info.get("source") != "birdaholic-upload"
+        ):
+            return {"ok": False, "reason": "no_app_submitter"}
+        now = int(time.time())
+        notice = {
+            "id": secrets.token_urlsafe(9),
+            "uploader_id": sub_uid,  # 收件人 = 图片提交者
+            "uploader_name": info.get("uploader_name", ""),
+            "role": "user",
+            "client_id": "",
+            "message": f"关于你上传的「{src.get('species_cn', '')}」图片的反馈",
+            "page": "图片提交者通知",
+            "species_cn": src.get("species_cn", ""),
+            "species_sci": src.get("species_sci", ""),
+            "image_file": src.get("image_file", ""),
+            "image_url": src.get("image_url", ""),
+            "kind": "image_relay",
+            "source_feedback_id": fid,
+            "reply": message[:2000],  # 有 reply → replies 接口会下发
+            "replied_at": now,
+            "replied_by": admin.get("name") or admin.get("id", ""),
+            "created_at": now,
+            "status": "resolved",
+            "resolved_at": now,
+        }
+        # 同一条反馈重复回达：先移除该反馈的旧通知，避免提交者收到重复
+        # （src 自身无 source_feedback_id，过滤后仍在列表里，可继续 mutate）
+        items = [it for it in items if it.get("source_feedback_id") != fid]
+        items.append(notice)
+        src["relayed_to"] = sub_uid
+        src["relayed_at"] = now
+        _save_feedback(items)
+    _log_op("回达图片提交者", admin.get("id", ""), fid, message[:80])
+    return {"ok": True, "id": notice["id"], "uploader_id": sub_uid}
 
 
 # ── 匿名上传权限申请（App 不需注册，本机 client_id 提交，管理员审核发 token）──
@@ -1068,7 +1288,8 @@ def _load_token_reqs() -> list[dict]:
 def _save_token_reqs(items: list[dict]) -> None:
     try:
         TOKEN_REQ_FILE.write_text(
-            json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         TOKEN_REQ_FILE.chmod(0o600)
     except Exception:
         pass
@@ -1077,8 +1298,10 @@ def _save_token_reqs(items: list[dict]) -> None:
 def _token_req_public(rec: dict) -> dict:
     """只回 App 端 status + token（approved 才带 token）。"""
     approved = rec.get("status") == "approved"
-    return {"status": rec.get("status", "pending"),
-            "token": rec.get("token", "") if approved else ""}
+    return {
+        "status": rec.get("status", "pending"),
+        "token": rec.get("token", "") if approved else "",
+    }
 
 
 @app.post("/api/token_requests")
@@ -1108,9 +1331,15 @@ def submit_token_request(payload: dict = Body(...)) -> dict:
             if rec.get("status") != "approved":
                 rec["status"] = "pending"
                 rec["note"] = str(payload.get("note", rec.get("note", "")))[:500]
-                rec["platform"] = str(payload.get("platform", rec.get("platform", "")))[:40]
-                rec["app_version"] = str(payload.get("app_version", rec.get("app_version", "")))[:40]
-                rec["app_build"] = str(payload.get("app_build", rec.get("app_build", "")))[:40]
+                rec["platform"] = str(payload.get("platform", rec.get("platform", "")))[
+                    :40
+                ]
+                rec["app_version"] = str(
+                    payload.get("app_version", rec.get("app_version", ""))
+                )[:40]
+                rec["app_build"] = str(
+                    payload.get("app_build", rec.get("app_build", ""))
+                )[:40]
             rec["updated_at"] = now
         _save_token_reqs(items)
     return _token_req_public(rec)
@@ -1131,8 +1360,284 @@ def admin_list_token_requests(
     authorization: str | None = Header(default=None),
 ) -> dict:
     _require_admin(authorization, token)
-    items = sorted(_load_token_reqs(), key=lambda r: r.get("created_at", 0), reverse=True)
+    items = sorted(
+        _load_token_reqs(), key=lambda r: r.get("created_at", 0), reverse=True
+    )
     return {"items": items}
+
+
+# ── 逐种评级（admin）：给中国鸟逐种逐图打「物种难度 / 图片质量难度」 ──────────
+_CHINA_BIRDS_CACHE: list[dict[str, Any]] | None = None
+
+
+def _load_china_birds() -> list[dict[str, Any]]:
+    """中国鸟名录（~1490 种）。文件与 upload_server.py 同目录（/data/server/china_birds.json）。"""
+    global _CHINA_BIRDS_CACHE
+    if _CHINA_BIRDS_CACHE is None:
+        p = Path(__file__).resolve().parent / "china_birds.json"
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            _CHINA_BIRDS_CACHE = data if isinstance(data, list) else []
+        except Exception:
+            _CHINA_BIRDS_CACHE = []
+    return _CHINA_BIRDS_CACHE
+
+
+# 评级队列缓存：admin 评级页用，要扫 ~1490 个 manifest。60s TTL + 评级写操作即时失效，
+# 既省重复扫描，又保证评级后刷新能立刻看到最新「已评」进度。
+_RATE_QUEUE_CACHE: dict[str, Any] | None = None
+_RATE_QUEUE_CACHE_TS: float = 0.0
+_RATE_QUEUE_CACHE_TTL = 60  # 秒
+_RATE_QUEUE_CACHE_LOCK = (
+    threading.Lock()
+)  # 单飞：失效后只让一个线程扫 ~1490 manifest，余者复用
+
+
+def _invalidate_rate_queue_cache() -> None:
+    """set_difficulty / set_image_difficulty / _apply_rating 等评级写操作后调用。"""
+    global _RATE_QUEUE_CACHE
+    _RATE_QUEUE_CACHE = None
+
+
+def _compute_rate_queue() -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for s in _load_china_birds():
+        sci = str(s.get("sci", "")).strip()
+        if not sci:
+            continue
+        world = WORLD_BY_SCI.get(sci.lower(), {})
+        try:
+            key = species_key(sci)
+        except HTTPException:
+            continue  # china_birds.json 里个别异常 sci 跳过，别让坏一条 500 掉整个评级队列
+        mp = SPECIES_DIR / key / "manifest.json"
+        has_manifest = mp.exists()  # 只 stat 一次，下面复用
+        species_diff = 0
+        species_rated = False
+        img_count = 0
+        img_rated = 0
+        if has_manifest:
+            try:
+                m = json.loads(mp.read_text(encoding="utf-8"))
+            except Exception:
+                m = {}
+            species_rated = "difficulty" in m
+            species_diff = int(m.get("difficulty", 0) or 0)
+            for x in m.get("images", []):
+                if (
+                    x.get("pending")
+                    or x.get("placeholder")
+                    or x.get("source") == "placeholder"
+                ):
+                    continue
+                img_count += 1
+                if "difficulty" in x:
+                    img_rated += 1
+        items.append(
+            {
+                "sci": sci,
+                "zh": (s.get("zh") or world.get("zh") or s.get("cn") or "").strip(),
+                "en": (s.get("en") or world.get("en") or "").strip(),
+                "order": (s.get("order") or world.get("order") or "").strip(),
+                "family": (s.get("family") or world.get("family") or "").strip(),
+                "key": key,
+                "has_manifest": has_manifest,
+                "species_difficulty": species_diff,
+                "species_rated": species_rated,
+                "image_count": img_count,
+                "image_rated": img_rated,
+            }
+        )
+    rated = sum(1 for x in items if x["species_rated"])
+    return {"items": items, "total": len(items), "rated": rated}
+
+
+@app.get("/api/admin/rate/queue")
+def admin_rate_queue(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """返回中国鸟评级队列：每种的已评状态 + 图片数。图片明细由前端按需拉 manifest。
+    带 60s TTL 缓存（评级写操作即时失效）——该接口要扫 ~1490 个 manifest。"""
+    _require_admin(authorization, token)
+    global _RATE_QUEUE_CACHE, _RATE_QUEUE_CACHE_TS
+    now = time.time()
+    cache = _RATE_QUEUE_CACHE
+    if cache is None or (now - _RATE_QUEUE_CACHE_TS) > _RATE_QUEUE_CACHE_TTL:
+        # 单飞 + 双检：失效后只让一个线程扫 ~1490 manifest，其余并发请求复用结果，
+        # 避免过期瞬间多请求各自重复全量扫描、把同步线程池占满。
+        with _RATE_QUEUE_CACHE_LOCK:
+            cache = _RATE_QUEUE_CACHE
+            if (
+                cache is None
+                or (time.time() - _RATE_QUEUE_CACHE_TS) > _RATE_QUEUE_CACHE_TTL
+            ):
+                cache = _compute_rate_queue()
+                _RATE_QUEUE_CACHE = cache
+                _RATE_QUEUE_CACHE_TS = time.time()
+    return cache
+
+
+# ── 逐种评级提交 / 待审 / 审核（管理员直接生效，内测进待审队列）──────────
+_PENDING_RATINGS_PATH = Path(__file__).resolve().parent / "pending_ratings.json"
+_pending_ratings_lock = threading.Lock()
+
+
+def _load_pending_ratings() -> list[dict[str, Any]]:
+    try:
+        data = json.loads(_PENDING_RATINGS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_pending_ratings(items: list[dict[str, Any]]) -> None:
+    _PENDING_RATINGS_PATH.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _apply_rating(sci: str, file: str, difficulty: int) -> None:
+    """把一条评级写进 manifest：file 为空=物种难度；否则=该图质量难度。"""
+    key = species_key(sci)
+    mp = SPECIES_DIR / key / "manifest.json"
+    if not file:
+        item = match_species(sci) or {"sci": sci}
+        (SPECIES_DIR / key).mkdir(parents=True, exist_ok=True)
+        manifest = load_manifest(sci, item)
+        manifest["difficulty"] = difficulty
+        mp.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        if not mp.exists():
+            raise HTTPException(status_code=404, detail="Manifest not found")
+        m = json.loads(mp.read_text(encoding="utf-8"))
+        found = False
+        for kind in ("images", "audio"):
+            for entry in m.get(kind, []):
+                if entry.get("file") == file:
+                    entry["difficulty"] = difficulty
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            raise HTTPException(status_code=404, detail="File not found in manifest")
+        mp.write_text(
+            json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    update_index()
+    _invalidate_rate_queue_cache()
+
+
+@app.post("/api/rate/submit")
+async def rate_submit(
+    payload: dict[str, Any] = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """评级提交：管理员直接写入 manifest；内测用户进待审队列等管理员审核。"""
+    user = authenticate(authorization, token)
+    sci = str(payload.get("sci", "")).strip()
+    file = str(payload.get("file", "")).strip()
+    try:
+        difficulty = int(payload.get("difficulty", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="difficulty must be 1-5")
+    if not sci:
+        raise HTTPException(status_code=400, detail="Missing sci")
+    if not (1 <= difficulty <= 5):
+        raise HTTPException(status_code=400, detail="difficulty must be 1-5")
+    if user["role"] == "admin":
+        _apply_rating(sci, file, difficulty)
+        return {"applied": True, "pending": False}
+    rec = {
+        "id": secrets.token_hex(6),
+        "sci": sci,
+        "zh": str(payload.get("zh", "")).strip(),
+        "file": file,
+        "kind": "image" if file else "species",
+        "difficulty": difficulty,
+        "contributor": user.get("name", "") or user.get("id", ""),
+        "uploader_id": user.get("id", ""),
+        "ts": int(time.time()),
+    }
+    with _pending_ratings_lock:
+        items = _load_pending_ratings()
+        # 同一用户对同一目标的重复提交：覆盖旧的
+        items = [
+            r
+            for r in items
+            if not (
+                r.get("uploader_id") == rec["uploader_id"]
+                and r.get("sci") == sci
+                and r.get("file") == file
+            )
+        ]
+        items.append(rec)
+        _save_pending_ratings(items)
+    return {"applied": False, "pending": True}
+
+
+@app.get("/api/admin/rate/pending")
+def admin_rate_pending(
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_admin(authorization, token)
+    with _pending_ratings_lock:
+        items = _load_pending_ratings()
+    items = sorted(items, key=lambda r: r.get("ts", 0), reverse=True)
+    return {"items": items, "total": len(items)}
+
+
+@app.post("/api/admin/rate/resolve")
+async def admin_rate_resolve(
+    payload: dict[str, Any] = Body(...),
+    token: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_admin(authorization, token)
+    rid = str(payload.get("id", "")).strip()
+    approve = bool(payload.get("approve", False))
+    if not rid:
+        raise HTTPException(status_code=400, detail="Missing id")
+    # 先在锁内取出并移除待审记录（避免重复审核），再到锁外执行重活 _apply_rating
+    # （它会 update_index() 全量扫盘）。这样：① 不在持锁时跑慢扫描阻塞其它待审操作；
+    # ② 即便 _apply_rating 因目标图已被删而抛 404，记录也已移除、不会永远卡在队列里。
+    with _pending_ratings_lock:
+        items = _load_pending_ratings()
+        rec = next((r for r in items if r.get("id") == rid), None)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="评级不存在")
+    applied = False
+    apply_error = ""
+    if approve:
+        # 锁外执行重活 _apply_rating（含 update_index 全量扫盘）。成功、或目标已被删
+        # (HTTPException) 才往下移除记录；其它异常（磁盘满 / manifest JSON 损坏等）直接
+        # 抛出 → 记录保留、可重试，不丢数据。（这正是「先删后应用」会引入的数据丢失点。）
+        try:
+            _apply_rating(
+                str(rec.get("sci", "")),
+                str(rec.get("file", "")),
+                int(rec.get("difficulty", 1)),
+            )
+            applied = True
+        except HTTPException as exc:
+            apply_error = str(exc.detail)  # 目标在提交后被删：记录无意义，照常出队
+    # reject、approve 成功、或 approve 但目标已删——都把记录出队（非 HTTPException 已在上面抛出）。
+    with _pending_ratings_lock:
+        items = _load_pending_ratings()
+        items = [r for r in items if r.get("id") != rid]
+        _save_pending_ratings(items)
+    return {
+        "resolved": True,
+        "approved": approve,
+        "applied": applied,
+        "error": apply_error,
+    }
 
 
 @app.post("/api/admin/token_requests/approve")
@@ -1230,26 +1735,34 @@ def _sanitize_discover(payload: dict) -> dict:
     for v in (payload.get("volunteers") or [])[:50]:
         if not isinstance(v, dict):
             continue
-        out["volunteers"].append({
-            "id": str(v.get("id", "") or secrets.token_urlsafe(6))[:40],
-            "title": str(v.get("title", ""))[:200],
-            "org": str(v.get("org", ""))[:120],
-            "date": str(v.get("date", ""))[:60],
-            "url": str(v.get("url", ""))[:500],
-            "status": "expired" if str(v.get("status", "")) == "expired" else "active",
-        })
+        out["volunteers"].append(
+            {
+                "id": str(v.get("id", "") or secrets.token_urlsafe(6))[:40],
+                "title": str(v.get("title", ""))[:200],
+                "org": str(v.get("org", ""))[:120],
+                "date": str(v.get("date", ""))[:60],
+                "url": str(v.get("url", ""))[:500],
+                "status": (
+                    "expired" if str(v.get("status", "")) == "expired" else "active"
+                ),
+            }
+        )
     for n in (payload.get("news") or [])[:100]:
         if not isinstance(n, dict):
             continue
-        out["news"].append({
-            "id": str(n.get("id", "") or secrets.token_urlsafe(6))[:40],
-            "title": str(n.get("title", ""))[:200],
-            "summary": str(n.get("summary", ""))[:600],
-            "url": str(n.get("url", ""))[:500],
-            "category": str(n.get("category", ""))[:40],
-            "date": str(n.get("date", ""))[:60],
-            "status": "expired" if str(n.get("status", "")) == "expired" else "active",
-        })
+        out["news"].append(
+            {
+                "id": str(n.get("id", "") or secrets.token_urlsafe(6))[:40],
+                "title": str(n.get("title", ""))[:200],
+                "summary": str(n.get("summary", ""))[:600],
+                "url": str(n.get("url", ""))[:500],
+                "category": str(n.get("category", ""))[:40],
+                "date": str(n.get("date", ""))[:60],
+                "status": (
+                    "expired" if str(n.get("status", "")) == "expired" else "active"
+                ),
+            }
+        )
     return out
 
 
@@ -1324,16 +1837,23 @@ def admin_pending(
         for kind in ("images", "audio"):
             for entry in m.get(kind, []):
                 if entry.get("pending"):
-                    items.append({
-                        "sci": sci, "cn": cn, "en": en, "kind": kind,
-                        "file": entry.get("file", ""),
-                        "url": entry.get("url", ""),
-                        "contributor": entry.get("contributor", ""),
-                        "suggested_difficulty": entry.get("suggested_difficulty", 0),
-                        "uploader_id": entry.get("uploader_id", ""),
-                        "uploader_name": entry.get("uploader_name", ""),
-                        "uploaded_at": entry.get("uploaded_at", 0),
-                    })
+                    items.append(
+                        {
+                            "sci": sci,
+                            "cn": cn,
+                            "en": en,
+                            "kind": kind,
+                            "file": entry.get("file", ""),
+                            "url": entry.get("url", ""),
+                            "contributor": entry.get("contributor", ""),
+                            "suggested_difficulty": entry.get(
+                                "suggested_difficulty", 0
+                            ),
+                            "uploader_id": entry.get("uploader_id", ""),
+                            "uploader_name": entry.get("uploader_name", ""),
+                            "uploaded_at": entry.get("uploaded_at", 0),
+                        }
+                    )
     items.sort(key=lambda x: x.get("uploaded_at", 0), reverse=True)
     return items
 
@@ -1358,7 +1878,14 @@ async def admin_approve(
     found_kind = None
     for kind in ("images", "audio"):
         lst = m.get(kind, [])
-        idx = next((i for i, e in enumerate(lst) if e.get("file") == file and e.get("pending")), -1)
+        idx = next(
+            (
+                i
+                for i, e in enumerate(lst)
+                if e.get("file") == file and e.get("pending")
+            ),
+            -1,
+        )
         if idx >= 0:
             entry = lst.pop(idx)
             entry.pop("pending", None)
@@ -1381,8 +1908,18 @@ async def admin_approve(
         m.pop("backfill_review", None)
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
+    _invalidate_contributors_cache()  # 新通过的用户图会进致谢，刷新缓存
+    _invalidate_rate_queue_cache()  # 通过后该图计入 image_count，刷新评级队列
+    # 审核通过后给真·App 上传者发「已过审」通知（纯服务器，App「反馈与通知」自动收到）
+    _notify_upload_approved(entry, sci, m.get("cn", ""), file, found_kind)
     _log_op("通过审核", admin.get("id", ""), f"{sci} / {file}", found_kind or "")
-    return {"approved": True, "sci": sci, "file": file, "kind": found_kind, "entry": entry}
+    return {
+        "approved": True,
+        "sci": sci,
+        "file": file,
+        "kind": found_kind,
+        "entry": entry,
+    }
 
 
 @app.post("/api/admin/reject")
@@ -1462,7 +1999,9 @@ def _read_trash_entries() -> list[dict[str, Any]]:
         if not entry_dir.is_dir():
             continue
         try:
-            out.append(json.loads((entry_dir / "meta.json").read_text(encoding="utf-8")))
+            out.append(
+                json.loads((entry_dir / "meta.json").read_text(encoding="utf-8"))
+            )
         except Exception:
             continue
     return out
@@ -1494,7 +2033,15 @@ def _log_op(action: str, by: str, target: str = "", note: str = "") -> None:
             log = []
     except Exception:
         log = []
-    log.append({"at": int(time.time()), "action": action, "by": by or "", "target": target, "note": note})
+    log.append(
+        {
+            "at": int(time.time()),
+            "action": action,
+            "by": by or "",
+            "target": target,
+            "note": note,
+        }
+    )
     log = log[-3000:]
     try:
         OPS_LOG_FILE.write_text(
@@ -1560,7 +2107,9 @@ async def admin_delete_media(
         dest = entry_dir / rel_path.name
         try:
             shutil.move(str(src), str(dest))
-            stored_files.append({"field": field, "rel": str(rel_path), "stored": dest.name})
+            stored_files.append(
+                {"field": field, "rel": str(rel_path), "stored": dest.name}
+            )
         except Exception:
             pass
 
@@ -1582,10 +2131,14 @@ async def admin_delete_media(
     )
 
     if kind == "images" and m.get("image") == file:
-        next_image = next((e for e in m.get("images", []) if not e.get("pending")), None)
+        next_image = next(
+            (e for e in m.get("images", []) if not e.get("pending")), None
+        )
         if next_image:
             m["image"] = next_image.get("file", "")
-            m["image_credit"] = next_image.get("credit") or next_image.get("contributor", "")
+            m["image_credit"] = next_image.get("credit") or next_image.get(
+                "contributor", ""
+            )
             m["image_license"] = next_image.get("license", "")
         else:
             for field in ("image", "image_credit", "image_license"):
@@ -1599,23 +2152,36 @@ async def admin_delete_media(
 
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
+    _invalidate_contributors_cache()  # 删的可能是已通过的用户图，刷新致谢缓存
+    _invalidate_rate_queue_cache()  # image_count 变化，刷新评级队列
 
-    _append_delete_log({
-        "action": "delete",
-        "trash_id": trash_id,
+    _append_delete_log(
+        {
+            "action": "delete",
+            "trash_id": trash_id,
+            "sci": sci,
+            "key": key,
+            "kind": kind,
+            "file": file,
+            "contributor": removed.get("contributor", ""),
+            "by": admin.get("id", ""),
+            "at": deleted_at,
+            "emptied_species": emptied,
+        }
+    )
+    _log_op(
+        "删除媒体",
+        admin.get("id", ""),
+        f"{sci} / {file}",
+        "图片已清空→补图转审核" if emptied else "",
+    )
+    return {
+        "deleted": True,
         "sci": sci,
-        "key": key,
         "kind": kind,
         "file": file,
-        "contributor": removed.get("contributor", ""),
-        "by": admin.get("id", ""),
-        "at": deleted_at,
+        "trash_id": trash_id,
         "emptied_species": emptied,
-    })
-    _log_op("删除媒体", admin.get("id", ""), f"{sci} / {file}", "图片已清空→补图转审核" if emptied else "")
-    return {
-        "deleted": True, "sci": sci, "kind": kind, "file": file,
-        "trash_id": trash_id, "emptied_species": emptied,
     }
 
 
@@ -1630,18 +2196,22 @@ def admin_list_trash(
         entry = meta.get("entry", {}) or {}
         deleted_at = meta.get("deleted_at") or 0
         has_file = any(sf.get("field") == "file" for sf in meta.get("stored_files", []))
-        items.append({
-            "trash_id": meta.get("trash_id"),
-            "sci": meta.get("sci"),
-            "kind": meta.get("kind"),
-            "file": meta.get("file"),
-            "contributor": entry.get("contributor", ""),
-            "license": entry.get("license", ""),
-            "deleted_by": meta.get("deleted_by", ""),
-            "deleted_at": deleted_at,
-            "expires_at": deleted_at + TRASH_RETENTION_DAYS * 86400 if deleted_at else 0,
-            "has_file": has_file,
-        })
+        items.append(
+            {
+                "trash_id": meta.get("trash_id"),
+                "sci": meta.get("sci"),
+                "kind": meta.get("kind"),
+                "file": meta.get("file"),
+                "contributor": entry.get("contributor", ""),
+                "license": entry.get("license", ""),
+                "deleted_by": meta.get("deleted_by", ""),
+                "deleted_at": deleted_at,
+                "expires_at": (
+                    deleted_at + TRASH_RETENTION_DAYS * 86400 if deleted_at else 0
+                ),
+                "has_file": has_file,
+            }
+        )
     return {"items": items, "retention_days": TRASH_RETENTION_DAYS}
 
 
@@ -1659,7 +2229,9 @@ def admin_trash_file(
         meta = json.loads((entry_dir / "meta.json").read_text(encoding="utf-8"))
     except Exception:
         raise HTTPException(status_code=404, detail="Not found")
-    main = next((sf for sf in meta.get("stored_files", []) if sf.get("field") == "file"), None)
+    main = next(
+        (sf for sf in meta.get("stored_files", []) if sf.get("field") == "file"), None
+    )
     if not main:
         raise HTTPException(status_code=404, detail="No file")
     fp = entry_dir / main["stored"]
@@ -1692,8 +2264,12 @@ async def admin_restore_media(
         src = entry_dir / sf["stored"]
         try:
             rel_path = _safe_manifest_file(
-                sf["rel"], "images/" if sf["field"] == "file" and kind == "images"
-                else ("audio/" if sf["field"] == "file" else "audio_spectrograms/")
+                sf["rel"],
+                (
+                    "images/"
+                    if sf["field"] == "file" and kind == "images"
+                    else ("audio/" if sf["field"] == "file" else "audio_spectrograms/")
+                ),
             )
         except HTTPException:
             continue
@@ -1723,23 +2299,32 @@ async def admin_restore_media(
     mp.parent.mkdir(parents=True, exist_ok=True)
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
+    _invalidate_contributors_cache()  # 恢复的可能是已通过的用户图，重新计入致谢
+    _invalidate_rate_queue_cache()  # 恢复后 image_count 回升，刷新评级队列
     try:
         shutil.rmtree(entry_dir)
     except Exception:
         pass
 
-    _append_delete_log({
-        "action": "restore",
-        "trash_id": trash_id,
+    _append_delete_log(
+        {
+            "action": "restore",
+            "trash_id": trash_id,
+            "sci": meta.get("sci"),
+            "key": key,
+            "kind": kind,
+            "file": entry.get("file"),
+            "by": admin.get("id", ""),
+            "at": time.time(),
+        }
+    )
+    _log_op("恢复媒体", admin.get("id", ""), f"{meta.get('sci')} / {entry.get('file')}")
+    return {
+        "restored": True,
         "sci": meta.get("sci"),
-        "key": key,
         "kind": kind,
         "file": entry.get("file"),
-        "by": admin.get("id", ""),
-        "at": time.time(),
-    })
-    _log_op("恢复媒体", admin.get("id", ""), f"{meta.get('sci')} / {entry.get('file')}")
-    return {"restored": True, "sci": meta.get("sci"), "kind": kind, "file": entry.get("file")}
+    }
 
 
 @app.get("/api/admin/delete_log")
@@ -1838,22 +2423,116 @@ def admin_quiz_log(
         img = r.get("image") or ""
         k = (r.get("sci", ""), img)
         key = "".join(k)
-        a = by_img.setdefault(key, {
-            "sci": r.get("sci", ""), "image": img,
-            "wrong": 0, "reported": 0, "total": 0,
-        })
+        a = by_img.setdefault(
+            key,
+            {
+                "sci": r.get("sci", ""),
+                "image": img,
+                "wrong": 0,
+                "reported": 0,
+                "total": 0,
+            },
+        )
         a["total"] += 1
         if not r.get("is_correct"):
             a["wrong"] += 1
         if r.get("reported"):
             a["reported"] += 1
-    problems = sorted(by_img.values(), key=lambda x: (x["reported"], x["wrong"]), reverse=True)
+    problems = sorted(
+        by_img.values(), key=lambda x: (x["reported"], x["wrong"]), reverse=True
+    )
     return {
         "items": list(reversed(log[-500:])),
         "problems": problems[:200],
         "total": len(log),
         "total_wrong": sum(1 for r in log if not r.get("is_correct")),
         "total_reported": sum(1 for r in log if r.get("reported")),
+    }
+
+
+# 公开致谢名单：全量聚合带 TTL 缓存。该接口公开无鉴权且每次都要扫全部 manifest（约 1.1 万个），
+# 不缓存会成为软 DoS 面 + 服务器抖动源；致谢名单容忍 5 分钟延迟，故用进程内 TTL 缓存。
+_CONTRIB_CACHE: dict[str, Any] | None = None
+_CONTRIB_CACHE_TS: float = 0.0
+_CONTRIB_CACHE_TTL = 300  # 秒
+_CONTRIB_CACHE_LOCK = threading.Lock()  # 单飞：失效后只让一个线程扫全量，其余复用结果
+
+
+def _compute_contributors_full() -> dict[str, Any]:
+    """扫全部 manifest，按署名聚合（只计已通过、不暴露 uploader_id）。返回未截断的全量结果。"""
+    cagg: dict[str, dict[str, Any]] = {}
+    for mp in SPECIES_DIR.glob("*/manifest.json"):
+        try:
+            m = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        key = mp.parent.name
+        for kind in ("images", "audio"):
+            for e in m.get(kind, []):
+                if not e.get("uploader_id"):
+                    continue
+                if e.get("pending"):
+                    continue  # 只统计已通过的内容
+                cname = (e.get("contributor") or "").strip() or "（未署名）"
+                c = cagg.setdefault(
+                    cname,
+                    {"contributor": cname, "images": 0, "audio": 0, "_species": set()},
+                )
+                c["_species"].add(key)
+                if kind == "images":
+                    c["images"] += 1
+                else:
+                    c["audio"] += 1
+    rows = [
+        {
+            "contributor": c["contributor"],
+            "images": c["images"],
+            "audio": c["audio"],
+            "species": len(c["_species"]),
+        }
+        for c in cagg.values()
+    ]
+    rows.sort(key=lambda r: (r["images"], r["audio"], r["species"]), reverse=True)
+    total_images = sum(r["images"] for r in rows)
+    total_species = len({k for c in cagg.values() for k in c["_species"]})
+    return {
+        "rows": rows,
+        "total_contributors": len(cagg),
+        "total_images": total_images,
+        "total_species": total_species,
+    }
+
+
+def _invalidate_contributors_cache() -> None:
+    """审核通过/拒绝、删媒体等会改动署名统计的写操作后调用，让致谢名单及时刷新。"""
+    global _CONTRIB_CACHE
+    _CONTRIB_CACHE = None
+
+
+@app.get("/api/contributors")
+def public_contributors(limit: int = 50) -> dict:
+    """公开只读：按署名(contributor)聚合的用户上传致谢名单（只计已通过、不暴露 uploader_id）。
+    全量聚合带 5 分钟 TTL 缓存（见 _compute_contributors_full），limit 仅做切片、共享缓存。"""
+    global _CONTRIB_CACHE, _CONTRIB_CACHE_TS
+    now = time.time()
+    cache = _CONTRIB_CACHE
+    if cache is None or (now - _CONTRIB_CACHE_TS) > _CONTRIB_CACHE_TTL:
+        # 单飞 + 双检：失效后只让一个线程扫全量 manifest（约 1.1 万个），其余并发请求
+        # 等它算完直接复用，避免每个请求各自重复全量扫描、把同步线程池耗尽。
+        with _CONTRIB_CACHE_LOCK:
+            cache = _CONTRIB_CACHE
+            if cache is None or (time.time() - _CONTRIB_CACHE_TS) > _CONTRIB_CACHE_TTL:
+                cache = _compute_contributors_full()
+                _CONTRIB_CACHE = cache
+                _CONTRIB_CACHE_TS = time.time()
+    rows = cache["rows"]
+    if limit and limit > 0:
+        rows = rows[:limit]
+    return {
+        "rows": rows,
+        "total_contributors": cache["total_contributors"],
+        "total_images": cache["total_images"],
+        "total_species": cache["total_species"],
     }
 
 
@@ -1883,14 +2562,28 @@ def admin_contributors(
                 uid = e.get("uploader_id")
                 if not uid:
                     continue
-                a = agg.setdefault(uid, {
-                    "uploader_id": uid, "name": e.get("uploader_name") or "",
-                    "images": 0, "audio": 0, "pending": 0, "_species": set(),
-                })
+                a = agg.setdefault(
+                    uid,
+                    {
+                        "uploader_id": uid,
+                        "name": e.get("uploader_name") or "",
+                        "images": 0,
+                        "audio": 0,
+                        "pending": 0,
+                        "_species": set(),
+                    },
+                )
                 cname = (e.get("contributor") or "").strip() or "（未署名）"
-                c = cagg.setdefault(cname, {
-                    "contributor": cname, "images": 0, "audio": 0, "pending": 0, "_species": set(),
-                })
+                c = cagg.setdefault(
+                    cname,
+                    {
+                        "contributor": cname,
+                        "images": 0,
+                        "audio": 0,
+                        "pending": 0,
+                        "_species": set(),
+                    },
+                )
                 a["_species"].add(key)
                 c["_species"].add(key)
                 if e.get("pending"):
@@ -1905,24 +2598,28 @@ def admin_contributors(
 
     rows = []
     for uid, a in agg.items():
-        rows.append({
-            "uploader_id": uid,
-            "name": id_name.get(uid) or a.get("name") or uid,
-            "images": a["images"],
-            "audio": a["audio"],
-            "pending": a["pending"],
-            "species": len(a["_species"]),
-        })
+        rows.append(
+            {
+                "uploader_id": uid,
+                "name": id_name.get(uid) or a.get("name") or uid,
+                "images": a["images"],
+                "audio": a["audio"],
+                "pending": a["pending"],
+                "species": len(a["_species"]),
+            }
+        )
     rows.sort(key=lambda r: (r["images"], r["audio"], r["species"]), reverse=True)
     crows = []
     for cname, c in cagg.items():
-        crows.append({
-            "contributor": cname,
-            "images": c["images"],
-            "audio": c["audio"],
-            "pending": c["pending"],
-            "species": len(c["_species"]),
-        })
+        crows.append(
+            {
+                "contributor": cname,
+                "images": c["images"],
+                "audio": c["audio"],
+                "pending": c["pending"],
+                "species": len(c["_species"]),
+            }
+        )
     crows.sort(key=lambda r: (r["images"], r["audio"], r["species"]), reverse=True)
     return {
         "rows": rows,
@@ -1949,6 +2646,7 @@ def _save_users(users: dict) -> None:
 
 def _gen_token(prefix: str = "beta") -> str:
     import secrets
+
     return f"{prefix}_{secrets.token_urlsafe(16)}"
 
 
@@ -1966,13 +2664,15 @@ def admin_list_users(
     me_token = (bearer or token or "").strip()
     out: list[dict] = []
     for tok, info in users.items():
-        out.append({
-            "token": tok,
-            "id": info.get("id", ""),
-            "role": info.get("role", "beta"),
-            "name": info.get("name", ""),
-            "is_self": tok == me_token,
-        })
+        out.append(
+            {
+                "token": tok,
+                "id": info.get("id", ""),
+                "role": info.get("role", "beta"),
+                "name": info.get("name", ""),
+                "is_self": tok == me_token,
+            }
+        )
     out.sort(key=lambda x: (x["role"] != "admin", x["id"]))
     return out
 
@@ -2027,7 +2727,11 @@ async def admin_delete_user(
         raise HTTPException(status_code=404, detail="user not found")
     removed = users.pop(target_token)
     _save_users(users)
-    _log_op("删除密钥", me.get("id", ""), f"{removed.get('name', '')} ({removed.get('id', '')})")
+    _log_op(
+        "删除密钥",
+        me.get("id", ""),
+        f"{removed.get('name', '')} ({removed.get('id', '')})",
+    )
     return {"deleted": True, "id": removed.get("id", "")}
 
 
@@ -2063,6 +2767,7 @@ async def set_image_difficulty(
         raise HTTPException(status_code=404, detail="File not found in manifest")
     mp.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     update_index()
+    _invalidate_rate_queue_cache()
     return {"saved": True, "sci": sci, "file": file, "difficulty": difficulty}
 
 
@@ -2142,9 +2847,12 @@ async def admin_backfill_spectrograms(
     }
 
 
-def _compress_image(file_path: Path, *, max_side: int = 1600, quality: int = 82, target_kb: int = 600) -> Path:
+def _compress_image(
+    file_path: Path, *, max_side: int = 1600, quality: int = 82, target_kb: int = 600
+) -> Path:
     """Re-encode image as JPEG (long side <= max_side, ~target_kb). HEIC/PNG/WebP -> JPEG (renamed).
-    Returns final path (extension may change to .jpg). Fail-open: returns original on error."""
+    Returns final path (extension may change to .jpg). Fail-open: returns original on error.
+    """
     if not _PIL_OK:
         return file_path
     try:
@@ -2181,4 +2889,3 @@ def _compress_image(file_path: Path, *, max_side: int = 1600, quality: int = 82,
     except Exception as e:
         print(f"compress failed for {file_path}: {e}")
     return file_path
-

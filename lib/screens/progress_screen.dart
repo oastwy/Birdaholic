@@ -10,6 +10,8 @@ import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import '../widgets/bird_card.dart';
 import 'progress_detail_screen.dart';
+import 'sound_challenge_screen.dart';
+import 'tutorial_screen.dart';
 
 class ProgressScreen extends StatefulWidget {
   final PackManager packManager;
@@ -17,6 +19,7 @@ class ProgressScreen extends StatefulWidget {
   final void Function(String filter, StudyMode mode, PromptMode promptMode)
       onStartSession;
   final void Function(Species species) onJumpToFlashcard;
+  final void Function(List<String> scis, String label) onStartCustom;
   final VoidCallback? onJumpToPreview;
   final int refreshToken;
   final bool isActive;
@@ -27,6 +30,7 @@ class ProgressScreen extends StatefulWidget {
     required this.storage,
     required this.onStartSession,
     required this.onJumpToFlashcard,
+    required this.onStartCustom,
     this.onJumpToPreview,
     required this.refreshToken,
     required this.isActive,
@@ -44,6 +48,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
   AppUpdateInfo? _updateInfo;
   bool _updateLoading = true;
   bool _updateBannerDismissed = false;
+  /// 打卡日历当前展示的月份（仅看年月），null = 本月。
+  DateTime? _calMonth;
+  bool _calExpanded = false; // 打卡日历：默认收起（最近两周/2 行），点击展开到整月
 
   @override
   void initState() {
@@ -183,7 +190,18 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }).length;
     final unfamiliarNames = widget.storage.getUnfamiliarSpecies();
     final mastered = masteryMap.values.where((m) => m.knownStreak >= 3).length;
-    final weakSpecies = _buildWeakSpecies(masteryMap);
+    // SRS 到期复习：当前包里已学过、且按遗忘曲线到期的种
+    final dueScis = <String>[
+      for (final s in _species)
+        if (masteryMap[s.cn] != null && StorageService.isDue(masteryMap[s.cn]!))
+          s.sci,
+    ];
+    // 「复习」按钮目标：优先不熟悉的鸟种，没有则退回 SRS 到期的种。
+    final reviewScis = <String>[
+      for (final s in _species)
+        if (masteryMap[s.cn]?.unfamiliar == true) s.sci,
+    ];
+    final reviewTargets = reviewScis.isNotEmpty ? reviewScis : dueScis;
     final checkInDates = widget.storage.getCheckInDates();
 
     if (_loading) {
@@ -226,55 +244,37 @@ class _ProgressScreenState extends State<ProgressScreen> {
               _updateBanner(),
               const SizedBox(height: 12),
             ],
-            _todayPracticeCard(currentPackStudied: currentPackStudied),
-            const SizedBox(height: 12),
             if (!_guideDismissed) ...[
-              _newUserGuideCard(),
+              _tutorialBanner(),
               const SizedBox(height: 12),
             ],
+            _todayPracticeCard(
+              currentPackStudied: currentPackStudied,
+              reviewTargets: reviewTargets,
+            ),
+            const SizedBox(height: 12),
+            // 今日听声挑战挪到打卡日历上方
+            _soundChallengeCard(),
+            const SizedBox(height: 12),
+            // 打卡日历（连续天数 + 🔥 在日历标题里）
+            _checkInCalendar(checkInDates),
+            const SizedBox(height: 12),
             _studyOverviewCard(
               studied: studied,
               mastered: mastered,
               unfamiliar: unfamiliarNames.length,
               answered: stats.total,
             ),
-            const SizedBox(height: 10),
-            _checkInCalendar(checkInDates),
-            const SizedBox(height: 18),
-            _sectionHeader(
-              '建议优先复习',
-              actionLabel: unfamiliarNames.isEmpty ? null : '清空不熟悉',
-              onAction: unfamiliarNames.isEmpty
-                  ? null
-                  : () async {
-                      await widget.storage.clearUnfamiliar();
-                      if (!mounted) return;
-                      setState(() {});
-                    },
-            ),
-            const SizedBox(height: 8),
-            if (weakSpecies.isEmpty)
-              _emptyPanel('还没有不熟悉鸟种', '答错或选择“不认识”的鸟会进入这里；连续认识后会移出。')
-            else
-              ...weakSpecies.take(5).map((entry) {
-                final species = entry.$1;
-                final mastery = entry.$2;
-                return _speciesCard(
-                  species: species,
-                  subtitle:
-                      '不认识 ${mastery.unknownCount} 次 · 连续认识 ${mastery.knownStreak} 次',
-                  chipLabel: mastery.unfamiliar ? '建议复习' : '观察中',
-                  chipColor:
-                      mastery.unfamiliar ? Colors.orange : Colors.blueGrey,
-                );
-              }),
           ],
         ),
       ),
     );
   }
 
-  Widget _todayPracticeCard({required int currentPackStudied}) {
+  Widget _todayPracticeCard({
+    required int currentPackStudied,
+    required List<String> reviewTargets,
+  }) {
     final total = _species.length;
     final progress = total == 0 ? 0.0 : currentPackStudied / total;
     return Container(
@@ -313,61 +313,70 @@ class _ProgressScreenState extends State<ProgressScreen> {
               ),
               const SizedBox(width: 10),
               const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '今日练习',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      '听声打卡，预习补图像和特征',
-                      style: TextStyle(fontSize: 12.5, color: Colors.grey),
-                    ),
-                  ],
+                child: Text(
+                  '今日练习',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2d5016).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  total == 0 ? '未安装数据包' : '$currentPackStudied/$total 种',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF2d5016),
-                    fontWeight: FontWeight.w700,
+              // 完成度芯片：点开看当前数据包的具体完成情况
+              InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: total == 0 ? null : _openPackCompletion,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2d5016).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        total == 0 ? '未安装数据包' : '$currentPackStudied/$total 种',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF2d5016),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (total != 0)
+                        const Icon(Icons.chevron_right,
+                            size: 15, color: Color(0xFF2d5016)),
+                    ],
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          ClipRRect(
+          InkWell(
             borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0, 1),
-              minHeight: 6,
-              backgroundColor: const Color(0xFF2d5016).withValues(alpha: 0.08),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFF2d7d32),
+            onTap: total == 0 ? null : _openPackCompletion,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress.clamp(0, 1),
+                minHeight: 6,
+                backgroundColor:
+                    const Color(0xFF2d5016).withValues(alpha: 0.08),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFF2d7d32),
+                ),
               ),
             ),
           ),
           const SizedBox(height: 14),
+          // 三键：打卡（数据包继续）/ 预习（鸟种页）/ 复习（不熟悉的鸟种）
           Row(
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 48,
-                  child: FilledButton.icon(
+                  height: 46,
+                  child: FilledButton(
                     onPressed: _species.isEmpty
                         ? null
                         : () => widget.onStartSession(
@@ -378,37 +387,65 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF2d7d32),
                       foregroundColor: Colors.white,
+                      padding: EdgeInsets.zero,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    icon: const Icon(Icons.play_arrow_rounded, size: 22),
-                    label: const Text(
-                      '开始打卡',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    child: const Text(
+                      '打卡',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 15),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: SizedBox(
-                  height: 48,
-                  child: OutlinedButton.icon(
+                  height: 46,
+                  child: OutlinedButton(
                     onPressed: widget.onJumpToPreview,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF1565C0),
+                      padding: EdgeInsets.zero,
                       side: BorderSide(
                         color: const Color(0xFF1565C0).withValues(alpha: 0.35),
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    icon: const Icon(Icons.auto_stories_rounded, size: 20),
-                    label: const Text(
-                      '预习鸟种',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    child: const Text(
+                      '预习',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 15),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 46,
+                  child: OutlinedButton(
+                    onPressed: reviewTargets.isEmpty
+                        ? null
+                        : () => widget.onStartCustom(reviewTargets, '复习'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.deepOrange,
+                      padding: EdgeInsets.zero,
+                      side: BorderSide(
+                        color: Colors.deepOrange.withValues(alpha: 0.35),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text(
+                      '复习',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 15),
                     ),
                   ),
                 ),
@@ -521,13 +558,88 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
+  Widget _soundChallengeCard() {
+    const green = Color(0xFF2d5016);
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.hearing, color: green),
+        title: const Text('今日听声挑战',
+            style: TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(
+          widget.storage.soundChallengeDoneToday
+              ? '今天已完成 · 得分 ${widget.storage.soundChallengeScore} / ${widget.storage.soundChallengeTotal}'
+              : '听鸟鸣猜鸟种，每天 5 题',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () async {
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SoundChallengeScreen(
+                packManager: widget.packManager,
+                storage: widget.storage,
+              ),
+            ),
+          );
+          if (mounted) setState(() {});
+        },
+      ),
+    );
+  }
+
   Widget _checkInCalendar(Set<String> dates) {
     final streak = _currentStreak(dates);
-    final today = DateTime.now();
-    final days = List.generate(
-      14,
-      (i) => today.subtract(Duration(days: 13 - i)),
-    );
+    final now = DateTime.now();
+    final thisMonth = DateTime(now.year, now.month);
+    final month = _calMonth ?? thisMonth;
+    final firstOfMonth = DateTime(month.year, month.month, 1);
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final leadBlanks = firstOfMonth.weekday - 1; // 周一为一周起点
+    final todayKey = now.toIso8601String().substring(0, 10);
+    // 本月打卡天数
+    final monthPrefix =
+        '${month.year.toString().padLeft(4, '0')}-${month.month.toString().padLeft(2, '0')}-';
+    final monthChecked = dates.where((d) => d.startsWith(monthPrefix)).length;
+    final canGoNext =
+        month.year < now.year || (month.year == now.year && month.month < now.month);
+
+    // 展开：整月网格
+    final monthCells = <Widget>[];
+    for (var i = 0; i < leadBlanks; i++) {
+      monthCells.add(const SizedBox.shrink());
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      final date = DateTime(month.year, month.month, d);
+      final key = date.toIso8601String().substring(0, 10);
+      monthCells.add(_monthDayCell(
+        day: d,
+        checked: dates.contains(key),
+        isToday: key == todayKey,
+        isFuture: date.isAfter(now),
+      ));
+    }
+    // 收起（默认）：最近两周（含本周，周一对齐），共 14 格 = 2 行
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final stripStart = monday.subtract(const Duration(days: 7));
+    final stripCells = <Widget>[];
+    for (var i = 0; i < 14; i++) {
+      final date =
+          DateTime(stripStart.year, stripStart.month, stripStart.day + i);
+      final key = date.toIso8601String().substring(0, 10);
+      stripCells.add(_monthDayCell(
+        day: date.day,
+        checked: dates.contains(key),
+        isToday: key == todayKey,
+        isFuture: date.isAfter(now),
+      ));
+    }
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -535,7 +647,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -543,19 +655,22 @@ class _ProgressScreenState extends State<ProgressScreen> {
               children: [
                 const Icon(Icons.calendar_month_outlined, size: 20),
                 const SizedBox(width: 8),
-                const Text(
-                  '打卡日历',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
+                const Text('打卡日历',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
                 const Spacer(),
+                if (streak > 0) ...[
+                  const Icon(Icons.local_fire_department,
+                      size: 18, color: Colors.deepOrange),
+                  const SizedBox(width: 2),
+                ],
                 Text(
                   '连续 $streak 天',
                   style: TextStyle(
-                    color: streak > 0 ? Colors.green[700] : Colors.grey[600],
+                    color:
+                        streak > 0 ? Colors.deepOrange[700] : Colors.grey[600],
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(width: 6),
                 TextButton(
                   onPressed: () async {
                     final changed = await Navigator.push<bool>(
@@ -576,19 +691,75 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: days.map((day) {
-                final key = day.toIso8601String().substring(0, 10);
-                final isToday = key == today.toIso8601String().substring(0, 10);
-                return Expanded(
-                  child: _stripDayCell(
-                    date: day,
-                    checked: dates.contains(key),
-                    isToday: isToday,
+            const SizedBox(height: 4),
+            // 月份切换（仅展开整月时显示）
+            if (_calExpanded)
+              Row(
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.chevron_left, size: 22),
+                    onPressed: () => setState(
+                      () => _calMonth = DateTime(month.year, month.month - 1),
+                    ),
                   ),
-                );
-              }).toList(),
+                  Expanded(
+                    child: Text(
+                      '${month.year} 年 ${month.month} 月 · 打卡 $monthChecked 天',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.chevron_right, size: 22),
+                    onPressed: canGoNext
+                        ? () => setState(
+                              () => _calMonth =
+                                  DateTime(month.year, month.month + 1),
+                            )
+                        : null,
+                  ),
+                ],
+              ),
+            const SizedBox(height: 6),
+            Row(
+              children: ['一', '二', '三', '四', '五', '六', '日']
+                  .map((w) => Expanded(
+                        child: Text(
+                          w,
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[500]),
+                        ),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 8),
+            GridView.count(
+              crossAxisCount: 7,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+              children: _calExpanded ? monthCells : stripCells,
+            ),
+            // 默认 2 行（最近两周），点「展开整月」放大到整月打卡
+            Center(
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: Colors.grey[600],
+                ),
+                icon: Icon(
+                    _calExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18),
+                label: Text(_calExpanded ? '收起' : '展开整月'),
+                onPressed: () => setState(() {
+                  _calExpanded = !_calExpanded;
+                  if (_calExpanded) _calMonth = thisMonth; // 展开回到本月
+                }),
+              ),
             ),
           ],
         ),
@@ -596,43 +767,39 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  Widget _stripDayCell({
-    required DateTime date,
+  Widget _monthDayCell({
+    required int day,
     required bool checked,
     required bool isToday,
+    required bool isFuture,
   }) {
-    const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          weekdays[date.weekday - 1],
-          style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+    const green = Color(0xFF2d5016);
+    return Center(
+      child: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: checked ? green : Colors.transparent,
+          shape: BoxShape.circle,
+          border: isToday && !checked
+              ? Border.all(color: green, width: 1.6)
+              : null,
         ),
-        const SizedBox(height: 5),
-        Container(
-          width: 24,
-          height: 24,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: checked ? const Color(0xFF2d5016) : Colors.transparent,
-            shape: BoxShape.circle,
-            border: isToday || (!checked && date.day == 1)
-                ? Border.all(color: const Color(0xFF2d5016), width: 1.3)
-                : null,
+        child: Text(
+          '$day',
+          style: TextStyle(
+            fontSize: 13,
+            color: checked
+                ? Colors.white
+                : isFuture
+                    ? Colors.grey[350]
+                    : (isToday ? green : Colors.grey[800]),
+            fontWeight:
+                isToday || checked ? FontWeight.w800 : FontWeight.w500,
           ),
-          child: checked
-              ? const Icon(Icons.check, color: Colors.white, size: 14)
-              : Text(
-                  '${date.day}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isToday ? const Color(0xFF2d5016) : Colors.grey[700],
-                    fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
-                  ),
-                ),
         ),
-      ],
+      ),
     );
   }
 
@@ -645,23 +812,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
       streak++;
       cursor = cursor.subtract(const Duration(days: 1));
     }
-  }
-
-  List<(Species, SpeciesMastery)> _buildWeakSpecies(
-    Map<String, SpeciesMastery> masteryMap,
-  ) {
-    final mapped = _species
-        .where((species) => masteryMap.containsKey(species.cn))
-        .map((species) => (species, masteryMap[species.cn]!))
-        .where((entry) => entry.$2.unfamiliar || entry.$2.unknownCount > 0)
-        .toList();
-
-    mapped.sort((a, b) {
-      final scoreA = a.$2.unknownCount * 10 - a.$2.knownStreak;
-      final scoreB = b.$2.unknownCount * 10 - b.$2.knownStreak;
-      return scoreB.compareTo(scoreA);
-    });
-    return mapped;
   }
 
   /// 点击统计卡片：打开对应鸟种清单（已学习/已掌握/不熟悉/累计答题）。
@@ -718,184 +868,67 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  Widget _newUserGuideCard() {
+  /// 新手教程横幅：与「更新提示」同样式，可关闭，点击进完整图文教程。
+  Widget _tutorialBanner() {
+    const green = Color(0xFF2d5016);
     return Material(
-      elevation: 7,
-      shadowColor: Colors.black.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(18),
-      color: const Color(0xFFFAFFF7),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: const Color(0xFF2d5016).withValues(alpha: 0.14),
-          ),
+      color: green.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const TutorialScreen()),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.tips_and_updates_outlined,
-                    size: 18, color: Color(0xFF2d5016)),
-                const SizedBox(width: 8),
-                const Text(
-                  '新手三步',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.menu_book_outlined, size: 18, color: green),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  '新手教程 · 点这里看图文上手指南',
+                  style: TextStyle(
+                    color: green,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                const Spacer(),
-                IconButton(
-                  tooltip: '关闭新手引导',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () async {
-                    await widget.storage.dismissNewUserGuide();
-                    if (mounted) setState(() => _guideDismissed = true);
-                  },
-                  icon: const Icon(Icons.close, size: 18),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _guideStep('1', '先装“中国常见鸟 100”，不填 API key 也能开始。'),
-            const SizedBox(height: 6),
-            _guideStep('2', '去“预习”看图、听声、记特征，再回首页打卡。'),
-            const SizedBox(height: 6),
-            _guideStep('3', '打卡时左右换同种照片，上滑认识，下滑不认识。'),
-          ],
+              ),
+              IconButton(
+                tooltip: '关闭',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () async {
+                  await widget.storage.dismissNewUserGuide();
+                  if (mounted) setState(() => _guideDismissed = true);
+                },
+                icon: Icon(Icons.close,
+                    size: 18, color: green.withValues(alpha: 0.75)),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _guideStep(String number, String text) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 20,
-          height: 20,
-          alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: Color(0xFF2d5016),
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            number,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+  /// 打开当前数据包的「完成度」明细：已学 / 未学。
+  void _openPackCompletion() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _PackCompletionScreen(
+          species: _species,
+          storage: widget.storage,
+          onJumpToFlashcard: widget.onJumpToFlashcard,
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(fontSize: 13, color: Colors.grey[800]),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sectionHeader(
-    String title, {
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
-    return Row(
-      children: [
-        Text(title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const Spacer(),
-        if (actionLabel != null && onAction != null)
-          TextButton(onPressed: onAction, child: Text(actionLabel)),
-      ],
-    );
-  }
-
-  Widget _emptyPanel(String title, String subtitle) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
-          Text(subtitle,
-              style: TextStyle(color: Colors.grey[600], height: 1.4)),
-        ],
       ),
     );
   }
 
-  Widget _speciesCard({
-    required Species species,
-    required String subtitle,
-    required String chipLabel,
-    required Color chipColor,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        title: Text(species.cn,
-            style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                text: species.sci,
-                style: TextStyle(
-                    color: Colors.grey[700],
-                    height: 1.35,
-                    fontStyle: FontStyle.italic),
-              ),
-              TextSpan(
-                text: '\n$subtitle',
-                style: TextStyle(color: Colors.grey[700], height: 1.35),
-              ),
-            ]),
-          ),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: chipColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                chipLabel,
-                style: TextStyle(
-                    fontSize: 11,
-                    color: chipColor,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 8),
-            InkWell(
-              onTap: () => widget.onJumpToFlashcard(species),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Text('去打卡', style: TextStyle(fontSize: 12)),
-              ),
-            ),
-          ],
-        ),
-        isThreeLine: true,
-      ),
-    );
-  }
 }
 
 /// 统计卡片点击后展示的鸟种清单（已学习/已掌握/不熟悉/累计答题）。
@@ -965,6 +998,113 @@ class _StatSpeciesListScreen extends StatelessWidget {
                 );
               },
             ),
+    );
+  }
+}
+
+/// 当前数据包「完成度」明细：未学的排前面，已学的打勾。
+class _PackCompletionScreen extends StatelessWidget {
+  final List<Species> species;
+  final StorageService storage;
+  final void Function(Species species) onJumpToFlashcard;
+
+  const _PackCompletionScreen({
+    required this.species,
+    required this.storage,
+    required this.onJumpToFlashcard,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF2d5016);
+    bool studiedOf(Species s) {
+      final m = storage.getMastery(s.cn);
+      return m.knownCount > 0 || m.unknownCount > 0;
+    }
+
+    final studied = species.where(studiedOf).length;
+    final total = species.length;
+    final pct = total == 0 ? 0.0 : studied / total;
+    // 未学的排前面，方便继续；同组内按中文名排序。
+    final ordered = [...species]..sort((a, b) {
+        final sa = studiedOf(a), sb = studiedOf(b);
+        if (sa != sb) return sa ? 1 : -1;
+        return a.cn.compareTo(b.cn);
+      });
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('学习完成度')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '已学 $studied / $total 种 · ${(pct * 100).round()}%',
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: pct,
+                    minHeight: 8,
+                    backgroundColor: green.withValues(alpha: 0.10),
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(Color(0xFF2d7d32)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: total == 0
+                ? Center(
+                    child: Text('当前数据包没有鸟种',
+                        style: TextStyle(color: Colors.grey[600])),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
+                    itemCount: ordered.length,
+                    itemBuilder: (context, index) {
+                      final s = ordered[index];
+                      final done = studiedOf(s);
+                      final m = storage.getMastery(s.cn);
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          done
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
+                          color: done ? Colors.green : Colors.grey[400],
+                          size: 20,
+                        ),
+                        title: Text(s.cn,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text(
+                          done
+                              ? '答对 ${m.knownCount} · 答错 ${m.unknownCount}'
+                              : '还没学过',
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                        trailing: TextButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            onJumpToFlashcard(s);
+                          },
+                          child: const Text('去打卡'),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

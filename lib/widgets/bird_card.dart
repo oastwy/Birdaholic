@@ -164,7 +164,10 @@ class BirdCardState extends State<BirdCard>
       if (e.location.isNotEmpty) e.location,
       if (e.date.isNotEmpty) e.date,
     ];
-    return parts.join(' · ');
+    if (parts.isNotEmpty) return parts.join(' · ');
+    // 兜底：本图条目无任何署名信息时，回退到物种级图片致谢，避免出现无署名图（版权合规）。
+    final fallback = widget.species.imageCredit;
+    return fallback.isEmpty ? '' : '图片感谢：$fallback';
   }
 
   @override
@@ -366,6 +369,9 @@ class BirdCardState extends State<BirdCard>
             _spectrogramPreview(),
             const SizedBox(height: 12),
             const Icon(Icons.headphones, size: 38, color: Color(0xFF2d5016)),
+            // 听音频的正面也显示「音频感谢」——录音者名不是答案、不剧透，避免「音频无致谢」。
+            const SizedBox(height: 8),
+            _creditLine(showImageCredit: false),
           ],
         ],
       ),
@@ -419,33 +425,51 @@ class BirdCardState extends State<BirdCard>
             const SizedBox(height: 8),
           ],
           _creditLine(showImageCredit: isImagePrompt),
-          Text(
-            sp.cn,
-            style: const TextStyle(
-              fontSize: 25,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2d5016),
+          // 点中/英/拉丁名 → 「了解此鸟」（取代原先会溢出的「了解此鸟」按钮）。
+          GestureDetector(
+            onTap: widget.onLearnMore,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  sp.cn,
+                  style: const TextStyle(
+                    fontSize: 25,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2d5016),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  sp.en,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.grey[600],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  sp.sci,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (widget.onLearnMore != null) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    '轻点名字 · 了解此鸟 ›',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF2d5016)),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ],
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            sp.en,
-            style: TextStyle(
-              fontSize: 15,
-              color: Colors.grey[600],
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            sp.sci,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[500],
-              fontStyle: FontStyle.italic,
-            ),
-            textAlign: TextAlign.center,
           ),
           if (sp.consText.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -482,25 +506,15 @@ class BirdCardState extends State<BirdCard>
               ],
             ),
           ],
-          // 了解此鸟 + 管理员难度星
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (widget.onLearnMore != null)
-                TextButton.icon(
-                  onPressed: widget.onLearnMore,
-                  icon: const Icon(Icons.menu_book_outlined, size: 16),
-                  label: const Text('了解此鸟'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF2d5016),
-                    textStyle: const TextStyle(fontSize: 13),
-                  ),
-                ),
-            ],
-          ),
-          if (widget.isAdmin && widget.onDifficultyChanged != null)
-            _difficultyRow(),
+          // 「了解此鸟」已改为点上方鸟名进入（原按钮会与难度行一起溢出框外，已删）。
+          // 这里仅保留管理员难度星，并用 FittedBox 兜底：字体放大/窄屏时整行缩放不溢出。
+          if (widget.isAdmin && widget.onDifficultyChanged != null) ...[
+            const SizedBox(height: 12),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: _difficultyRow(),
+            ),
+          ],
         ],
       ),
     );
@@ -509,13 +523,30 @@ class BirdCardState extends State<BirdCard>
   Widget _imageCarousel(
       {required List<_ImageEntry> images, required double height}) {
     if (images.length == 1) {
-      return Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: _startImagePointer,
-        onPointerMove: _updateImagePointer,
-        onPointerUp: (_) => _finishImagePointer(images),
-        onPointerCancel: (_) => _clearImagePointer(),
-        child: _singleImageView(images.first, height: height),
+      final caption = _imageCaption(images.first);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _startImagePointer,
+            onPointerMove: _updateImagePointer,
+            onPointerUp: (_) => _finishImagePointer(images),
+            onPointerCancel: (_) => _clearImagePointer(),
+            child: _singleImageView(images.first, height: height),
+          ),
+          // 单图也显示署名（含物种级兜底），保证每张图都带致谢（版权合规）。
+          if (caption.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              caption,
+              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
       );
     }
     return Column(
@@ -715,42 +746,35 @@ class BirdCardState extends State<BirdCard>
       );
     }
 
+    // 取消图片边框/背景框：图片以 BoxFit.contain 直接铺满给定高度，
+    // 长图/竖图不再被绿色边框裁切或显得超框。
     return GestureDetector(
       onTap: () => _showImagePreview(entry),
       child: SizedBox(
         height: height,
         width: double.infinity,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: ColoredBox(
-            color: const Color(0xFFF4F7F1),
-            child: Stack(
-              alignment: Alignment.topRight,
-              children: [
-                Positioned.fill(
-                  child: Padding(padding: const EdgeInsets.all(8), child: img),
-                ),
-                Container(
-                  margin: const EdgeInsets.all(8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.48),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.zoom_out_map, color: Colors.white, size: 14),
-                      SizedBox(width: 4),
-                      Text('放大',
-                          style: TextStyle(color: Colors.white, fontSize: 11)),
-                    ],
-                  ),
-                ),
-              ],
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            Positioned.fill(child: img),
+            Container(
+              margin: const EdgeInsets.all(8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.48),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.zoom_out_map, color: Colors.white, size: 14),
+                  SizedBox(width: 4),
+                  Text('放大',
+                      style: TextStyle(color: Colors.white, fontSize: 11)),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -783,6 +807,8 @@ class BirdCardState extends State<BirdCard>
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
+        // 必须 min：外层 FittedBox 用无界宽度布局子级，max 会让 Row 索要无限宽 → 崩溃。
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text('难度：', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -823,34 +849,15 @@ class BirdCardState extends State<BirdCard>
   }
 
   Widget _creditLine({required bool showImageCredit}) {
-    final currentImageCredit = widget.imageCredit.isNotEmpty
-        ? widget.imageCredit
-        : widget.species.imageCredit;
-    final credits = [
-      if (showImageCredit && currentImageCredit.isNotEmpty)
-        '图片感谢：$currentImageCredit',
-      if (widget.species.audioCredit.isNotEmpty)
-        '音频感谢：${widget.species.audioCredit}',
-    ];
-    // If carousel handles per-image credits, skip the image credit in credit line
-    if (_allImages.length > 1 && showImageCredit) {
-      final audioCreditOnly =
-          credits.where((c) => c.startsWith('音频感谢')).toList();
-      if (audioCreditOnly.isEmpty) return const SizedBox.shrink();
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(
-          audioCreditOnly.join(' · '),
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-        ),
-      );
+    // 图片署名现统一由轮播 / 单图视图的 _imageCaption 负责（单图、多图、正反面都带，
+    // 且有物种级兜底），这里只负责音频卡的「音频感谢」，避免重复/遗漏。
+    if (showImageCredit || widget.species.audioCredit.isEmpty) {
+      return const SizedBox.shrink();
     }
-    if (credits.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        credits.join(' · '),
+        '音频感谢：${widget.species.audioCredit}',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 11, color: Colors.grey[500]),
       ),

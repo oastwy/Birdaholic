@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 本地存储服务
@@ -21,11 +22,17 @@ class StorageService {
   static const _speciesNotesKey = 'species_identification_notes';
   static const _checkInDatesKey = 'study_check_in_dates';
   static const _flashcardGroupSizeKey = 'flashcard_group_size';
+  static const _flashcardStartFullscreenKey = 'flashcard_start_fullscreen';
+  static const _lastFlashcardFilterKey = 'flashcard_last_filter';
   static const _quizNameModesKey = 'quiz_name_modes';
   static const _newUserGuideDismissedKey = 'new_user_guide_dismissed';
   static const _ebirdFilterLabelKey = 'ebird_filter_label';
   static const _ebirdFilterSciKey = 'ebird_filter_sci';
+  static const _ebirdFilterRegionKey = 'ebird_filter_region';
+  static const _ebirdFilterCoordsKey = 'ebird_filter_coords';
   static const _ebirdLocationHistoryKey = 'ebird_location_history';
+  static const _lifeListKey = 'ebird_life_list';
+  static const _appModeKey = 'app_mode'; // beginner / free / ''（未选）
 
   final SharedPreferences _prefs;
 
@@ -78,6 +85,34 @@ class StorageService {
       return;
     }
     await _prefs.setString(_eBirdApiKey, normalized);
+  }
+
+  // ── 整包下载断点续传：按包名持久化「打算下载的完整物种清单」，下载中断/重启后
+  //    可在数据包管理里「继续下载」补齐剩余物种（createPack 幂等，已下的会跳过）。
+  static const _pendingDlPrefix = 'pending_dl_';
+
+  /// 保存某包的待下载意图（record 含 region/allowApiFallback/species:[SpeciesEntry.toJson]）。
+  Future<void> savePendingDownload(
+      String packName, Map<String, dynamic> record) async {
+    if (packName.trim().isEmpty) return;
+    await _prefs.setString(
+        '$_pendingDlPrefix$packName', jsonEncode(record));
+  }
+
+  /// 读某包的待下载意图（无则 null）。
+  Map<String, dynamic>? getPendingDownload(String packName) {
+    final s = _prefs.getString('$_pendingDlPrefix$packName');
+    if (s == null) return null;
+    try {
+      final m = jsonDecode(s);
+      return m is Map<String, dynamic> ? m : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearPendingDownload(String packName) async {
+    await _prefs.remove('$_pendingDlPrefix$packName');
   }
 
   String getAdminUploadToken() => _prefs.getString(_adminUploadTokenKey) ?? '';
@@ -165,6 +200,119 @@ class StorageService {
     await _prefs.setInt(_flashcardGroupSizeKey, value.clamp(1, 100));
   }
 
+  /// 开始打卡时是否直接进入全屏（专注）模式。默认 false：先停在带筛选条的窗口视图。
+  bool get flashcardStartFullscreen =>
+      _prefs.getBool(_flashcardStartFullscreenKey) ?? false;
+
+  Future<void> setFlashcardStartFullscreen(bool value) async {
+    await _prefs.setBool(_flashcardStartFullscreenKey, value);
+  }
+
+  /// 上次打卡使用的筛选（如 all / unlearned / favorite / ...），下次打卡沿用。
+  String get lastFlashcardFilter =>
+      _prefs.getString(_lastFlashcardFilterKey) ?? '';
+
+  Future<void> setLastFlashcardFilter(String value) async {
+    await _prefs.setString(_lastFlashcardFilterKey, value);
+  }
+
+  // ====== App 模式：新手(beginner) / 自由(free) ======
+  /// 'beginner'=新手（内容与进阶入口锁定在「中国常见鸟100」）；'free'=自由（全功能）；
+  /// ''=尚未选择（首次启动时弹二选一）。
+  String get appMode => _prefs.getString(_appModeKey) ?? '';
+  bool get isBeginnerMode => appMode == 'beginner';
+  bool get hasChosenMode => appMode == 'beginner' || appMode == 'free';
+  Future<void> setAppMode(String mode) async {
+    if (mode != 'beginner' && mode != 'free') return;
+    await _prefs.setString(_appModeKey, mode);
+  }
+
+  // ====== 观鸟清单 / life list（标准化为小写「属 种」双名，用于判断是否见过）======
+  static String normalizeSci(String sci) {
+    final parts = sci.trim().toLowerCase().split(RegExp(r'\s+'));
+    if (parts.length >= 2) return '${parts[0]} ${parts[1]}';
+    return parts.isEmpty ? '' : parts.first;
+  }
+
+  Set<String> getLifeList() {
+    final str = _prefs.getString(_lifeListKey);
+    if (str == null || str.isEmpty) return {};
+    try {
+      final list = jsonDecode(str) as List<dynamic>;
+      return list.map((e) => '$e').toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  int get lifeListCount => getLifeList().length;
+
+  // ====== 跨分类同义词（郑四 ↔ eBird/AviList）======
+  // 不同分类系统对同一种鸟用不同学名（如 小田鸡 Porzana pusilla / Zapornia pusilla）。
+  // 观鸟清单按学名匹配，若清单（eBird/AviList）与数据包（郑四）分类不同会漏配。
+  // 这里把每个学名展开成它的「等价学名组」，匹配时任一写法命中即算已见。
+  static Map<String, List<String>> _synonyms = const {};
+
+  /// 启动时调一次：加载 assets/data/taxonomy_synonyms.json（缺失则退化为精确匹配）。
+  static Future<void> loadTaxonomySynonyms() async {
+    if (_synonyms.isNotEmpty) return;
+    try {
+      final raw =
+          await rootBundle.loadString('assets/data/taxonomy_synonyms.json');
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      _synonyms = j.map(
+          (k, v) => MapEntry(k, (v as List).map((e) => '$e').toList()));
+    } catch (_) {
+      _synonyms = const {};
+    }
+  }
+
+  /// 某学名的全部等价二名（含自身，均归一化小写）。无同义词时只含自身。
+  Set<String> lifeGroup(String sci) {
+    final n = normalizeSci(sci);
+    if (n.isEmpty) return const {};
+    final g = _synonyms[n];
+    return g == null ? {n} : {n, ...g};
+  }
+
+  /// 是否已在清单里（已见过）。跨分类：该种的任一等价学名在清单里即算已见。
+  bool hasSeen(String sci) {
+    final list = getLifeList();
+    return lifeGroup(sci).any(list.contains);
+  }
+
+  Future<void> _saveLifeList(Set<String> set) async {
+    await _prefs.setString(_lifeListKey, jsonEncode(set.toList()));
+  }
+
+  Future<void> setSeen(String sci, bool seen) async {
+    final n = normalizeSci(sci);
+    if (n.isEmpty) return;
+    final set = getLifeList();
+    if (seen) {
+      set.add(n);
+    } else {
+      set.remove(n);
+    }
+    await _saveLifeList(set);
+  }
+
+  /// 合并一批学名（如导入 eBird CSV），返回本次新增的数量。
+  Future<int> mergeLifeList(Iterable<String> scientificNames) async {
+    final set = getLifeList();
+    final before = set.length;
+    for (final s in scientificNames) {
+      final n = normalizeSci(s);
+      if (n.isNotEmpty) set.add(n);
+    }
+    await _saveLifeList(set);
+    return set.length - before;
+  }
+
+  Future<void> clearLifeList() async {
+    await _prefs.remove(_lifeListKey);
+  }
+
   // ============ 选择题鸟名显示（cn / en / sci 任意组合，至少一项）============
 
   /// 选择题选项里显示哪些名字：'cn'(中文) / 'en'(英文) / 'sci'(拉丁名)。
@@ -192,6 +340,32 @@ class StorageService {
   Set<String> getEbirdFilterSci() =>
       (_prefs.getStringList(_ebirdFilterSciKey) ?? const []).toSet();
 
+  /// 上次筛选的 eBird 地区代码（如 CN-42 / NO-03），「可能性」排序按它查近期观测。
+  /// 经纬度/当前定位筛选时为空。
+  String getEbirdFilterRegion() =>
+      _prefs.getString(_ebirdFilterRegionKey) ?? '';
+
+  Future<void> setEbirdFilterRegion(String region) async {
+    final r = region.trim();
+    if (r.isEmpty) {
+      await _prefs.remove(_ebirdFilterRegionKey);
+    } else {
+      await _prefs.setString(_ebirdFilterRegionKey, r);
+    }
+  }
+
+  /// 上次坐标筛选的「纬度,经度,半径km」（经纬度筛选时用，「可能性」按它查附近近期观测）。
+  String getEbirdFilterCoords() => _prefs.getString(_ebirdFilterCoordsKey) ?? '';
+
+  Future<void> setEbirdFilterCoords(String coords) async {
+    final c = coords.trim();
+    if (c.isEmpty) {
+      await _prefs.remove(_ebirdFilterCoordsKey);
+    } else {
+      await _prefs.setString(_ebirdFilterCoordsKey, c);
+    }
+  }
+
   Future<void> saveEbirdFilter(String label, Set<String> sci) async {
     final trimmed = label.trim();
     if (trimmed.isEmpty || sci.isEmpty) {
@@ -205,6 +379,8 @@ class StorageService {
   Future<void> clearEbirdFilter() async {
     await _prefs.remove(_ebirdFilterLabelKey);
     await _prefs.remove(_ebirdFilterSciKey);
+    await _prefs.remove(_ebirdFilterRegionKey);
+    await _prefs.remove(_ebirdFilterCoordsKey);
   }
 
   /// 最近用过的 eBird 地点（最多 10 条，最新在前）。
@@ -347,6 +523,77 @@ class StorageService {
     dates.add(DateTime.now().toIso8601String().substring(0, 10));
     await _prefs.setString(
         _checkInDatesKey, jsonEncode(dates.toList()..sort()));
+    await _incrementTodayStudyCount();
+  }
+
+  // ====== 每日目标 / 今日打卡张数 ======
+  static const _dailyGoalKey = 'daily_goal';
+  static const _studyCountDateKey = 'study_count_date';
+  static const _studyCountValueKey = 'study_count_value';
+
+  /// 每日目标张数，默认 10，范围 1–200。
+  int get dailyGoal {
+    final v = _prefs.getInt(_dailyGoalKey) ?? 10;
+    return v.clamp(1, 200);
+  }
+
+  Future<void> setDailyGoal(int value) async {
+    await _prefs.setInt(_dailyGoalKey, value.clamp(1, 200));
+  }
+
+  /// 今日已打卡张数（跨天自动归零）。
+  int getTodayStudyCount() {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    if (_prefs.getString(_studyCountDateKey) != today) return 0;
+    return _prefs.getInt(_studyCountValueKey) ?? 0;
+  }
+
+  Future<void> _incrementTodayStudyCount() async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final cur =
+        _prefs.getString(_studyCountDateKey) == today
+            ? (_prefs.getInt(_studyCountValueKey) ?? 0)
+            : 0;
+    await _prefs.setString(_studyCountDateKey, today);
+    await _prefs.setInt(_studyCountValueKey, cur + 1);
+  }
+
+  bool get isDailyGoalMet => getTodayStudyCount() >= dailyGoal;
+
+  // ====== 每日打卡提醒（仅 Android 生效）======
+  static const _reminderEnabledKey = 'daily_reminder_enabled';
+  static const _reminderHourKey = 'daily_reminder_hour';
+  static const _reminderMinuteKey = 'daily_reminder_minute';
+
+  bool get reminderEnabled => _prefs.getBool(_reminderEnabledKey) ?? false;
+  Future<void> setReminderEnabled(bool v) async =>
+      _prefs.setBool(_reminderEnabledKey, v);
+
+  int get reminderHour => _prefs.getInt(_reminderHourKey) ?? 19;
+  int get reminderMinute => _prefs.getInt(_reminderMinuteKey) ?? 30;
+  Future<void> setReminderTime(int hour, int minute) async {
+    await _prefs.setInt(_reminderHourKey, hour);
+    await _prefs.setInt(_reminderMinuteKey, minute);
+  }
+
+  // ====== 听声每日挑战 ======
+  static const _soundChallengeDateKey = 'sound_challenge_date';
+  static const _soundChallengeScoreKey = 'sound_challenge_score';
+  static const _soundChallengeTotalKey = 'sound_challenge_total';
+
+  bool get soundChallengeDoneToday {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return _prefs.getString(_soundChallengeDateKey) == today;
+  }
+
+  int get soundChallengeScore => _prefs.getInt(_soundChallengeScoreKey) ?? 0;
+  int get soundChallengeTotal => _prefs.getInt(_soundChallengeTotalKey) ?? 0;
+
+  Future<void> recordSoundChallenge(int score, int total) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    await _prefs.setString(_soundChallengeDateKey, today);
+    await _prefs.setInt(_soundChallengeScoreKey, score);
+    await _prefs.setInt(_soundChallengeTotalKey, total);
   }
 
   // ============ 物种掌握度追踪 ============
@@ -366,6 +613,19 @@ class StorageService {
   SpeciesMastery getMastery(String cnName) {
     final all = getAllMastery();
     return all[cnName] ?? SpeciesMastery();
+  }
+
+  /// SRS 间隔（天）：按连续认识次数递增；上次答错则 1 天后再复习。
+  static const srsIntervalsDays = [1, 2, 4, 7, 15, 30];
+
+  /// 该物种是否到期需要复习（纯函数，传入已取好的 mastery，避免重复解析）。
+  static bool isDue(SpeciesMastery m) {
+    if (m.knownCount == 0 && m.unknownCount == 0) return false; // 没学过不算
+    final last = DateTime.tryParse(m.lastTime);
+    if (last == null) return true;
+    final streak = m.knownStreak.clamp(0, srsIntervalsDays.length - 1);
+    final days = m.lastResult == 'unknown' ? 1 : srsIntervalsDays[streak];
+    return DateTime.now().difference(last).inDays >= days;
   }
 
   /// 标记物种为"认识"

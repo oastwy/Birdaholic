@@ -43,7 +43,7 @@ class _UploadResult {
 class UploadSection extends StatefulWidget {
   final StorageService storage;
   final PackManager packManager;
-  final VoidCallback onOpenReview; // admin only
+  final VoidCallback? onOpenReview; // 审核入口已统一到「设置 → 内容审核」，此处不再重复
   final VoidCallback onOpenUserManagement; // admin only
   final VoidCallback onOpenFeedbackReview; // admin only
   final VoidCallback onOpenServerMediaManager; // admin only
@@ -53,7 +53,7 @@ class UploadSection extends StatefulWidget {
     super.key,
     required this.storage,
     required this.packManager,
-    required this.onOpenReview,
+    this.onOpenReview,
     required this.onOpenUserManagement,
     required this.onOpenFeedbackReview,
     required this.onOpenServerMediaManager,
@@ -447,39 +447,6 @@ class _UploadSectionState extends State<UploadSection> {
         actions: [
           if (widget.storage.isAdminMode)
             IconButton(
-              tooltip: '审核待处理',
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.gavel_outlined),
-                  if (_stats != null && _stats!.pendingTotal > 0)
-                    Positioned(
-                      right: -6,
-                      top: -4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        constraints: const BoxConstraints(minWidth: 16),
-                        child: Text(
-                          '${_stats!.pendingTotal}',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              onPressed: widget.onOpenReview,
-            ),
-          if (widget.storage.isAdminMode)
-            IconButton(
               tooltip: '纠错审核',
               icon: const Icon(Icons.feedback_outlined),
               onPressed: widget.onOpenFeedbackReview,
@@ -674,40 +641,6 @@ class _UploadSectionState extends State<UploadSection> {
                 _statItem('待审核', stats.myPending.toString()),
               ],
             ),
-          if (widget.storage.isAdminMode) ...[
-            const SizedBox(height: 10),
-            InkWell(
-              onTap: widget.onOpenReview,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.gavel_outlined,
-                        size: 20, color: Color(0xFF2d7d32)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        stats != null && stats.pendingTotal > 0
-                            ? '审核内测上传 · 有 ${stats.pendingTotal} 项待处理'
-                            : '审核内测上传 · 当前无待处理',
-                        style: const TextStyle(
-                            color: Color(0xFF2d7d32),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13),
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right,
-                        size: 20, color: Color(0xFF2d7d32)),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );

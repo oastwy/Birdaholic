@@ -18,12 +18,10 @@ class ProgressDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = storage.getStats();
-    final favorites = storage.getFavorites();
     final masteryMap = storage.getAllMastery();
     final studied = masteryMap.values
         .where((m) => m.knownCount > 0 || m.unknownCount > 0)
         .length;
-    final mastered = masteryMap.values.where((m) => m.knownStreak >= 3).length;
     final unfamiliar = storage.getUnfamiliarSpecies();
     final recentSpecies = _buildRecentSpecies(species, masteryMap);
 
@@ -62,25 +60,8 @@ class ProgressDetailScreen extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.18,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              _statCard('已学习', '$studied', '出现过学习记录的鸟种数', Colors.blue),
-              _statCard('已掌握', '$mastered', '连续认识达到 3 次', Colors.teal),
-              _statCard('正确率', '${(stats.accuracy * 100).round()}%', '累计答题准确率',
-                  Colors.green),
-              _statCard('收藏', '${favorites.length}', '已标星保存', Colors.amber),
-              _statCard(
-                  '不熟悉', '${unfamiliar.length}', '答错或不认识，待优先复习', Colors.red),
-              _statCard('累计答题', '${stats.total}', '累计答题数量', Colors.amber),
-            ],
-          ),
+          // 统计卡片已与主页「学习概览」（可点进对应清单）合并，这里不再重复展示，
+          // 详情页只保留下面的「最近学习轨迹」。
           const SizedBox(height: 20),
           Row(
             children: [
@@ -156,35 +137,6 @@ class ProgressDetailScreen extends StatelessWidget {
         .toList();
     mapped.sort((a, b) => b.$2.lastTime.compareTo(a.$2.lastTime));
     return mapped;
-  }
-
-  Widget _statCard(String title, String value, String hint, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style: TextStyle(
-                  fontSize: 13, color: color, fontWeight: FontWeight.w600)),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-                fontSize: 30, fontWeight: FontWeight.bold, color: color),
-          ),
-          const SizedBox(height: 8),
-          Text(hint,
-              style: TextStyle(
-                  fontSize: 13, color: Colors.grey[700], height: 1.4)),
-        ],
-      ),
-    );
   }
 
   Widget _emptyPanel(String title, String subtitle) {
