@@ -1,7 +1,14 @@
 # Birdaholic / 鸟瘾综合征 Handoff
 
-最后更新：2026-06-26  
+最后更新：2026-06-28  
 项目路径：`/Users/wuyang/Documents/bird_flashcard_repo`  
+当前 App 版本：**`1.7.1+87`**（2026-06-28 发布·仅安卓）。本版实质增量＝**隐私政策升 v1.2**（加「1.7 匿名启动统计」段 + 收集清单行，配套"装机/活跃"统计；ping 代码 1.7.0 已带）。
+- 安卓 `releases/Birdaholic_v1.7.1_android.apk`（vc87，71.7MB）→ **已 commit/push main + GitHub Release v1.7.1（挂 APK，Latest）+ birding.today download.html（deploy.sh 自动注入）**。
+- 鸿蒙 / iOS 1.7.1 **本版跳过**（用户决定，2026-06-28；要补时鸿蒙 `scripts/build_harmony.sh` vc87>86 满足 AGC、上传 AGC 需**同步隐私政策文本**＝合规 ④，iOS `scripts/build_ios.sh` 准备后 Xcode archive）。
+- ✅ **服务端「装机/活跃」统计已重开，且仅采集「安卓 + build≥87(1.7.1+)」**（`/api/ping` 内置过滤，见 `scratchpad/android_only.py`；备份 `upload_server.py.bak_androidonly_*`）。iOS/鸿蒙及安卓旧版仍是旧政策 v1.1，**不落盘**。`usage.json` 已清零，从 1.7.1 起累积。重开/过滤脚本 `scratchpad/restore_usage.py`+`android_only.py` 都在。
+
+<details><summary>上一版 1.7.0+86 已发布状态（存档）</summary>
+
 当前 App 版本：**`1.7.0+86`**（1.6.27 改名升 1.7）。**已发布**：
 - 安卓 `releases/Birdaholic_v1.7.0_android.apk`（vc86）→ **已 commit/push main（5343ba9）+ GitHub Release v1.7.0（挂 APK，Latest）+ birding.today `download.html` 已更到 1.7.0**。
 - 鸿蒙 `releases/Birdaholic_v1.7.0_ohos_api22_release.app`（1.7.0/86, api22·Release·已签名）→ **待传华为 AGC**。
@@ -9,8 +16,30 @@
 - 服务器 `upload_server.py`（审核通知 + 安全/正确性修复）已部署 124.223.101.188 实测，备份 `.bak_20260626_173246` / `.bak_20260626_210912`。
 - **环境为鸿蒙态**（pubspec overrides 反注释 + `flutter-ohos pub get`，lock=ohos fork）。
 
+</details>
+
 ## 🔧 1.7.1 待改（2026-06-26 用户记录，下一版做）
+- 🟡 **【合规·进行中，发版前收尾】「装机/活跃」统计：App 端隐私政策已改完，服务端已回滚暂停**：2026-06-28 服务端 `/api/ping`+`/api/admin/usage`+后台「装机/活跃」标签页曾从 6/24 备份恢复并实测通过，**但因隐私政策当时未同步，已按用户决定回滚暂停**（`/api/ping` 现 404、后台标签已撤、`usage.json` 已清；6/24 备份 + 补丁脚本 `scratchpad/restore_usage.py` 都在，**发版后一键重开**）。App 端 `usage_service.dart` 上报代码一直在、每次启动打 ping。**隐私政策文本已改完（2026-06-28，[privacy_policy_screen.dart](lib/screens/privacy_policy_screen.dart)）**，当时计划是：① 第 64 行「未集成任何统计…SDK」改为「未集成任何**第三方**统计/广告/推送/社交 SDK；App 启动时有一次**我方自有**的匿名装机/活跃上报」；② 「个人信息收集清单」表加一行：`匿名设备标识（App 随机生成、可重置）+ App 版本/平台 | App 启动时 | 统计装机量与活跃用户数（不含身份、不记录 IP）| 是→我方服务器`；③ bump `kPrivacyPolicyVersion`；④ AGC 后台隐私政策 + 备案那份同步。**①②③已改完（v1.1→1.2、加 1.7 节、收集清单加行、生效日期→2026-06-28）；唯一剩余 ④ AGC 后台 + 备案那份文本同步（发版时做）+ 新版上线后由我把服务端统计一键重开（跑 `scratchpad/restore_usage.py`）。** 采集已最小化（client_id=`Random.secure()` 非硬件标识、服务端不存 IP、仅同意后上报），属低风险，但「政策说不收、代码在收」是 App 合规检查超范围采集红线——故服务端在新版发布前保持暂停。
 - **鸟种界面加载慢 → 服务器媒体加持久缓存**：`bird_preview_screen.dart` 每打开/翻一种就 `_loadServerMedia`→`fetchSpeciesMedia(sci)` 现拉服务器 manifest，且远程图用裸 `Image.network`（约 line 825）加载；`_serverCache` 只在内存、远程图无磁盘缓存 → 每次启动/装新版都重拉重下（服务器腾讯云国内、跨网慢）。本地包图（`_localPreviewImages`→`Image.file`）秒出，慢的是「本地包没有、去服务器够的额外图」。**用户选 A+B**：A) 远程图持久磁盘缓存（换 `cached_network_image` 或自落盘）；B) manifest 缓存落盘，免每次启动重拉。可选 C) 默认只显示本地包图、服务器额外图改「点击加载更多」按需拉；D) 鸟种页加「把这种服务器图存进本地包」一键钮。
+
+## 🏗️ 架构结论 + 鸿蒙缝收口（2026-06-27，纯诊断，待重构；用户认可方向）
+
+**结论：Flutter 对本 app 是对的，不要换框架重写。** Android/iOS 几乎零摩擦，内容驱动+离线数据包+列表表单正是 Flutter 甜区。换 RN(RNOH 也是 fork)/uni-app/原生 ArkTS 都是全量重写、收益<<切换成本；鸿蒙端原生重写=养第二套代码库，单人项目灾难。**更新三端本就不统一**（安卓自装 APK / iOS App Store / 鸿蒙 AGC），不是框架能打通的，按平台 gate 是对的。痛点 95% 集中在**鸿蒙社区 fork（`flutter-ohos` + 插件 fork）**，换框架救不了，发力点是收这条缝。
+
+**A. 平台判断散落点（共 5 文件，建议收口到新 `lib/platform_caps.dart`，语义命名能力位）**：
+- `main.dart:279` `defaultTargetPlatform.name=='ohos'`（跳自建隐私弹窗）；`main.dart:297-300` `Platform.isAndroid`（通知初始化）
+- `progress_screen.dart:61,243` `Platform.isAndroid`（更新横幅）；`settings_screen.dart:1488` `Platform.isAndroid`（打卡提醒）
+- `settings_screen.dart:672-688` `_platformLabel`+`.name=='ohos'`；`usage_service.dart:29` `Platform.operatingSystem`（中性可留）
+- 收口成 `isOhos / supportsLocalNotifications / supportsInAppUpdate / usesHostedPrivacyConsent` 这种意图名。**`notification_service.dart:17` 的 `_supported` 守卫就是要复制的样板。** 判鸿蒙永远 `.name=='ohos'`，别写 `TargetPlatform.ohos`。
+
+**B. fork 插件 = 结构性负债（按税排序）**：
+- 🔴 **audioplayers**：整包 fork + **全子包 `dependency_overrides`**（pubspec `BUILD-SCRIPT-OVERRIDES-START/END`）。**`build_android/harmony.sh` 来回切 + `guard_build.sh` hook 的唯一根因就是它一个**——其余 5 个 `*_ohos`(shared_preferences/path_provider/url_launcher/wakelock/geolocator) 是安静躺着的普通依赖，不碰安卓编译。最高杠杆：① 先把 audioplayers 彻底关进 `audio_player.dart` 一面墙（现 `flashcard_screen.dart:4`、`audio_player_widget.dart:3` 仍各自裸 import，封装是漏的）；② 封严后才评估换引擎(just_audio)/自写薄 ohos 实现以干掉 overrides，**别为此仓促换音频库**。
+- 🟡 **url_launcher**：9 文件裸用、16 处 `launchUrl`、**零 helper**。建 `lib/utils/link_launcher.dart` 统一（「应用内更新」的下载/安装跳转 + 鸿蒙 url quirk 都归这）。
+- 🟡 **file_picker**：有 `file_picker_guard` 但 5 文件绕过裸 import（in_flashcard_upload_modal / upload_section / online_import_screen / life_list_screen / pack_manage_screen）。`pack_manage_screen.dart:97-118` 那段鸿蒙 `withData` 取字节兜底应收进 guard，全走 guard。
+
+**C. 不用动**：`notification_service.dart`（单文件惰性 no-op 样板）；`dart:io`（19 文件直接 import，三端都有，无 Web 目标就不是问题）；path_provider/shared_preferences/wakelock/geolocator 的 `*_ohos` 低频留着。
+
+**优先级（按省工时）**：1) 砌严 audioplayers 墙（通往干掉 overrides 切换+build hook 的唯一路径） → 2) 建 `platform_caps.dart` → 3) url_launcher/file_picker 各收一个 helper。三步均纯重构、零行为变化、可独立 commit/验。**另一条战略线（产品决策）**：鸿蒙 NEXT 上鸟瘾真实用户量若小，更优解可能是「鸿蒙端冻在当前版、不跟每个小版本」，把工时还给 iOS/安卓主线。
 
 ## 🛠 打包/发版改用脚本（2026-06-26 起，别再手搓配方）
 

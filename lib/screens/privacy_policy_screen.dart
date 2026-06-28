@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-const String kPrivacyPolicyVersion = '1.1';
-const String kPrivacyPolicyEffectiveDate = '2026-06-16';
+const String kPrivacyPolicyVersion = '1.2';
+const String kPrivacyPolicyEffectiveDate = '2026-06-28';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
@@ -61,7 +61,10 @@ class PrivacyPolicyBody extends StatelessWidget {
 - 设备唯一标识符、IMEI、MAC、广告 ID 等。
 
 1.6 第三方 SDK
-本 App **未集成任何统计、广告、推送、社交 SDK**，无任何第三方代码在后台采集您的信息。
+本 App **未集成任何第三方统计、广告、推送、社交 SDK**，无任何第三方代码在后台采集您的信息。
+
+1.7 匿名启动统计（我方自有，非第三方 SDK）
+为了解 App 的装机量与活跃用户数，在您**同意本政策后**，App 每次启动会向我方服务器（birding.today）发送一次匿名上报：一个由本机随机生成、可重置的匿名标识（**非设备硬件标识**，不含 IMEI/MAC/广告 ID，与您的手机号、姓名等身份无任何关联），以及 App 版本号与平台类型（如 Android / iOS / HarmonyOS）。该上报**不含任何个人身份信息，我方不记录您的 IP 地址**，仅用于汇总统计，不用于追踪个人，也不用于广告。
 
 二、个人信息收集清单
 
@@ -70,6 +73,7 @@ class PrivacyPolicyBody extends StatelessWidget {
 | 学习记录、收藏、笔记 | 使用 App | 学习进度统计 | 否（仅本机） |
 | API Key / 上传 Token | 您手动填写 | 调用 eBird / 归属上传署名 | 仅随对应请求发送 |
 | 匿名申请号 + App 版本/平台 | 申请上传权限 | 管理员审核并回传上传 Token | 是 → 我方服务器 |
+| 匿名启动标识（随机生成、可重置）+ App 版本/平台 | App 启动时 | 统计装机量与活跃用户数（不含身份、不记录 IP） | 是 → 我方服务器 |
 | 位置坐标（经纬度） | 您点"按位置查询" | 查询附近鸟种名录 | 是 → 发往 eBird（境外，见第六节），我方不接收 |
 | 照片 / 录音 + 署名/地点/描述 | 受邀用户点"上传" | 审核后公开到对应物种页 | 是 → 我方服务器 |
 
