@@ -1,7 +1,7 @@
 name: bird_flashcard
 description: 鸟鸣闪卡学习工具
 publish_to: none
-version: 1.7.1+87
+version: 1.7.5+91
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
@@ -23,6 +23,11 @@ dependencies:
   flutter_local_notifications: ^17.2.4
   timezone: ^0.9.4
   flutter_timezone: ^3.0.1
+  # 应用内更新一键装 APK（仅 Android，代码内 Platform.isAndroid 守卫，同 kacui 的方案）。
+  # dio 是纯 Dart 无平台实现应该没事；open_filex 有原生插件、无鸿蒙 fork：
+  # ⚠️ 打鸿蒙包若 pub get/构建报错，临时注释掉 open_filex 这行再打。
+  dio: ^5.10.0
+  open_filex: ^4.7.0
 
   # ── 鸿蒙(OpenHarmony)平台实现：仅 ohos 构建用，在其他平台惰性、不激活。
   #    路径指向本地 clone（~/ohos-flutter_packages），勿提交进发布分支。

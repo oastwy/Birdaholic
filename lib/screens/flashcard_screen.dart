@@ -13,6 +13,7 @@ import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
 import '../services/order_taxonomy.dart';
 import '../services/pack_manager.dart';
+import '../services/pinyin.dart';
 import '../services/server_media_service.dart';
 import '../services/storage.dart';
 import '../widgets/audio_player_widget.dart';
@@ -72,8 +73,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   bool _loading = true;
   String? _loadError;
   String? _selectedChoiceSci;
+  String _typedAnswer = '';
   List<Species> _quizChoices = const [];
   final Map<String, List<Species>> _quizChoiceCache = {};
+  final TextEditingController _nameAnswerController = TextEditingController();
+  final FocusNode _nameAnswerFocusNode = FocusNode();
 
   String _filter = 'all';
   // 自定义牌组（到期复习 / 关卡 / 鸟单 等指定一批 sci 学习时用，_filter=='custom'）
@@ -177,6 +181,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   @override
   void dispose() {
     _audioKey.currentState?.stop();
+    _nameAnswerController.dispose();
+    _nameAnswerFocusNode.dispose();
     super.dispose();
   }
 
@@ -281,6 +287,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _revealed = _showAnswerOnEntry;
     _answered = false;
     _selectedChoiceSci = null;
+    _typedAnswer = '';
+    _nameAnswerController.clear();
     _quizChoices = const [];
     _mediaFutureIdx = null; // invalidate media cache on card change
   }
@@ -320,7 +328,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         // 跨分类匹配：把每个种展开成等价学名组（郑四/eBird 任一写法在清单里即算已见）。
         final seenSet = widget.storage.getLifeList();
         list = list
-            .where((s) => !widget.storage.lifeGroup(s.sci).any(seenSet.contains))
+            .where(
+                (s) => !widget.storage.lifeGroup(s.sci).any(seenSet.contains))
             .toList();
         break;
       case 'custom':
@@ -393,8 +402,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       case 'likelihood':
         // 可能性：近 30 天 eBird 观测越近名次越靠前；未上榜的排后，再按名称
         list.sort((a, b) {
-          final ra = _likelihoodRank[StorageService.normalizeSci(a.sci)] ?? (1 << 30);
-          final rb = _likelihoodRank[StorageService.normalizeSci(b.sci)] ?? (1 << 30);
+          final ra =
+              _likelihoodRank[StorageService.normalizeSci(a.sci)] ?? (1 << 30);
+          final rb =
+              _likelihoodRank[StorageService.normalizeSci(b.sci)] ?? (1 << 30);
           if (ra != rb) return ra.compareTo(rb);
           return a.cn.compareTo(b.cn);
         });
@@ -716,8 +727,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       }
       return;
     }
-    if (_mode == StudyMode.quiz && !_isFinished) {
-      Future.delayed(const Duration(milliseconds: 850), _nextCard);
+    if (_mode == StudyMode.quiz || _mode == StudyMode.input) {
+      _showAnswer();
+      if (!_isFinished) {
+        Future.delayed(const Duration(milliseconds: 1300), _nextCard);
+      }
     }
   }
 
@@ -783,6 +797,71 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (!_isFinished) {
       Future.delayed(const Duration(milliseconds: 1300), _nextCard);
     }
+  }
+
+  void _submitTypedAnswer() {
+    if (_answered) return;
+    final bird = _currentBird;
+    if (bird == null) return;
+    final answer = _nameAnswerController.text.trim();
+    if (answer.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('先输入一个鸟名')),
+      );
+      return;
+    }
+    _typedAnswer = answer;
+    final correct = _matchesTypedAnswer(answer, bird);
+    _recordAnswer(bird, isCorrect: correct);
+    _showAnswer();
+    if (!_isFinished) {
+      Future.delayed(const Duration(milliseconds: 1300), _nextCard);
+    }
+  }
+
+  bool _matchesTypedAnswer(String answer, Species bird) {
+    final normalized = _normalizeAnswer(answer);
+    if (normalized.isEmpty) return false;
+    return _answerAliases(bird)
+        .any((alias) => _normalizeAnswer(alias) == normalized);
+  }
+
+  List<String> _answerAliases(Species bird) {
+    final aliases = <String>[
+      bird.cn,
+      bird.en,
+      bird.sci,
+      ...bird.enAlt,
+    ];
+    aliases.addAll(_splitNameAliases(bird.cn));
+    aliases.addAll(_splitNameAliases(bird.en));
+    for (final alias in List<String>.from(aliases)) {
+      final initials = Pinyin.initials(alias).trim();
+      if (initials.length >= 2) aliases.add(initials);
+    }
+    return aliases.where((s) => s.trim().isNotEmpty).toSet().toList();
+  }
+
+  Iterable<String> _splitNameAliases(String value) sync* {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+    yield trimmed;
+    final withoutParen = trimmed
+        .replaceAll(RegExp(r'（[^）]*）'), '')
+        .replaceAll(RegExp(r'\([^)]*\)'), '')
+        .trim();
+    if (withoutParen.isNotEmpty) yield withoutParen;
+    for (final part in trimmed.split(RegExp(r'[、/／,，;；|]+'))) {
+      final p = part.trim();
+      if (p.isNotEmpty) yield p;
+    }
+  }
+
+  String _normalizeAnswer(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[\s\-_·.'’“”()（）\[\]【】]+"), '')
+        .trim();
   }
 
   void _prepareQuizChoices() {
@@ -1052,7 +1131,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   Map<String, dynamic> _buildFeedbackContext(Species bird) {
     final context = <String, dynamic>{
-      'question_type': _mode == StudyMode.quiz ? 'choice' : 'review',
+      'question_type': switch (_mode) {
+        StudyMode.quiz => 'choice',
+        StudyMode.input => 'input',
+        StudyMode.review => 'review',
+      },
       'prompt_mode': _effectivePromptMode.name,
       'question': _feedbackQuestionText,
       'correct_answer': _feedbackSpeciesLabel(bird),
@@ -1077,15 +1160,18 @@ class FlashcardScreenState extends State<FlashcardScreen> {
             ? _selectedChoiceSci
             : _feedbackSpeciesLabel(selected);
       }
+    } else if (_mode == StudyMode.input && _typedAnswer.isNotEmpty) {
+      context['typed_answer'] = _typedAnswer;
     }
     return context;
   }
 
   String get _feedbackQuestionText {
-    if (_mode == StudyMode.quiz) {
+    if (_mode == StudyMode.quiz || _mode == StudyMode.input) {
+      final type = _mode == StudyMode.quiz ? '选择题' : '输入题';
       return _effectivePromptMode == PromptMode.audio
-          ? '选择题：这是什么鸟的声音？'
-          : '选择题：这是什么鸟？';
+          ? '$type：这是什么鸟的声音？'
+          : '$type：这是什么鸟？';
     }
     return _effectivePromptMode == PromptMode.audio
         ? '复习题：这是什么鸟的声音？'
@@ -1327,8 +1413,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('该地区数据不足'),
-        content: const Text(
-            '当前数据包里，没有任何鸟出现在该地区近 30 天的 eBird 记录中，'
+        content: const Text('当前数据包里，没有任何鸟出现在该地区近 30 天的 eBird 记录中，'
             '「可能性」排序暂时没有效果。\n'
             '可以去「数据包管理」下载 / 启用覆盖该地区的数据包，再用「可能性」。'),
         actions: [
@@ -1864,6 +1949,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       final count = countByDifficulty[value] ?? 0;
       return '${List.filled(value, '⭐').join()} ($count)';
     }
+
     return DropdownButtonFormField<int>(
       value: current,
       isExpanded: true,
@@ -2066,8 +2152,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     child: SegmentedButton<AnswerMode>(
                       segments: const [
                         ButtonSegment(
-                            value: AnswerMode.learning,
-                            label: Text('学习模式')),
+                            value: AnswerMode.learning, label: Text('学习模式')),
                         ButtonSegment(
                             value: AnswerMode.review, label: Text('测试模式')),
                       ],
@@ -2090,6 +2175,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                             value: StudyMode.review, label: Text('判断题')),
                         ButtonSegment(
                             value: StudyMode.quiz, label: Text('选择题')),
+                        ButtonSegment(
+                            value: StudyMode.input, label: Text('输入题')),
                       ],
                       selected: {_mode},
                       onSelectionChanged: (v) => refresh(() {
@@ -2165,11 +2252,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     items: const [
                       DropdownMenuItem(value: 'random', child: Text('随机')),
                       DropdownMenuItem(
-                          value: 'taxonomic',
-                          child: Text('分类关系（目科属种）')),
+                          value: 'taxonomic', child: Text('分类关系（目科属种）')),
                       DropdownMenuItem(
-                          value: 'likelihood',
-                          child: Text('可能性（近期 eBird 观测）')),
+                          value: 'likelihood', child: Text('可能性（近期 eBird 观测）')),
                     ],
                     onChanged: (v) {
                       if (v == null) return;
@@ -2194,8 +2279,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                 style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF2d7d32)),
                 icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(
-                    _answerMode == AnswerMode.learning ? '开始学习' : '开始打卡'),
+                label:
+                    Text(_answerMode == AnswerMode.learning ? '开始学习' : '开始打卡'),
               ),
             ),
           ),
@@ -2387,6 +2472,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     segments: const [
                       ButtonSegment(value: StudyMode.review, label: Text('判断')),
                       ButtonSegment(value: StudyMode.quiz, label: Text('选择')),
+                      ButtonSegment(value: StudyMode.input, label: Text('输入')),
                     ],
                     selected: {_mode},
                     onSelectionChanged: (v) => refresh(() {
@@ -2459,11 +2545,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     items: const [
                       DropdownMenuItem(value: 'random', child: Text('随机')),
                       DropdownMenuItem(
-                          value: 'taxonomic',
-                          child: Text('分类关系（目科属种）')),
+                          value: 'taxonomic', child: Text('分类关系（目科属种）')),
                       DropdownMenuItem(
-                          value: 'likelihood',
-                          child: Text('可能性（近期 eBird 观测）')),
+                          value: 'likelihood', child: Text('可能性（近期 eBird 观测）')),
                     ],
                     onChanged: (v) {
                       if (v == null) return;
@@ -2684,37 +2768,50 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                                       horizontal: 16),
                                   child: _studyGestureSurface(
                                     enabled: _mode == StudyMode.review,
-                                    child: _mode == StudyMode.quiz
-                                        ? _buildQuizLayout(
-                                            bird: bird,
-                                            imagePath: imagePath,
-                                            imageSourceFile: studyImage.file,
-                                            imageCredit: studyImage.credit,
-                                            audioPaths: audioPaths,
-                                            labels: labels,
-                                            audioSpectrogramPaths:
-                                                spectrogramPaths,
-                                            extraImagePaths: extraImagePaths,
-                                            extraImageSourceFiles:
-                                                extraImageSourceFiles,
-                                            extraImageCredits:
-                                                extraImageCredits,
-                                          )
-                                        : _buildCardScroller(
-                                            bird: bird,
-                                            imagePath: imagePath,
-                                            imageSourceFile: studyImage.file,
-                                            imageCredit: studyImage.credit,
-                                            audioPaths: audioPaths,
-                                            labels: labels,
-                                            audioSpectrogramPaths:
-                                                spectrogramPaths,
-                                            extraImagePaths: extraImagePaths,
-                                            extraImageSourceFiles:
-                                                extraImageSourceFiles,
-                                            extraImageCredits:
-                                                extraImageCredits,
-                                          ),
+                                    child: switch (_mode) {
+                                      StudyMode.quiz => _buildQuizLayout(
+                                          bird: bird,
+                                          imagePath: imagePath,
+                                          imageSourceFile: studyImage.file,
+                                          imageCredit: studyImage.credit,
+                                          audioPaths: audioPaths,
+                                          labels: labels,
+                                          audioSpectrogramPaths:
+                                              spectrogramPaths,
+                                          extraImagePaths: extraImagePaths,
+                                          extraImageSourceFiles:
+                                              extraImageSourceFiles,
+                                          extraImageCredits: extraImageCredits,
+                                        ),
+                                      StudyMode.input => _buildInputLayout(
+                                          bird: bird,
+                                          imagePath: imagePath,
+                                          imageSourceFile: studyImage.file,
+                                          imageCredit: studyImage.credit,
+                                          audioPaths: audioPaths,
+                                          labels: labels,
+                                          audioSpectrogramPaths:
+                                              spectrogramPaths,
+                                          extraImagePaths: extraImagePaths,
+                                          extraImageSourceFiles:
+                                              extraImageSourceFiles,
+                                          extraImageCredits: extraImageCredits,
+                                        ),
+                                      StudyMode.review => _buildCardScroller(
+                                          bird: bird,
+                                          imagePath: imagePath,
+                                          imageSourceFile: studyImage.file,
+                                          imageCredit: studyImage.credit,
+                                          audioPaths: audioPaths,
+                                          labels: labels,
+                                          audioSpectrogramPaths:
+                                              spectrogramPaths,
+                                          extraImagePaths: extraImagePaths,
+                                          extraImageSourceFiles:
+                                              extraImageSourceFiles,
+                                          extraImageCredits: extraImageCredits,
+                                        ),
+                                    },
                                   ),
                                 );
                               },
@@ -2724,7 +2821,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         if (_focusMode &&
             bird != null &&
             !_isFinished &&
-            _mode != StudyMode.quiz)
+            _mode == StudyMode.review)
           _buildFocusAnswerDock(),
         if (!_focusMode && bird != null && !_isFinished)
           SafeArea(
@@ -2773,7 +2870,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                       ),
                     ],
                   ),
-                  if (_mode != StudyMode.quiz) ...[
+                  if (_mode == StudyMode.review) ...[
                     const SizedBox(height: 6),
                     Row(
                       children: [
@@ -2991,6 +3088,119 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     );
   }
 
+  Widget _buildTypedAnswerPanel(Species bird) {
+    final answeredText = _typedAnswer.trim();
+    final isCorrect = _answered &&
+        answeredText.isNotEmpty &&
+        _matchesTypedAnswer(answeredText, bird);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '输入鸟名',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _nameAnswerController,
+              focusNode: _nameAnswerFocusNode,
+              enabled: !_answered,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: '中文名 / 英文名 / 学名 / 拼音首字母',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onSubmitted: (_) => _submitTypedAnswer(),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _answered ? null : _submitTypedAnswer,
+                    icon: const Icon(Icons.check),
+                    label: const Text('提交'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                TextButton(
+                  onPressed: _answered ? null : _markWrong,
+                  child: const Text('我不会'),
+                ),
+              ],
+            ),
+            if (_answered) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: (isCorrect ? Colors.green : Colors.orange)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isCorrect ? Colors.green : Colors.orange,
+                    width: 1.2,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          isCorrect ? Icons.check_circle : Icons.info_outline,
+                          size: 16,
+                          color: isCorrect ? Colors.green : Colors.orange,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isCorrect ? '正确' : '正确答案',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: isCorrect
+                                ? Colors.green[700]
+                                : Colors.orange[800],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      bird.cn,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 17),
+                    ),
+                    if (bird.en.isNotEmpty)
+                      Text(bird.en, style: TextStyle(color: Colors.grey[700])),
+                    Text(
+                      bird.sci,
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    if (answeredText.isNotEmpty && !isCorrect) ...[
+                      const SizedBox(height: 6),
+                      Text('你的答案：$answeredText',
+                          style: TextStyle(color: Colors.grey[700])),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFocusHeader() {
     final total = _groupEnd - _groupOffset;
     final current = total <= 0 ? 0 : _idx - _groupOffset + 1;
@@ -3080,6 +3290,51 @@ class FlashcardScreenState extends State<FlashcardScreen> {
             ),
             const SizedBox(height: 10),
             Expanded(child: _buildQuizChoices(bird)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildInputLayout({
+    required Species bird,
+    required String? imagePath,
+    required String? imageSourceFile,
+    required String imageCredit,
+    required List<String> audioPaths,
+    required List<String> labels,
+    required List<String> audioSpectrogramPaths,
+    required List<String> extraImagePaths,
+    required List<String> extraImageSourceFiles,
+    required List<String> extraImageCredits,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Column(
+          children: [
+            SizedBox(
+              height: constraints.maxHeight * 0.48,
+              child: Center(
+                child: _gestureCard(
+                  bird: bird,
+                  imagePath: imagePath,
+                  imageSourceFile: imageSourceFile,
+                  imageCredit: imageCredit,
+                  audioPaths: audioPaths,
+                  labels: labels,
+                  audioSpectrogramPaths: audioSpectrogramPaths,
+                  extraImagePaths: extraImagePaths,
+                  extraImageSourceFiles: extraImageSourceFiles,
+                  extraImageCredits: extraImageCredits,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: SingleChildScrollView(
+                child: _buildTypedAnswerPanel(bird),
+              ),
+            ),
           ],
         );
       },
@@ -3192,8 +3447,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           audioLabels: labels,
           audioSpectrogramPaths: audioSpectrogramPaths,
           audioPlayerKey: _audioKey,
-          onPreviousSpecies: _mode == StudyMode.quiz ? null : _previousCard,
-          onNextSpecies: _mode == StudyMode.quiz ? null : _nextCard,
+          onPreviousSpecies: _mode == StudyMode.review ? _previousCard : null,
+          onNextSpecies: _mode == StudyMode.review ? _nextCard : null,
           mode: _mode,
           promptMode: _effectivePromptMode,
           initiallyShowAnswer: _showAnswerOnEntry,

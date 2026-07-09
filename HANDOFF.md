@@ -1,8 +1,62 @@
 # Birdaholic / 鸟瘾综合征 Handoff
 
-最后更新：2026-06-28  
+## 2026-07-09 审核入口与逐种评级体验修正（Codex）
+- 先在服务器修正 `Ianthocincla rufogularis` 中文名：`/data/server/china_birds.json`、`/data/server/china_quiz_bank.json` 中“棕颈噪鹛”→“棕颏噪鹛”，同目录已留 `.bak_*_rufogularis_name` 备份。App 仓库内置 `assets/data/china_birds*` 与 `china_quiz_bank.json` 已同步修正，已随 1.7.5 安卓 OTA 打包发布。
+- 普通用户功能：闪卡题型新增“输入题”（与判断题/选择题并列），支持输入中文名、英文名、学名或拼音首字母；提交后按已有掌握度逻辑记录对错并自动下一题。
+- `settings_screen.dart`：管理员设置页把“逐种评级”并入顶部“审核”卡片，和“内容审核 / 上传权限审批 / 评级审核”同层，不再单独放“管理员工具”。
+- `rate_species_screen.dart`：管理员逐种评级优先读取服务器 `/api/admin/rate/queue`，默认只显示未完成评级的物种；物种难度和图片评分都完成后自动从当前队列移走，避免每次打开又停在第一种。
+- 评级图片卡新增管理员删除按钮，调用现有 `DELETE /api/admin/media`，服务器侧会移入回收站而非硬删；删除后刷新当前物种媒体并更新队列计数。
+- 客户端补 `AdminUploadService.deleteMedia()` 与 `fetchRateQueue()`；`ServerMediaService` 现在保留 species/image 是否已有 difficulty 字段，便于区分“未评”和“评了 1 星”。
+- 验证：关键文件 `dart analyze` 无问题；全量 `flutter analyze --no-pub` 仍只有既有 `lib/screens/home_screen 2.dart` 文件名 info；`/Users/wuyang/flutter-ohos/bin/flutter test --no-pub` 21 条全过；Android release APK 构建成功并发布到国内 OTA。
+- 已发布：`pubspec.yaml` / `lib/app_version.dart` 升到 `1.7.5+91`，服务器 `https://birding.today/birdaholic/version.json` 已广播 1.7.5，APK 为 `https://birding.today/birdaholic/Birdaholic_v1.7.5_android.apk`，sha256 `17037b6d7ce7f2ff103e72a829e33c97ff3872a5b37c4db6c3b995a2849eabbc`。
+
+## 🌐 2026-07-02 国内服务器 OTA（重要，改了发版渠道）
+用户指出 GitHub 在国内又慢又常被拦——现有一键装只认 GitHub 附件，对国内真实用户基本是废的。已给 `app_update_service.dart` 加**国内自托管版本源**（照 kacui 那套）：
+- **新逻辑**：`fetchLatest()` 先查 `https://birding.today/birdaholic/version.json`（`{versionCode,versionName,url,notes,date}`，按 `versionCode` 与本机 `appBuildNumber` 比），拿到 200 就以它为准并 **early-return**（不再打 GitHub，省掉国内访问 GitHub 的超时）；拿不到（非 200/异常）才退回原 GitHub `/releases/latest` + `download.html` 兜底。`url` 指向国内可达的 apk 直链 → `UpdateDownloadDialog` 一键装走国内下载。analyze 干净。
+- **服务器托管**：`/usr/share/nginx/html/birdaholic/` 下放 `version.json` + apk（**直接 scp，不进 git，不走 deploy.sh**——deploy.sh 只管前台静态页那几个文件）。当前放了 `Birdaholic_v1.7.3_android.apk`(vc89) + `Birdaholic_v1.7.4_android.apk`(vc90)，version.json 广播 1.7.4/vc90。
+- **⚠️ 发版渠道 bootstrap 限制**：国内 OTA 逻辑是 1.7.3 才引入的，**存量用户(≤1.7.2)手机上的 app 不会查 version.json**——他们第一次升到 1.7.3 仍得走老路（GitHub release / download.html / 手动装）。1.7.3 起以后才走国内一键。要推 1.7.3 给存量用户：仍需 gh release + download.html（老渠道），或让用户手动下 `https://birding.today/birdaholic/Birdaholic_v1.7.3_android.apk`。
+- **⚠️ 测试用托管，未定案正式渠道**：version.json 现在广播的是 1.7.4（为了让装了 1.7.3 的测试机能一键升 1.7.4 验证链路）。正式发版前要想清楚 version.json 该广播哪个版本、以及正式 apk 的稳定命名（现在带版本号，每次发版 url 都变——建议正式版用固定名如 `Birdaholic-latest.apk` 或每版更 version.json 的 url）。
+
+## 📦 2026-07-02 已打包 v1.7.2+88（安卓，未对外发布）
+本包一次带上下面 4 项改动：① SRS 升 SM-2-lite；② 安卓一键装 OTA；③ 首页更新横幅 bug 修复；④ 首页"今日练习"卡竞品对标改版（下面各条详述）。
+- 产物 `releases/Birdaholic_v1.7.2_android.apk`（vc88 / 71.9MB / sha256 `264697943013c1671c2be2e7b89d628be0e3df88767259af9895521e0dc657dc`）。`flutter analyze` 干净、全量 `flutter test` 21 条全过。打完脚本已自动恢复鸿蒙态。
+- **本包含 code-review 修复**：`update_download_dialog.dart` 两处 soft-lock（同样存在于 kacui `update.dart`，待同步）——① OpenFilex 拉起安装器成功后 `Navigator.pop` 关弹窗，避免用户从系统安装界面按返回后卡在 `_downloading=true` 的无按钮态；② Dio 补 `connectTimeout:20s` + 下载中加「取消」按钮（`_cancel.cancel()`），堵住"连接卡住 + barrierDismissible:false + 无按钮"的死锁。（code-review 第 ③ 条 kacui 服务端 `_activate_fails` key 不回收=低危内存增长，未随本包处理。）
+- **未对外**：还没 `gh release` / 没更 birding.today download.html / 没 push git。要发版走：commit → `gh release` 挂这个 apk（Latest）→ download.html。**注意**：老用户手机上跑的是 1.7.1，OTA 一键装是本版才引入的——1.7.1→1.7.2 这一跳仍走旧的"打开下载页"逻辑（旧包里就是这个），装上 1.7.2 后往后才是一键装。
+- 鸿蒙/iOS 本版仍跳过（同 1.7.1 决定）。⚠️ 一键装的 `open_filex` 有原生插件无 ohos fork，打鸿蒙包若报错临时注释 `pubspec.yaml` 的 `open_filex` 行（已在该行上方标注）。
+
+## 🎨 2026-07-02 首页"今日练习"卡竞品对标改版（已进 v1.7.2）
+用户要"跟市场优秀竞品(Duolingo/Anki/Merlin)看齐 + 优化 UI"。第一性原理审 [progress_screen.dart](lib/screens/progress_screen.dart)：这是"打卡记忆 app"，但首页恰恰没突出打卡类 app 的两个核心信号——**今日目标进度**和**待复习数量**（`dailyGoal`/`getTodayStudyCount`/`isDailyGoalMet` 全建好却没上首页；进度条显示的是几乎不动的终身包完成度）。改 `_todayPracticeCard`（纯 UI、复用已有数据、保留所有原入口、analyze 干净）：
+- **进度条改成今日目标**（`今日 N/目标 M 张`，每次学都动、每天归零；达标显示"今日目标已完成 🎉"绿色），替代原来几乎不动的"本包 N/总数"。
+- **连续打卡天数 🔥 上顶栏**（原埋在打卡日历标题里）；本包完成度收成顶栏小 chip（点开仍看明细，`_openPackCompletion` 入口保留）。
+- **"复习"按钮带待复习数量角标**（Anki 式，`dueCount>0` 显示橙色 pill，>99 显示 99+），把刚升级的 SRS 复习循环一眼可见。
+- 保留三键(打卡/预习/复习)布局（用户此前明确要三键，未擅自并成单 CTA）。打卡日历卡的"连续 N 天"暂留（与顶栏轻微重复但各有语境，未动以免改动面扩大）。
+- **还识别出、本次未做的竞品差距**（留给用户定）：三键可考虑做成"1 主 CTA + 2 次要"降决策成本；答题结束缺庆祝态/连击反馈(Duolingo 式正反馈)；闪卡答题页(`flashcard_screen`) 未审。
+
+## 🧠 2026-07-02 SRS 记忆算法升级：Leitner → SM-2-lite（已进 v1.7.2）
+用户要"接近 Anki，拆开难度因子"。用第一性原理审了 [storage.dart](lib/services/storage.dart) 的间隔重复核心，改了 3 处逻辑（都改行为、不动 UI、`flutter analyze` 干净、配了 `test/srs_test.dart` 11 条断言全过、全量 test 21 条全过）：
+- **① [高] 复习按钮不再"二选一"掩盖 SRS 到期**（`progress_screen.dart`）：旧 `reviewTargets = 不熟悉 ?: 到期` —— 只要有一只不熟悉的鸟，所有按遗忘曲线到期的已学鸟就永远不进复习，抽掉了间隔重复的核心。改成**并集**（不熟悉 ∪ 到期，去重保序）。
+- **② [高] 同一次学习重复答对不再虚增 streak**（`markSpeciesKnown`）：听声模式一个种有 N 条录音就拆 N 张卡，旧逻辑一次坐下把 `knownStreak` 加 N → 3 次就"已掌握"+间隔跳 7 天，违背"跨天重复才算"。改成**每种每天最多推进一次调度**（`lastTime` 当天则只累计统计、不 ++streak/不拉间隔）。答错一律生效（失败信号不被同天答对掩盖），但 ease 惩罚每天至多一次。
+- **③ [中] 修死间隔 + 拆出 ease 难度因子**（SM-2-lite）：`SpeciesMastery` 加 `ease`(默认 2.5,下限 1.3 上限 2.7) + `intervalDays`。新调度：reps1→1天、reps2→3天、reps≥3→`round(interval×ease)` 严格增长(上限 365)；答错 `ease−=0.2`、间隔归 1、进不熟悉。旧固定表 `[1,2,4,7,15,30]` 降级为**仅 legacy 迁移播种**用（老记录无 ease/interval 时按旧 streak 播种间隔，避免升级后间隔一夜清零）；`isDue` 改成 `now−lastTime ≥ intervalDays`（interval≤0 的 legacy 记录判到期）。
+- **没做（有意，属设计取舍非 bug）**：没有 4 档难度按钮(Again/Hard/Good/Easy)——app 只有二元 known/unknown，known 按 SM-2 的 q=4(ease 中性)处理即可；每答一题仍全量重解析+重写整份 mastery map（性能项，已在效率 backlog，非本次范围）。
+
+## 🔧 2026-07-02 加：安卓内部更新真正做成一键装（已进 v1.7.2）
+承接下面那条"确认没有真正 OTA"——用户要求照 kacui 的路子做成一键下载装：
+- **`app_update_service.dart`**：`AppUpdateInfo` 加 `apkAssetUrl` 字段，`fetchLatest()` 解析 GitHub Release JSON 时从 `assets[]` 里挑一个文件名以 `.apk` 结尾的 `browser_download_url`（实测 `oastwy/Birdaholic` 最新 release 确实带这个 asset）。拿不到时（GitHub API 没走通、退化成抓 download.html）该字段为 null。
+- **新增 `lib/widgets/update_download_dialog.dart`**（`UpdateDownloadDialog`，基本照搬 kacui `update.dart` 那套 `_UpdateDialog`）：`dio` 下载到 `getTemporaryDirectory()` + `receiveTimeout`/`sendTimeout` 30秒(两包数据间隔，非总时长)防卡死不报错、`CancelToken`、`deleteOnError`、下完 `open_filex` 拉起安装器，权限拒绝/安装失败/卡住/出错都有对应文案+可重试。
+- **接入两处**：`progress_screen.dart` 首页更新横幅点击、`settings_screen.dart` "检查版本更新"手动检查的"去下载"——都改成有 `apkAssetUrl` 就走 `UpdateDownloadDialog` 一键装，拿不到才退回打开 `download.html`。**iOS 显式排除**（`settings_screen` 那处加了 `Platform.isAndroid` 判断，别在别的平台上把安卓 apk 硬塞给 open_filex）。
+- **依赖/权限**：`pubspec.yaml` 加 `dio: ^5.10.0` + `open_filex: ^4.7.0`（跟 `flutter_local_notifications` 那组一样标了"仅Android，鸿蒙打包报错就临时注释 open_filex"）；`AndroidManifest.xml` 加 `REQUEST_INSTALL_PACKAGES` 权限。
+- **已验证**：`flutter analyze` 改动的 4 个文件 No issues；跑了 `scripts/build_android.sh` 真机编译成功（71.9MB apk，NDK 26/27 那条警告是 audioplayers/file_picker 等一堆插件本来就有的、非本次改动引入），`aapt2 dump permissions` 确认 APK 里带上了 `REQUEST_INSTALL_PACKAGES`。（已随 v1.7.2+88 打包，见顶部。）
+- `releases/` 目录之前被效率审计清掉了，本次打包前已 `mkdir -p releases` 重建，apk + sha256 已落在里面。
+
+## 🔧 2026-07-02 首页横幅 bug 修复（已进 v1.7.2）
+用户反馈"首页一直显示已经是最新版本"，顺带确认了"内部 OTA"现状：
+- **确认：（当时）没有真正的 OTA 一键装**——`app_update_service.dart` 只是查 GitHub Releases API / 抓 `download.html` 拿版本号，`_openUrl` 打开的是下载页链接，不像 kacui 那样用插件直接下载+拉起安装器。**已在上面那条做成一键装**。
+- **已修复**：`progress_screen.dart` 首页更新横幅——① 原来"已是最新版本"文案在无更新时**每次都渲染**、"关闭"只是内存态 `_updateBannerDismissed`(setState 布尔，不落盘)，重启 App 就复位重新出现；② 现改成**没有新版本时整个横幅直接不渲染**（`_updateBanner()` 返回 `null`），只有真有新版本才出条；③ 新版本横幅本身加了持久化「忽略此版本」（`storage.dart` 新增 `dismissedUpdateVersion`/`dismissUpdateVersion`，走 SharedPreferences），点了不会在同一版本上反复烦你，出新版本号了才会再提示。`flutter analyze` 两个改动文件 No issues。（已随 v1.7.2+88 打包，见顶部。）
+
+最后更新：2026-07-09
 项目路径：`/Users/wuyang/Documents/bird_flashcard_repo`  
-当前 App 版本：**`1.7.1+87`**（2026-06-28 发布·仅安卓）。本版实质增量＝**隐私政策升 v1.2**（加「1.7 匿名启动统计」段 + 收集清单行，配套"装机/活跃"统计；ping 代码 1.7.0 已带）。
+当前 App 版本：**`1.7.5+91`**（2026-07-09 已通过国内服务器 OTA 发布安卓 apk，见顶部 2026-07-09 条）。内容＝输入鸟名题型 + 棕颏噪鹛名录修正 + 审核/逐种评级体验修正 + 之前 1.7.2/1.7.4 的 OTA/SRS/首页更新。
+上一发布版：**`1.7.1+87`**（2026-06-28 发布·仅安卓，隐私政策升 v1.2 + 装机/活跃统计）：
 - 安卓 `releases/Birdaholic_v1.7.1_android.apk`（vc87，71.7MB）→ **已 commit/push main + GitHub Release v1.7.1（挂 APK，Latest）+ birding.today download.html（deploy.sh 自动注入）**。
 - 鸿蒙 / iOS 1.7.1 **本版跳过**（用户决定，2026-06-28；要补时鸿蒙 `scripts/build_harmony.sh` vc87>86 满足 AGC、上传 AGC 需**同步隐私政策文本**＝合规 ④，iOS `scripts/build_ios.sh` 准备后 Xcode archive）。
 - ✅ **服务端「装机/活跃」统计已重开，且仅采集「安卓 + build≥87(1.7.1+)」**（`/api/ping` 内置过滤，见 `scratchpad/android_only.py`；备份 `upload_server.py.bak_androidonly_*`）。iOS/鸿蒙及安卓旧版仍是旧政策 v1.1，**不落盘**。`usage.json` 已清零，从 1.7.1 起累积。重开/过滤脚本 `scratchpad/restore_usage.py`+`android_only.py` 都在。
@@ -40,6 +94,8 @@
 **C. 不用动**：`notification_service.dart`（单文件惰性 no-op 样板）；`dart:io`（19 文件直接 import，三端都有，无 Web 目标就不是问题）；path_provider/shared_preferences/wakelock/geolocator 的 `*_ohos` 低频留着。
 
 **优先级（按省工时）**：1) 砌严 audioplayers 墙（通往干掉 overrides 切换+build hook 的唯一路径） → 2) 建 `platform_caps.dart` → 3) url_launcher/file_picker 各收一个 helper。三步均纯重构、零行为变化、可独立 commit/验。**另一条战略线（产品决策）**：鸿蒙 NEXT 上鸟瘾真实用户量若小，更优解可能是「鸿蒙端冻在当前版、不跟每个小版本」，把工时还给 iOS/安卓主线。
+
+> 🛠 **可用 skill（2026-06-28 装，sync-skills 双端纳管）**：做上面这三步重构 / 任何 Flutter 改动前，先跑 `flutter-dart-code-review`（widget/状态管理/性能/架构审查清单）、参考 `dart-flutter-patterns`（null safety/不可变状态/状态管理/GoRouter/Dio/Freezed 实现模式）。
 
 ## 🛠 打包/发版改用脚本（2026-06-26 起，别再手搓配方）
 
@@ -379,4 +435,3 @@ http://124.223.101.188:8080
 - **补图审核闸门（Claude 加，2026-06-17，勿删）**：脚本读 `manifest["backfill_review"]`，为真时**新补的图标 `pending=True` + `pending_reason="backfill_review"`**，只进后台「待审核」、人工通过后才上线。配套逻辑在 birding.today 后台 `upload_server.py`（删空物种打标记、审核通过清标记）。
   - ⚠️ 协作提醒：此脚本两份（本 repo `packager/` 与 `124.223.101.188:/data/server/`）。**2026-06-17 发现 Codex 重新同步时把这段 review 逻辑覆盖过一次**，已重新加回。今后同步前请先 `diff`，保留 `review_mode`/`backfill_review`/`pending_reason` 三处。
 - **未提交 git、未改 App**；脚本改动 + `cleanup_noncc_backfill.py` / `restart_backfill.sh` / `run_backfill_v2.sh` / `backfill_guard.sh` / `backfill_locations.py` 待 commit。
-

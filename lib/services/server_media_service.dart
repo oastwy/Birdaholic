@@ -16,7 +16,8 @@ class ServerMediaService {
     http.Client? client,
   }) : _client = client ?? http.Client();
 
-  Future<T> _withRetry<T>(Future<T> Function() action, {String label = ''}) async {
+  Future<T> _withRetry<T>(Future<T> Function() action,
+      {String label = ''}) async {
     Object? lastError;
     for (var attempt = 0; attempt < _maxRetries; attempt++) {
       try {
@@ -75,8 +76,7 @@ class ServerMediaService {
         if (existingBytes > 0) {
           request.headers['Range'] = 'bytes=$existingBytes-';
         }
-        final response =
-            await _client.send(request).timeout(_requestTimeout);
+        final response = await _client.send(request).timeout(_requestTimeout);
         if (response.statusCode == 200 && existingBytes > 0) {
           existingBytes = 0;
           await partFile.delete().catchError((_) => partFile);
@@ -136,8 +136,7 @@ class ServerMediaService {
     if (media == null || (!media.hasImage && !media.hasAudio)) return null;
 
     final audioEntries = <Map<String, dynamic>>[];
-    final spectrogramsDir =
-        '${Directory(soundsDir).parent.path}/spectrograms';
+    final spectrogramsDir = '${Directory(soundsDir).parent.path}/spectrograms';
     for (final audio in media.audio.take(2)) {
       final downloaded = await _downloadFile(
         url: audio.url,
@@ -230,6 +229,8 @@ class ServerSpeciesMedia {
   final String order;
   final String family;
   final String identificationFeatures;
+  final int speciesDifficulty;
+  final bool speciesRated;
   final List<ServerImageMedia> images;
   final List<ServerAudioMedia> audio;
 
@@ -245,6 +246,8 @@ class ServerSpeciesMedia {
     required this.order,
     required this.family,
     required this.identificationFeatures,
+    this.speciesDifficulty = 0,
+    this.speciesRated = false,
     required this.images,
     required this.audio,
     this.allImages = const [],
@@ -268,6 +271,9 @@ class ServerSpeciesMedia {
       order: json['order'] as String? ?? '',
       family: json['family'] as String? ?? '',
       identificationFeatures: json['identification_features'] as String? ?? '',
+      speciesDifficulty:
+          ((json['difficulty'] as num?)?.toInt() ?? 0).clamp(0, 5).toInt(),
+      speciesRated: json.containsKey('difficulty'),
       images: rawImages
           .where((m) => m['pending'] != true)
           .map(ServerImageMedia.fromJson)
@@ -298,6 +304,7 @@ class ServerImageMedia {
   final String source;
   final String license;
   final int difficulty;
+  final bool hasDifficulty;
 
   const ServerImageMedia({
     required this.file,
@@ -307,6 +314,7 @@ class ServerImageMedia {
     required this.source,
     required this.license,
     this.difficulty = 1,
+    this.hasDifficulty = false,
   });
 
   factory ServerImageMedia.fromJson(Map<String, dynamic> json) {
@@ -319,6 +327,7 @@ class ServerImageMedia {
       license: json['license'] as String? ?? '',
       difficulty:
           ((json['difficulty'] as num?)?.toInt() ?? 1).clamp(1, 5).toInt(),
+      hasDifficulty: json.containsKey('difficulty'),
     );
   }
 }

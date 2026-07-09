@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../app_version.dart';
 import '../models/species.dart';
 import '../services/app_update_service.dart';
 import '../services/pack_manager.dart';
 import '../services/storage.dart';
 import '../widgets/bird_card.dart';
+import '../widgets/update_download_dialog.dart';
 import 'progress_detail_screen.dart';
 import 'sound_challenge_screen.dart';
 import 'tutorial_screen.dart';
@@ -47,7 +47,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
   bool _guideDismissed = false;
   AppUpdateInfo? _updateInfo;
   bool _updateLoading = true;
-  bool _updateBannerDismissed = false;
   /// 打卡日历当前展示的月份（仅看年月），null = 本月。
   DateTime? _calMonth;
   bool _calExpanded = false; // 打卡日历：默认收起（最近两周/2 行），点击展开到整月
@@ -79,65 +78,64 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }
   }
 
-  Widget _updateBanner() {
-    final hasNew = !_updateLoading &&
-        _updateInfo != null &&
-        AppUpdateService.isNewerThanCurrent(_updateInfo!.version);
-    final bg =
-        hasNew ? const Color(0xFF2d5016) : Colors.grey.withValues(alpha: 0.10);
-    final fg = hasNew ? Colors.white : Colors.grey[700]!;
-    final text = _updateLoading
-        ? '正在检查更新…'
-        : hasNew
-            ? '有新版本 ${_updateInfo!.version} · 点击下载'
-            : '已是最新版本 v$appVersionName';
+  /// 有直链(GitHub Release .apk 附件)就应用内一键下载装；拿不到才退回打开下载页。
+  Future<void> _startUpdate(AppUpdateInfo info) async {
+    final apkUrl = info.apkAssetUrl;
+    if (apkUrl == null || apkUrl.isEmpty) {
+      await _openUrl(info.downloadUrl);
+      return;
+    }
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => UpdateDownloadDialog(info: info),
+    );
+  }
+
+  /// 只在真的有新版本、且用户没忽略过这个版本号时才出这条；没有更新时不产生任何持久 UI噪音。
+  Widget? _updateBanner() {
+    if (_updateLoading || _updateInfo == null) return null;
+    final info = _updateInfo!;
+    if (!AppUpdateService.isNewerThanCurrent(info.version)) return null;
+    if (widget.storage.dismissedUpdateVersion == info.version) return null;
+    const bg = Color(0xFF2d5016);
+    const fg = Colors.white;
     return Material(
       color: bg,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: hasNew
-            ? () => _openUrl(
-                  _updateInfo?.downloadUrl ?? AppUpdateService.downloadUrl,
-                )
-            : null,
+        onTap: () => _startUpdate(info),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             children: [
-              Icon(
-                hasNew ? Icons.system_update_alt : Icons.check_circle_outline,
-                size: 18,
-                color: fg,
-              ),
+              const Icon(Icons.system_update_alt, size: 18, color: fg),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  text,
-                  style: TextStyle(
+                  '有新版本 ${info.version} · 点击下载',
+                  style: const TextStyle(
                     color: fg,
                     fontSize: 13,
-                    fontWeight: hasNew ? FontWeight.w700 : FontWeight.w500,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              if (hasNew)
-                Icon(Icons.chevron_right,
-                    size: 18, color: fg.withValues(alpha: 0.7))
-              else if (!_updateLoading)
-                IconButton(
-                  tooltip: '关闭',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
-                  ),
-                  onPressed: () =>
-                      setState(() => _updateBannerDismissed = true),
-                  icon: Icon(Icons.close,
-                      size: 18, color: fg.withValues(alpha: 0.75)),
+              IconButton(
+                tooltip: '忽略此版本',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 32,
+                  minHeight: 32,
                 ),
+                onPressed: () {
+                  widget.storage.dismissUpdateVersion(info.version);
+                  setState(() {});
+                },
+                icon: const Icon(Icons.close, size: 18, color: Colors.white70),
+              ),
             ],
           ),
         ),
@@ -190,19 +188,20 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }).length;
     final unfamiliarNames = widget.storage.getUnfamiliarSpecies();
     final mastered = masteryMap.values.where((m) => m.knownStreak >= 3).length;
-    // SRS 到期复习：当前包里已学过、且按遗忘曲线到期的种
-    final dueScis = <String>[
+    // 「复习」按钮目标 = 不熟悉的种 ∪ 按遗忘曲线到期的种（并集，不是二选一）。
+    // 旧逻辑是「有不熟悉就只复习不熟悉」，会把已学好、到期该复习的鸟无限延后——
+    // 恰好抽掉间隔重复的核心。这里合并、去重、保持包内顺序。
+    final reviewTargets = <String>[
       for (final s in _species)
-        if (masteryMap[s.cn] != null && StorageService.isDue(masteryMap[s.cn]!))
+        if (masteryMap[s.cn]?.unfamiliar == true ||
+            (masteryMap[s.cn] != null &&
+                StorageService.isDue(masteryMap[s.cn]!)))
           s.sci,
     ];
-    // 「复习」按钮目标：优先不熟悉的鸟种，没有则退回 SRS 到期的种。
-    final reviewScis = <String>[
-      for (final s in _species)
-        if (masteryMap[s.cn]?.unfamiliar == true) s.sci,
-    ];
-    final reviewTargets = reviewScis.isNotEmpty ? reviewScis : dueScis;
     final checkInDates = widget.storage.getCheckInDates();
+    final streak = _currentStreak(checkInDates);
+    final todayCount = widget.storage.getTodayStudyCount();
+    final dailyGoal = widget.storage.dailyGoal;
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -233,6 +232,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
       );
     }
 
+    final updateBanner = Platform.isAndroid ? _updateBanner() : null;
+
     return SafeArea(
       bottom: false,
       child: RefreshIndicator(
@@ -240,8 +241,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            if (Platform.isAndroid && !_updateBannerDismissed) ...[
-              _updateBanner(),
+            if (updateBanner != null) ...[
+              updateBanner,
               const SizedBox(height: 12),
             ],
             if (!_guideDismissed) ...[
@@ -251,6 +252,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
             _todayPracticeCard(
               currentPackStudied: currentPackStudied,
               reviewTargets: reviewTargets,
+              todayCount: todayCount,
+              dailyGoal: dailyGoal,
+              streak: streak,
             ),
             const SizedBox(height: 12),
             // 今日听声挑战挪到打卡日历上方
@@ -274,16 +278,23 @@ class _ProgressScreenState extends State<ProgressScreen> {
   Widget _todayPracticeCard({
     required int currentPackStudied,
     required List<String> reviewTargets,
+    required int todayCount,
+    required int dailyGoal,
+    required int streak,
   }) {
     final total = _species.length;
-    final progress = total == 0 ? 0.0 : currentPackStudied / total;
+    // 首页核心 = 今日打卡进度（每次学都动、每天归零），不再是几乎不动的终身包完成度。
+    final goalMet = todayCount >= dailyGoal;
+    final goalProgress = dailyGoal == 0 ? 0.0 : todayCount / dailyGoal;
+    final dueCount = reviewTargets.length;
+    const green = Color(0xFF2d5016);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFFF7),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFF2d5016).withValues(alpha: 0.12),
+          color: green.withValues(alpha: 0.12),
         ),
         boxShadow: [
           BoxShadow(
@@ -302,12 +313,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2d5016).withValues(alpha: 0.1),
+                  color: green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.headphones_rounded,
-                  color: Color(0xFF2d5016),
+                  color: green,
                   size: 21,
                 ),
               ),
@@ -321,7 +332,22 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   ),
                 ),
               ),
-              // 完成度芯片：点开看当前数据包的具体完成情况
+              // 连续打卡天数：打卡 app 的核心习惯信号，放到最显眼的顶栏。
+              if (streak > 0) ...[
+                const Icon(Icons.local_fire_department,
+                    size: 17, color: Colors.deepOrange),
+                const SizedBox(width: 1),
+                Text(
+                  '$streak',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.deepOrange[700],
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              // 本包完成度收成小 chip（次要信息），点开看明细。
               InkWell(
                 borderRadius: BorderRadius.circular(999),
                 onTap: total == 0 ? null : _openPackCompletion,
@@ -329,7 +355,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2d5016).withValues(alpha: 0.08),
+                    color: green.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Row(
@@ -339,13 +365,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
                         total == 0 ? '未安装数据包' : '$currentPackStudied/$total 种',
                         style: const TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF2d5016),
+                          color: green,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       if (total != 0)
                         const Icon(Icons.chevron_right,
-                            size: 15, color: Color(0xFF2d5016)),
+                            size: 15, color: green),
                     ],
                   ),
                 ),
@@ -353,19 +379,37 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: total == 0 ? null : _openPackCompletion,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: progress.clamp(0, 1),
-                minHeight: 6,
-                backgroundColor:
-                    const Color(0xFF2d5016).withValues(alpha: 0.08),
-                valueColor: const AlwaysStoppedAnimation<Color>(
-                  Color(0xFF2d7d32),
+          // 今日目标进度
+          Row(
+            children: [
+              Text(
+                goalMet ? '今日目标已完成 🎉' : '今日目标',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: goalMet ? const Color(0xFF2d7d32) : Colors.grey[700],
                 ),
+              ),
+              const Spacer(),
+              Text(
+                '$todayCount / $dailyGoal 张',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: goalMet ? const Color(0xFF2d7d32) : green,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: goalProgress.clamp(0, 1),
+              minHeight: 6,
+              backgroundColor: green.withValues(alpha: 0.08),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF2d7d32),
               ),
             ),
           ),
@@ -442,10 +486,38 @@ class _ProgressScreenState extends State<ProgressScreen> {
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: const Text(
-                      '复习',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 15),
+                    // 带待复习数量角标（Anki 式），复习循环一眼可见。
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            '复习',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w800, fontSize: 15),
+                          ),
+                          if (dueCount > 0) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.deepOrange,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                dueCount > 99 ? '99+' : '$dueCount',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

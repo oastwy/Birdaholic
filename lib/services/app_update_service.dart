@@ -10,11 +10,17 @@ class AppUpdateInfo {
   final String downloadUrl;
   final String title;
 
+  /// GitHub Release 里那个 .apk 附件的直链；能一键下载安装用这个。
+  /// 拿不到（GitHub API 没走通、退化成抓 download.html）时为 null，
+  /// 只能退回打开下载页让用户自己点。
+  final String? apkAssetUrl;
+
   const AppUpdateInfo({
     required this.version,
     required this.releaseDate,
     required this.downloadUrl,
     required this.title,
+    this.apkAssetUrl,
   });
 }
 
@@ -22,6 +28,10 @@ class AppUpdateService {
   static const downloadUrl = 'https://birding.today/download.html';
   static const _githubLatestUrl =
       'https://api.github.com/repos/oastwy/Birdaholic/releases/latest';
+  // 国内自托管版本源：GitHub 在国内又慢又常被拦，且一键装需要国内可达的 apk 直链。
+  // 优先查这个；拿到有效响应就以它为准（不再打 GitHub），拿不到才退回 GitHub / download.html。
+  static const _domesticVersionUrl =
+      'https://birding.today/birdaholic/version.json';
 
   static AppUpdateInfo? _cached;
   static DateTime? _cachedAt;
@@ -35,9 +45,36 @@ class AppUpdateService {
       return _cached!;
     }
 
+    // 1) 国内源优先。version.json = {versionCode,versionName,url,notes,date}。
+    //    按 versionCode 与本机 appBuildNumber 比较（比版本名字符串更可靠）。
+    try {
+      final response = await http.get(Uri.parse(_domesticVersionUrl), headers: {
+        'User-Agent': 'Birdaholic/$appVersionName',
+      }).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final data =
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final vCode = (data['versionCode'] as num?)?.toInt() ?? 0;
+        final vName = (data['versionName'] ?? '').toString().trim();
+        final url = (data['url'] ?? '').toString().trim();
+        final newer = vCode > appBuildNumber && vName.isNotEmpty && url.isNotEmpty;
+        final info = AppUpdateInfo(
+          version: newer ? vName : appVersionName,
+          releaseDate: _formatIsoDate((data['date'] ?? '').toString().trim()),
+          downloadUrl: downloadUrl,
+          title: 'Birdaholic v${newer ? vName : appVersionName}',
+          apkAssetUrl: newer ? url : null,
+        );
+        _cached = info;
+        _cachedAt = DateTime.now();
+        return info;
+      }
+    } catch (_) {}
+
     var version = appVersionName;
     var date = '';
     var title = 'Birdaholic v$appVersionName';
+    String? apkAssetUrl;
 
     try {
       final response = await http.get(Uri.parse(_githubLatestUrl), headers: {
@@ -53,6 +90,15 @@ class AppUpdateService {
             title = 'Birdaholic v$version';
             date =
                 _formatIsoDate((data['published_at'] as String? ?? '').trim());
+            final assets = data['assets'] as List<dynamic>? ?? [];
+            for (final a in assets) {
+              final name = (a['name'] as String? ?? '').toLowerCase();
+              final url = (a['browser_download_url'] as String? ?? '');
+              if (name.endsWith('.apk') && url.isNotEmpty) {
+                apkAssetUrl = url;
+                break;
+              }
+            }
           }
         }
       }
@@ -84,6 +130,7 @@ class AppUpdateService {
       releaseDate: date,
       downloadUrl: downloadUrl,
       title: title,
+      apkAssetUrl: apkAssetUrl,
     );
     _cached = info;
     _cachedAt = DateTime.now();

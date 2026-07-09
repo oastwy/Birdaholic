@@ -26,6 +26,7 @@ class StorageService {
   static const _lastFlashcardFilterKey = 'flashcard_last_filter';
   static const _quizNameModesKey = 'quiz_name_modes';
   static const _newUserGuideDismissedKey = 'new_user_guide_dismissed';
+  static const _dismissedUpdateVersionKey = 'dismissed_update_version';
   static const _ebirdFilterLabelKey = 'ebird_filter_label';
   static const _ebirdFilterSciKey = 'ebird_filter_sci';
   static const _ebirdFilterRegionKey = 'ebird_filter_region';
@@ -189,6 +190,13 @@ class StorageService {
 
   Future<void> dismissNewUserGuide() async {
     await _prefs.setBool(_newUserGuideDismissedKey, true);
+  }
+
+  String? get dismissedUpdateVersion =>
+      _prefs.getString(_dismissedUpdateVersionKey);
+
+  Future<void> dismissUpdateVersion(String version) async {
+    await _prefs.setString(_dismissedUpdateVersionKey, version);
   }
 
   int get flashcardGroupSize {
@@ -615,30 +623,53 @@ class StorageService {
     return all[cnName] ?? SpeciesMastery();
   }
 
-  /// SRS 间隔（天）：按连续认识次数递增；上次答错则 1 天后再复习。
+  /// legacy 固定间隔表：仅用于把老记录（无 intervalDays）迁移播种，见 SpeciesMastery.fromJson。
+  /// 现役调度已改成 SM-2-lite（ease × interval，见 _nextIntervalDays）。
   static const srsIntervalsDays = [1, 2, 4, 7, 15, 30];
+
+  static const _easeMin = 1.3;
+  static const _easeMax = 2.7;
+  static const _intervalMaxDays = 365;
+
+  static bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// SM-2-lite 下一间隔：前两次固定爬坡(1→3 天)，之后 interval×ease。
+  static int _nextIntervalDays(int reps, int prevInterval, double ease) {
+    if (reps <= 1) return 1;
+    if (reps == 2) return 3;
+    var next = (prevInterval * ease).round();
+    if (next <= prevInterval) next = prevInterval + 1; // 保证严格增长
+    return next > _intervalMaxDays ? _intervalMaxDays : next;
+  }
 
   /// 该物种是否到期需要复习（纯函数，传入已取好的 mastery，避免重复解析）。
   static bool isDue(SpeciesMastery m) {
     if (m.knownCount == 0 && m.unknownCount == 0) return false; // 没学过不算
     final last = DateTime.tryParse(m.lastTime);
     if (last == null) return true;
-    final streak = m.knownStreak.clamp(0, srsIntervalsDays.length - 1);
-    final days = m.lastResult == 'unknown' ? 1 : srsIntervalsDays[streak];
-    return DateTime.now().difference(last).inDays >= days;
+    if (m.intervalDays <= 0) return true; // 学过但未排程（含 legacy）→ 到期
+    return DateTime.now().difference(last).inDays >= m.intervalDays;
   }
 
-  /// 标记物种为"认识"
+  /// 标记物种为"认识"。
+  /// 调度每天每种最多推进一次：同一天内（同一 session 里多张同种卡、或多条录音卡）
+  /// 重复答对只累计统计，不再重复 ++streak / 拉长间隔，杜绝"一次坐下刷成已掌握"。
   Future<void> markSpeciesKnown(String cnName) async {
     final all = getAllMastery();
     final m = all[cnName] ?? SpeciesMastery();
+    final now = DateTime.now();
+    final last = DateTime.tryParse(m.lastTime);
+    final advancedToday = last != null && _isSameDay(last, now);
+
     m.knownCount++;
-    m.knownStreak++;
     m.lastResult = 'known';
-    m.lastTime = DateTime.now().toIso8601String();
-    // 连续认识 3 次以上，从"不熟悉"移除
-    if (m.knownStreak >= 3) {
-      m.unfamiliar = false;
+    if (!advancedToday) {
+      m.knownStreak++;
+      // 纯答对按 SM-2 的 q=4 处理：ease 不变（间隔仍靠 ×ease 增长）。
+      m.intervalDays = _nextIntervalDays(m.knownStreak, m.intervalDays, m.ease);
+      m.lastTime = now.toIso8601String();
+      if (m.knownStreak >= 3) m.unfamiliar = false; // 连续 3 天认识才算掌握
     }
     all[cnName] = m;
     await _prefs.setString(
@@ -648,15 +679,26 @@ class StorageService {
     await _recordCheckIn();
   }
 
-  /// 标记物种为"不认识"（加入不熟悉列表）
+  /// 标记物种为"不认识"（加入不熟悉列表）。
+  /// 答错一律生效（清 streak、置 unfamiliar、间隔归 1 天重学），失败信号不被同天的答对掩盖；
+  /// 但 ease 惩罚每天至多一次，避免同种多张卡把 ease 连扣。
   Future<void> markSpeciesUnknown(String cnName) async {
     final all = getAllMastery();
     final m = all[cnName] ?? SpeciesMastery();
+    final now = DateTime.now();
+    final last = DateTime.tryParse(m.lastTime);
+    final lapsedToday =
+        m.lastResult == 'unknown' && last != null && _isSameDay(last, now);
+
     m.unknownCount++;
-    m.knownStreak = 0; // 重置连续认识计数
+    m.knownStreak = 0;
     m.lastResult = 'unknown';
-    m.lastTime = DateTime.now().toIso8601String();
-    m.unfamiliar = true; // 加入不熟悉列表
+    m.unfamiliar = true;
+    if (!lapsedToday) {
+      m.ease = (m.ease - 0.2).clamp(_easeMin, _easeMax);
+    }
+    m.intervalDays = 1; // 明天重学
+    m.lastTime = now.toIso8601String();
     all[cnName] = m;
     await _prefs.setString(
       _speciesMasteryKey,
@@ -724,14 +766,16 @@ class LearningStats {
   Map<String, dynamic> toJson() => {'correct': correct, 'wrong': wrong};
 }
 
-/// 单个物种的掌握度
+/// 单个物种的掌握度（SM-2-lite 间隔重复：ease 难度因子 + 独立 interval）。
 class SpeciesMastery {
-  int knownCount; // 认识次数
-  int unknownCount; // 不认识次数
-  int knownStreak; // 连续认识次数
+  int knownCount; // 认识次数（累计，纯统计）
+  int unknownCount; // 不认识次数（累计，纯统计）
+  int knownStreak; // 连续认识次数（= SM-2 的 reps，跨天计，答错清零）
   bool unfamiliar; // 是否在不熟悉列表中
   String lastResult; // 上次结果: "known" | "unknown" | ""
-  String lastTime; // 上次学习时间
+  String lastTime; // 上次「推进调度」的时间（不是每次答题都刷新，见 markSpeciesKnown）
+  double ease; // 难度因子（SM-2 EF），越大复习间隔涨得越快；答错下调，下限 1.3
+  int intervalDays; // 当前复习间隔（天）；0 = 尚未排程（新学/legacy 迁移）
 
   SpeciesMastery({
     this.knownCount = 0,
@@ -740,16 +784,27 @@ class SpeciesMastery {
     this.unfamiliar = false,
     this.lastResult = '',
     this.lastTime = '',
+    this.ease = 2.5,
+    this.intervalDays = 0,
   });
 
   factory SpeciesMastery.fromJson(Map<String, dynamic> json) {
+    final streak = json['knownStreak'] as int? ?? 0;
+    // legacy 迁移：老记录没有 intervalDays/ease，用旧的固定间隔表按 streak 播种一次，
+    // 避免升级后把所有已学鸟种的复习间隔一夜清零。
+    final seededInterval = streak > 0
+        ? StorageService.srsIntervalsDays[
+            streak.clamp(0, StorageService.srsIntervalsDays.length - 1)]
+        : 0;
     return SpeciesMastery(
       knownCount: json['knownCount'] as int? ?? 0,
       unknownCount: json['unknownCount'] as int? ?? 0,
-      knownStreak: json['knownStreak'] as int? ?? 0,
+      knownStreak: streak,
       unfamiliar: json['unfamiliar'] as bool? ?? false,
       lastResult: json['lastResult'] as String? ?? '',
       lastTime: json['lastTime'] as String? ?? '',
+      ease: (json['ease'] as num?)?.toDouble() ?? 2.5,
+      intervalDays: json['intervalDays'] as int? ?? seededInterval,
     );
   }
 
@@ -760,6 +815,8 @@ class SpeciesMastery {
         'unfamiliar': unfamiliar,
         'lastResult': lastResult,
         'lastTime': lastTime,
+        'ease': ease,
+        'intervalDays': intervalDays,
       };
 }
 

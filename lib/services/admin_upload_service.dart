@@ -638,6 +638,45 @@ class AdminUploadService {
     }
   }
 
+  Future<void> deleteMedia({
+    required String sci,
+    required String file,
+    required String kind,
+    required String token,
+  }) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/api/admin/media?token=$token'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'sci': sci,
+        'file': file,
+        'kind': kind,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('删除失败: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchRateQueue({
+    required String token,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/admin/rate/queue?token=$token'),
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(const Duration(seconds: 30));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('评级队列加载失败: ${response.statusCode} ${response.body}');
+    }
+    final data = jsonDecode(response.body);
+    final list =
+        data is Map ? (data['items'] as List<dynamic>? ?? const []) : const [];
+    return list.whereType<Map<String, dynamic>>().toList();
+  }
+
   // ── 上传权限申请审核（仅 admin） ──────────────────────────
 
   Future<List<AdminTokenRequest>> fetchTokenRequests({
@@ -934,7 +973,8 @@ class AdminUploadService {
       throw Exception('待审评级加载失败: ${response.statusCode}');
     }
     final data = jsonDecode(response.body);
-    final list = data is Map ? (data['items'] as List<dynamic>? ?? const []) : const [];
+    final list =
+        data is Map ? (data['items'] as List<dynamic>? ?? const []) : const [];
     return list.whereType<Map<String, dynamic>>().toList();
   }
 

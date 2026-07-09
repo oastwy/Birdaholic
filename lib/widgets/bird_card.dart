@@ -7,6 +7,7 @@ import 'audio_player_widget.dart';
 enum StudyMode {
   review, // 判断题：先看/听题面，再判断认识或不认识
   quiz, // 选择题：看/听题面后从四个选项中选择
+  input, // 输入题：看/听题面后输入鸟名
 }
 
 /// 出题媒介

@@ -20,6 +20,7 @@ import 'rate_review_screen.dart';
 import 'rate_species_screen.dart';
 import 'tutorial_screen.dart';
 import 'upload_review_section.dart';
+import '../widgets/update_download_dialog.dart';
 import 'user_agreement_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -93,10 +94,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
         if (go == true) {
-          await launchUrl(
-            Uri.parse(info.downloadUrl),
-            mode: LaunchMode.externalApplication,
-          );
+          if (!mounted) return;
+          final apkUrl = info.apkAssetUrl;
+          // 直链是安卓 APK，其他平台(iOS等)一律退回打开下载页，别在非安卓上拉起装 apk。
+          if (Platform.isAndroid && apkUrl != null && apkUrl.isNotEmpty) {
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => UpdateDownloadDialog(info: info),
+            );
+          } else {
+            await launchUrl(
+              Uri.parse(info.downloadUrl),
+              mode: LaunchMode.externalApplication,
+            );
+          }
         }
         return;
       }
@@ -350,8 +362,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.rule_outlined,
-                      color: Color(0xFF8a5a00)),
+                  leading:
+                      const Icon(Icons.rule_outlined, color: Color(0xFF8a5a00)),
                   title: const Text('评级审核'),
                   subtitle: const Text('审核内测用户提交的评级'),
                   trailing: const Icon(Icons.chevron_right),
@@ -362,25 +374,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          _groupHeader('管理员工具'),
-          Card(
-            color: const Color(0xFFFFF7E6),
-            child: ListTile(
-              leading: const Icon(Icons.star_rate_outlined,
-                  color: Color(0xFF8a5a00)),
-              title: const Text('逐种评级'),
-              subtitle: const Text('给物种难度与图片质量打分（直接生效）'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => RateSpeciesScreen(storage: widget.storage),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.star_rate_outlined,
+                      color: Color(0xFF8a5a00)),
+                  title: const Text('逐种评级'),
+                  subtitle: const Text('给物种难度与图片质量打分（直接生效）'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          RateSpeciesScreen(storage: widget.storage),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
@@ -411,9 +420,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: const Color(0xFF2d5016),
             ),
             title: const Text('学习模式'),
-            subtitle: Text(beginner
-                ? '新手模式 · 专注中国常见鸟 100'
-                : '自由模式 · 全部功能与数据包'),
+            subtitle: Text(beginner ? '新手模式 · 专注中国常见鸟 100' : '自由模式 · 全部功能与数据包'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _switchAppMode,
           ),
@@ -462,59 +469,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             children: [
               if (!beginner) ...[
-              ListTile(
-                leading: const Icon(Icons.key, color: Color(0xFF2d5016)),
-                title: const Text('API Key 与上传身份'),
-                subtitle: Text(
-                  widget.storage.getEBirdApiKey().isEmpty &&
-                          widget.storage.getXenoCantoApiKey().isEmpty &&
-                          widget.storage.getAdminUploadToken().isEmpty
-                      ? '未填写'
-                      : widget.storage.isAdminMode
-                          ? '管理员（${widget.storage.getUserName()}）'
-                          : widget.storage.isBetaMode
-                              ? '受邀用户（${widget.storage.getUserName()}）'
-                              : '已配置',
+                ListTile(
+                  leading: const Icon(Icons.key, color: Color(0xFF2d5016)),
+                  title: const Text('API Key 与上传身份'),
+                  subtitle: Text(
+                    widget.storage.getEBirdApiKey().isEmpty &&
+                            widget.storage.getXenoCantoApiKey().isEmpty &&
+                            widget.storage.getAdminUploadToken().isEmpty
+                        ? '未填写'
+                        : widget.storage.isAdminMode
+                            ? '管理员（${widget.storage.getUserName()}）'
+                            : widget.storage.isBetaMode
+                                ? '受邀用户（${widget.storage.getUserName()}）'
+                                : '已配置',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _editApiSettings,
                 ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _editApiSettings,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.checklist_rtl,
-                    color: Color(0xFF2d5016)),
-                title: const Text('我的观鸟清单 (life list)'),
-                subtitle: Text(
-                  widget.storage.lifeListCount > 0
-                      ? '已记录 ${widget.storage.lifeListCount} 种 · 导入 eBird / 记录中心 或手动标记'
-                      : '导入 eBird CSV / 记录中心 Excel / 手动标记，打卡可筛「未见过」',
+                const Divider(height: 1),
+                ListTile(
+                  leading:
+                      const Icon(Icons.checklist_rtl, color: Color(0xFF2d5016)),
+                  title: const Text('我的观鸟清单 (life list)'),
+                  subtitle: Text(
+                    widget.storage.lifeListCount > 0
+                        ? '已记录 ${widget.storage.lifeListCount} 种 · 导入 eBird / 记录中心 或手动标记'
+                        : '导入 eBird CSV / 记录中心 Excel / 手动标记，打卡可筛「未见过」',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => LifeListScreen(storage: widget.storage),
+                      ),
+                    );
+                    if (mounted) setState(() {});
+                  },
                 ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => LifeListScreen(storage: widget.storage),
-                    ),
-                  );
-                  if (mounted) setState(() {});
-                },
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(
-                  Icons.cloud_upload_outlined,
-                  color: Color(0xFF2d5016),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(
+                    Icons.cloud_upload_outlined,
+                    color: Color(0xFF2d5016),
+                  ),
+                  title: const Text('申请上传权限'),
+                  subtitle: Text(
+                    widget.storage.hasUploadAccess
+                        ? '已开通：${widget.storage.getUserName().isEmpty ? '上传用户' : widget.storage.getUserName()}'
+                        : '无需注册，提交匿名申请后等待管理员审核',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _openUploadAccessRequest,
                 ),
-                title: const Text('申请上传权限'),
-                subtitle: Text(
-                  widget.storage.hasUploadAccess
-                      ? '已开通：${widget.storage.getUserName().isEmpty ? '上传用户' : widget.storage.getUserName()}'
-                      : '无需注册，提交匿名申请后等待管理员审核',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _openUploadAccessRequest,
-              ),
               ],
               ListTile(
                 leading: const Icon(
@@ -1918,8 +1925,7 @@ class _AdminTokenRequestsScreenState extends State<_AdminTokenRequestsScreen> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
@@ -1956,8 +1962,8 @@ class _AdminTokenRequestsScreenState extends State<_AdminTokenRequestsScreen> {
                   child: OutlinedButton.icon(
                     onPressed: busy ? null : () => _reject(r),
                     icon: const Icon(Icons.close, color: Colors.red, size: 18),
-                    label: const Text('拒绝',
-                        style: TextStyle(color: Colors.red)),
+                    label:
+                        const Text('拒绝', style: TextStyle(color: Colors.red)),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Colors.red),
                     ),
