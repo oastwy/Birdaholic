@@ -77,3 +77,11 @@ android/local.properties
 
 # 打包脚本切换 overrides 的瞬态文件
 pubspec.yaml.tmp
+
+# Flutter 工具重复生成的时间戳副本文件
+.flutter-plugins *
+.flutter-plugins-dependencies *
+# 备份与内部记录
+.git.pre_ref_recovery_*
+*.bak_trim_*
+.workbuddy/
