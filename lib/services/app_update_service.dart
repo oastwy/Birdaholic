@@ -15,12 +15,17 @@ class AppUpdateInfo {
   /// 只能退回打开下载页让用户自己点。
   final String? apkAssetUrl;
 
+  /// SHA-256 checksum published alongside the direct APK. A direct install is
+  /// only offered when this is present and matches the downloaded bytes.
+  final String? sha256;
+
   const AppUpdateInfo({
     required this.version,
     required this.releaseDate,
     required this.downloadUrl,
     required this.title,
     this.apkAssetUrl,
+    this.sha256,
   });
 }
 
@@ -45,7 +50,7 @@ class AppUpdateService {
       return _cached!;
     }
 
-    // 1) 国内源优先。version.json = {versionCode,versionName,url,notes,date}。
+    // 1) 国内源优先。version.json = {versionCode,versionName,url,sha256,notes,date}。
     //    按 versionCode 与本机 appBuildNumber 比较（比版本名字符串更可靠）。
     try {
       final response = await http.get(Uri.parse(_domesticVersionUrl), headers: {
@@ -57,13 +62,18 @@ class AppUpdateService {
         final vCode = (data['versionCode'] as num?)?.toInt() ?? 0;
         final vName = (data['versionName'] ?? '').toString().trim();
         final url = (data['url'] ?? '').toString().trim();
-        final newer = vCode > appBuildNumber && vName.isNotEmpty && url.isNotEmpty;
+        final sha256 = _normalizedSha256((data['sha256'] ?? '').toString());
+        final newer =
+            vCode > appBuildNumber && vName.isNotEmpty && url.isNotEmpty;
+        final canInstallDirectly =
+            newer && _isTrustedApkUrl(url) && sha256 != null;
         final info = AppUpdateInfo(
           version: newer ? vName : appVersionName,
           releaseDate: _formatIsoDate((data['date'] ?? '').toString().trim()),
           downloadUrl: downloadUrl,
           title: 'Birdaholic v${newer ? vName : appVersionName}',
-          apkAssetUrl: newer ? url : null,
+          apkAssetUrl: canInstallDirectly ? url : null,
+          sha256: canInstallDirectly ? sha256 : null,
         );
         _cached = info;
         _cachedAt = DateTime.now();
@@ -74,7 +84,6 @@ class AppUpdateService {
     var version = appVersionName;
     var date = '';
     var title = 'Birdaholic v$appVersionName';
-    String? apkAssetUrl;
 
     try {
       final response = await http.get(Uri.parse(_githubLatestUrl), headers: {
@@ -90,15 +99,9 @@ class AppUpdateService {
             title = 'Birdaholic v$version';
             date =
                 _formatIsoDate((data['published_at'] as String? ?? '').trim());
-            final assets = data['assets'] as List<dynamic>? ?? [];
-            for (final a in assets) {
-              final name = (a['name'] as String? ?? '').toLowerCase();
-              final url = (a['browser_download_url'] as String? ?? '');
-              if (name.endsWith('.apk') && url.isNotEmpty) {
-                apkAssetUrl = url;
-                break;
-              }
-            }
+            // GitHub release metadata does not provide a trusted checksum in
+            // the API response. Keep it as a manual-download fallback rather
+            // than installing an unverified APK inside the app.
           }
         }
       }
@@ -130,7 +133,6 @@ class AppUpdateService {
       releaseDate: date,
       downloadUrl: downloadUrl,
       title: title,
-      apkAssetUrl: apkAssetUrl,
     );
     _cached = info;
     _cachedAt = DateTime.now();
@@ -139,6 +141,19 @@ class AppUpdateService {
 
   static bool isNewerThanCurrent(String version) {
     return _compareVersions(version, appVersionName) > 0;
+  }
+
+  static bool _isTrustedApkUrl(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null &&
+        uri.scheme == 'https' &&
+        uri.host.toLowerCase() == 'birding.today' &&
+        uri.path.toLowerCase().endsWith('.apk');
+  }
+
+  static String? _normalizedSha256(String value) {
+    final normalized = value.trim().toLowerCase();
+    return RegExp(r'^[0-9a-f]{64}$').hasMatch(normalized) ? normalized : null;
   }
 
   static String? _parseVersion(String html) {

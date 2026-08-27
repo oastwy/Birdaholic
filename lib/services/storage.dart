@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 本地存储服务
@@ -24,6 +27,7 @@ class StorageService {
   static const _flashcardGroupSizeKey = 'flashcard_group_size';
   static const _flashcardStartFullscreenKey = 'flashcard_start_fullscreen';
   static const _lastFlashcardFilterKey = 'flashcard_last_filter';
+  static const _lastFlashcardSetupKey = 'flashcard_last_setup_v1';
   static const _quizNameModesKey = 'quiz_name_modes';
   static const _newUserGuideDismissedKey = 'new_user_guide_dismissed';
   static const _dismissedUpdateVersionKey = 'dismissed_update_version';
@@ -36,8 +40,85 @@ class StorageService {
   static const _appModeKey = 'app_mode'; // beginner / free / ''（未选）
 
   final SharedPreferences _prefs;
+  // Android API 21+ compatible encrypted storage, backed by Android Keystore.
+  // iOS values stay on this device and are available only while it is unlocked.
+  static const _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.unlocked_this_device,
+    ),
+  );
+  late String _xenoCantoApiKeyValue;
+  late String _eBirdApiKeyValue;
+  late String _adminUploadTokenValue;
 
-  StorageService(this._prefs);
+  StorageService(this._prefs) {
+    // Keep construction synchronous for the existing UI, then migrate these
+    // values during app startup before any network request is made.
+    _xenoCantoApiKeyValue = _prefs.getString(_xenoCantoApiKey) ?? '';
+    _eBirdApiKeyValue = _prefs.getString(_eBirdApiKey) ?? '';
+    _adminUploadTokenValue = _prefs.getString(_adminUploadTokenKey) ?? '';
+  }
+
+  bool get _usesPlatformSecureStorage => Platform.isAndroid || Platform.isIOS;
+
+  /// Moves legacy plaintext credentials out of SharedPreferences. Desktop and
+  /// OpenHarmony keep their existing storage path until a supported secure
+  /// storage implementation is available there.
+  Future<void> initializeSensitiveCredentials() async {
+    if (!_usesPlatformSecureStorage) return;
+    _xenoCantoApiKeyValue = await _readOrMigrateCredential(
+      _xenoCantoApiKey,
+      _xenoCantoApiKeyValue,
+    );
+    _eBirdApiKeyValue = await _readOrMigrateCredential(
+      _eBirdApiKey,
+      _eBirdApiKeyValue,
+    );
+    _adminUploadTokenValue = await _readOrMigrateCredential(
+      _adminUploadTokenKey,
+      _adminUploadTokenValue,
+    );
+  }
+
+  Future<String> _readOrMigrateCredential(
+    String key,
+    String legacyValue,
+  ) async {
+    try {
+      final secureValue = (await _secureStorage.read(key: key) ?? '').trim();
+      if (secureValue.isNotEmpty) {
+        if (legacyValue.isNotEmpty) await _prefs.remove(key);
+        return secureValue;
+      }
+      if (legacyValue.isEmpty) return '';
+      await _secureStorage.write(key: key, value: legacyValue);
+      await _prefs.remove(key);
+      return legacyValue;
+    } catch (_) {
+      // Do not strand a user who upgrades from a build that stored credentials
+      // in preferences. A later successful startup can retry the migration.
+      return legacyValue;
+    }
+  }
+
+  Future<void> _setCredential(String key, String value) async {
+    if (!_usesPlatformSecureStorage) {
+      if (value.isEmpty) {
+        await _prefs.remove(key);
+      } else {
+        await _prefs.setString(key, value);
+      }
+      return;
+    }
+
+    if (value.isEmpty) {
+      await _secureStorage.delete(key: key);
+    } else {
+      await _secureStorage.write(key: key, value: value);
+    }
+    await _prefs.remove(key);
+  }
 
   // ============ 收藏 ============
 
@@ -66,26 +147,20 @@ class StorageService {
 
   // ============ 在线下载设置 ============
 
-  String getXenoCantoApiKey() => _prefs.getString(_xenoCantoApiKey) ?? '';
+  String getXenoCantoApiKey() => _xenoCantoApiKeyValue;
 
   Future<void> setXenoCantoApiKey(String value) async {
     final normalized = value.trim();
-    if (normalized.isEmpty) {
-      await _prefs.remove(_xenoCantoApiKey);
-      return;
-    }
-    await _prefs.setString(_xenoCantoApiKey, normalized);
+    await _setCredential(_xenoCantoApiKey, normalized);
+    _xenoCantoApiKeyValue = normalized;
   }
 
-  String getEBirdApiKey() => _prefs.getString(_eBirdApiKey) ?? '';
+  String getEBirdApiKey() => _eBirdApiKeyValue;
 
   Future<void> setEBirdApiKey(String value) async {
     final normalized = value.trim();
-    if (normalized.isEmpty) {
-      await _prefs.remove(_eBirdApiKey);
-      return;
-    }
-    await _prefs.setString(_eBirdApiKey, normalized);
+    await _setCredential(_eBirdApiKey, normalized);
+    _eBirdApiKeyValue = normalized;
   }
 
   // ── 整包下载断点续传：按包名持久化「打算下载的完整物种清单」，下载中断/重启后
@@ -96,8 +171,7 @@ class StorageService {
   Future<void> savePendingDownload(
       String packName, Map<String, dynamic> record) async {
     if (packName.trim().isEmpty) return;
-    await _prefs.setString(
-        '$_pendingDlPrefix$packName', jsonEncode(record));
+    await _prefs.setString('$_pendingDlPrefix$packName', jsonEncode(record));
   }
 
   /// 读某包的待下载意图（无则 null）。
@@ -116,7 +190,7 @@ class StorageService {
     await _prefs.remove('$_pendingDlPrefix$packName');
   }
 
-  String getAdminUploadToken() => _prefs.getString(_adminUploadTokenKey) ?? '';
+  String getAdminUploadToken() => _adminUploadTokenValue;
 
   String getUserRole() => _prefs.getString(_userRoleKey) ?? '';
   String getUserName() => _prefs.getString(_userNameKey) ?? '';
@@ -140,13 +214,12 @@ class StorageService {
 
   Future<void> setAdminUploadToken(String value) async {
     final normalized = value.trim();
+    await _setCredential(_adminUploadTokenKey, normalized);
+    _adminUploadTokenValue = normalized;
     if (normalized.isEmpty) {
-      await _prefs.remove(_adminUploadTokenKey);
       await _prefs.remove(_userRoleKey);
       await _prefs.remove(_userNameKey);
-      return;
     }
-    await _prefs.setString(_adminUploadTokenKey, normalized);
   }
 
   Future<void> setUserIdentity(
@@ -224,6 +297,26 @@ class StorageService {
     await _prefs.setString(_lastFlashcardFilterKey, value);
   }
 
+  /// 上次确认的整套闪卡配置。用 JSON 保存，后续增加字段时旧版本仍可兼容。
+  Map<String, dynamic> getLastFlashcardSetup() {
+    final raw = _prefs.getString(_lastFlashcardSetupKey);
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> setLastFlashcardSetup(Map<String, dynamic> setup) async {
+    await _prefs.setString(_lastFlashcardSetupKey, jsonEncode(setup));
+    final filter = setup['filter'];
+    if (filter is String && filter.isNotEmpty) {
+      await _prefs.setString(_lastFlashcardFilterKey, filter);
+    }
+  }
+
   // ====== App 模式：新手(beginner) / 自由(free) ======
   /// 'beginner'=新手（内容与进阶入口锁定在「中国常见鸟100」）；'free'=自由（全功能）；
   /// ''=尚未选择（首次启动时弹二选一）。
@@ -268,8 +361,8 @@ class StorageService {
       final raw =
           await rootBundle.loadString('assets/data/taxonomy_synonyms.json');
       final j = jsonDecode(raw) as Map<String, dynamic>;
-      _synonyms = j.map(
-          (k, v) => MapEntry(k, (v as List).map((e) => '$e').toList()));
+      _synonyms =
+          j.map((k, v) => MapEntry(k, (v as List).map((e) => '$e').toList()));
     } catch (_) {
       _synonyms = const {};
     }
@@ -363,7 +456,8 @@ class StorageService {
   }
 
   /// 上次坐标筛选的「纬度,经度,半径km」（经纬度筛选时用，「可能性」按它查附近近期观测）。
-  String getEbirdFilterCoords() => _prefs.getString(_ebirdFilterCoordsKey) ?? '';
+  String getEbirdFilterCoords() =>
+      _prefs.getString(_ebirdFilterCoordsKey) ?? '';
 
   Future<void> setEbirdFilterCoords(String coords) async {
     final c = coords.trim();
@@ -558,10 +652,9 @@ class StorageService {
 
   Future<void> _incrementTodayStudyCount() async {
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    final cur =
-        _prefs.getString(_studyCountDateKey) == today
-            ? (_prefs.getInt(_studyCountValueKey) ?? 0)
-            : 0;
+    final cur = _prefs.getString(_studyCountDateKey) == today
+        ? (_prefs.getInt(_studyCountValueKey) ?? 0)
+        : 0;
     await _prefs.setString(_studyCountDateKey, today);
     await _prefs.setInt(_studyCountValueKey, cur + 1);
   }

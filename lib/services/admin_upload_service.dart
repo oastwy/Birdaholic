@@ -329,6 +329,11 @@ class AdminUploadService {
     http.Client? client,
   }) : _client = client ?? http.Client();
 
+  Map<String, String> _authHeaders(String token, {bool json = false}) => {
+        'Authorization': 'Bearer ${token.trim()}',
+        if (json) 'Content-Type': 'application/json',
+      };
+
   Future<void> uploadMedia({
     required Species species,
     required String filePath,
@@ -381,7 +386,6 @@ class AdminUploadService {
       Uri.parse('$baseUrl/api/upload'),
     );
     request.headers['Authorization'] = 'Bearer $token';
-    request.fields['token'] = token;
     request.fields['sci'] = sci;
     request.fields['contributor'] = contributor;
     if (mediaType.isNotEmpty) request.fields['media_type'] = mediaType;
@@ -418,15 +422,11 @@ class AdminUploadService {
   }) async {
     final response = await _client.delete(
       Uri.parse('$baseUrl/api/admin/media'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      headers: _authHeaders(token, json: true),
       body: jsonEncode({
         'sci': sci,
         'kind': kind,
         'file': file,
-        'token': token,
       }),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -441,15 +441,15 @@ class AdminUploadService {
     int limit = 200,
   }) async {
     final params = <String, String>{
-      'token': token,
       'limit': '$limit',
       if (query.isNotEmpty) 'q': query,
       if (sci.isNotEmpty) 'sci': sci,
     };
     final uri = Uri.parse('$baseUrl/api/admin/history')
         .replace(queryParameters: params);
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(uri, headers: _authHeaders(token))
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw Exception('获取审核历史失败: ${response.statusCode} ${response.body}');
     }
@@ -496,9 +496,10 @@ class AdminUploadService {
 
   Future<WhoAmI?> whoami({required String token}) async {
     if (token.trim().isEmpty) return null;
-    final uri = Uri.parse('$baseUrl/api/whoami?token=$token');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 15));
+    final uri = Uri.parse('$baseUrl/api/whoami');
+    final response = await _client
+        .get(uri, headers: _authHeaders(token))
+        .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) return null;
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return WhoAmI(
@@ -510,9 +511,10 @@ class AdminUploadService {
 
   Future<UploadStats?> fetchStats({required String token}) async {
     if (token.trim().isEmpty) return null;
-    final uri = Uri.parse('$baseUrl/api/upload_stats?token=$token');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 15));
+    final uri = Uri.parse('$baseUrl/api/upload_stats');
+    final response = await _client
+        .get(uri, headers: _authHeaders(token))
+        .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) return null;
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return UploadStats(
@@ -571,9 +573,10 @@ class AdminUploadService {
   }
 
   Future<List<PendingMediaItem>> fetchPending({required String token}) async {
-    final uri = Uri.parse('$baseUrl/api/admin/pending?token=$token');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 30));
+    final uri = Uri.parse('$baseUrl/api/admin/pending');
+    final response = await _client
+        .get(uri, headers: _authHeaders(token))
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw Exception('获取审核队列失败: ${response.statusCode} ${response.body}');
     }
@@ -609,11 +612,8 @@ class AdminUploadService {
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/admin/approve'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({'sci': sci, 'file': file, 'token': token, 'pin': pin}),
+      headers: _authHeaders(token, json: true),
+      body: jsonEncode({'sci': sci, 'file': file, 'pin': pin}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('审批失败: ${response.statusCode} ${response.body}');
@@ -627,11 +627,8 @@ class AdminUploadService {
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/admin/reject'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({'sci': sci, 'file': file, 'token': token}),
+      headers: _authHeaders(token, json: true),
+      body: jsonEncode({'sci': sci, 'file': file}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('拒绝失败: ${response.statusCode} ${response.body}');
@@ -645,11 +642,8 @@ class AdminUploadService {
     required String token,
   }) async {
     final response = await _client.delete(
-      Uri.parse('$baseUrl/api/admin/media?token=$token'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      Uri.parse('$baseUrl/api/admin/media'),
+      headers: _authHeaders(token, json: true),
       body: jsonEncode({
         'sci': sci,
         'file': file,
@@ -664,10 +658,12 @@ class AdminUploadService {
   Future<List<Map<String, dynamic>>> fetchRateQueue({
     required String token,
   }) async {
-    final response = await _client.get(
-      Uri.parse('$baseUrl/api/admin/rate/queue?token=$token'),
-      headers: {'Authorization': 'Bearer $token'},
-    ).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(
+          Uri.parse('$baseUrl/api/admin/rate/queue'),
+          headers: _authHeaders(token),
+        )
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('评级队列加载失败: ${response.statusCode} ${response.body}');
     }
@@ -682,9 +678,10 @@ class AdminUploadService {
   Future<List<AdminTokenRequest>> fetchTokenRequests({
     required String token,
   }) async {
-    final uri = Uri.parse('$baseUrl/api/admin/token_requests?token=$token');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 15));
+    final uri = Uri.parse('$baseUrl/api/admin/token_requests');
+    final response = await _client
+        .get(uri, headers: _authHeaders(token))
+        .timeout(const Duration(seconds: 15));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('获取申请列表失败: ${response.statusCode} ${response.body}');
     }
@@ -740,9 +737,10 @@ class AdminUploadService {
   // ── 用户管理（仅 admin） ────────────────────────────────
 
   Future<List<UploadUser>> listUsers({required String token}) async {
-    final uri = Uri.parse('$baseUrl/api/admin/users?token=$token');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 15));
+    final uri = Uri.parse('$baseUrl/api/admin/users');
+    final response = await _client
+        .get(uri, headers: _authHeaders(token))
+        .timeout(const Duration(seconds: 15));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('获取用户列表失败: ${response.statusCode} ${response.body}');
     }
@@ -773,11 +771,8 @@ class AdminUploadService {
       body['token'] = customToken.trim();
     }
     final response = await _client.post(
-      Uri.parse('$baseUrl/api/admin/users?token=$token'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      Uri.parse('$baseUrl/api/admin/users'),
+      headers: _authHeaders(token, json: true),
       body: jsonEncode(body),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -815,11 +810,8 @@ class AdminUploadService {
     }
     body.addAll(context);
     final response = await _client.post(
-      Uri.parse('$baseUrl/api/feedback?token=$token'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      Uri.parse('$baseUrl/api/feedback'),
+      headers: _authHeaders(token, json: true),
       body: jsonEncode(body),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -830,7 +822,10 @@ class AdminUploadService {
   Future<List<AdminFeedbackEntry>> fetchAdminFeedback(
       {required String token}) async {
     final response = await _client
-        .get(Uri.parse('$baseUrl/api/admin/feedback?token=$token'))
+        .get(
+          Uri.parse('$baseUrl/api/admin/feedback'),
+          headers: _authHeaders(token),
+        )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('获取反馈失败: ${response.statusCode} ${response.body}');
@@ -847,15 +842,12 @@ class AdminUploadService {
     String clientId = '',
   }) async {
     final query = <String, String>{};
-    if (token.trim().isNotEmpty) query['token'] = token.trim();
     if (clientId.trim().isNotEmpty) query['client_id'] = clientId.trim();
     final response = await _client
         .get(
           Uri.parse('$baseUrl/api/feedback/replies')
               .replace(queryParameters: query),
-          headers: token.trim().isEmpty
-              ? const {}
-              : {'Authorization': 'Bearer ${token.trim()}'},
+          headers: token.trim().isEmpty ? const {} : _authHeaders(token),
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -887,11 +879,8 @@ class AdminUploadService {
     required String id,
   }) async {
     final response = await _client.post(
-      Uri.parse('$baseUrl/api/admin/feedback/resolve?token=$token'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      Uri.parse('$baseUrl/api/admin/feedback/resolve'),
+      headers: _authHeaders(token, json: true),
       body: jsonEncode({'id': id}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -904,11 +893,8 @@ class AdminUploadService {
     required String targetToken,
   }) async {
     final response = await _client.delete(
-      Uri.parse('$baseUrl/api/admin/users?token=$token'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      Uri.parse('$baseUrl/api/admin/users'),
+      headers: _authHeaders(token, json: true),
       body: jsonEncode({'token': targetToken}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -967,8 +953,8 @@ class AdminUploadService {
   Future<List<Map<String, dynamic>>> fetchPendingRatings({
     required String token,
   }) async {
-    final uri = Uri.parse('$baseUrl/api/admin/rate/pending?token=$token');
-    final response = await _client.get(uri);
+    final uri = Uri.parse('$baseUrl/api/admin/rate/pending');
+    final response = await _client.get(uri, headers: _authHeaders(token));
     if (response.statusCode != 200) {
       throw Exception('待审评级加载失败: ${response.statusCode}');
     }

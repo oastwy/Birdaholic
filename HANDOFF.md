@@ -1,5 +1,48 @@
 # Birdaholic / 鸟瘾综合征 Handoff
 
+## 2026-08-27 App v1.7.9+95 数据包边界测试版（Codex，已发布独立测试链接）
+- **本次只做第一阶段**：新增深模块 `PackSnapshot`，进入闪卡时一次读取当前激活包的物种和文件索引；闪卡的图片、音频、频谱图此后只在所属包内解析，不再因当前包缺文件而串用其他已启用包的同名媒体，也不再为每条媒体反复读取 SharedPreferences 和扫描已启用包。
+- **兼容语义**：有激活包时严格单包；没有激活包时保留原来的合并加载兼容路径。没有顺带拆 `DeckBuilder` 或改 `SpeciesKey`，后两阶段仍按触发条件推进。
+- **回归测试**：新增 `test/pack_snapshot_test.dart` 两条测试，覆盖“两包存在同名/仅另一包存在的媒体时不串包”和“缺失/越界路径不解析”。全量 **32 条测试通过**；整 App analyze 仅有既存 `lib/screens/home_screen 2.dart` 文件名 info，无新增问题。
+- **Android 测试包**：`1.7.9+95`，arm64-only，64,007,520 bytes；SHA-256 `84f282ed08116bd330e5a4339f20f5aef0865e49bbe651dbcf600b3f538f06ac`。测试下载：`https://birding.today/birdaholic/Birdaholic_v1.7.9_test_android_arm64.apk`；公网 200、服务器哈希与本地一致。
+- **未向普通用户推送**：线上正式 `version.json` 仍广播 `1.7.8+94`，正式下载页未改。测试重点：在包管理里切换两个数据包后进入闪卡，确认题目、图片、声音和频谱图均来自当前包；切回另一包后无旧包媒体残留。通过人工冒烟后再决定是否把同一 APK 提升为正式 OTA。
+- **真机冒烟（vivo V2366GA，2026-08-27，通过）**：从 `1.7.8+94` 原地升级到 `1.7.9+95`，原有挪威包和学习记录正常保留。构造并导入 A/B 两个独立小包：二者都引用 `images/shared.jpg`，但 A=黑鹇、署名 `Codex device fixture A`，B=白鹇、署名 `Codex device fixture B`。B 主包进入图片闪卡显示白鹇+B 署名；切 A 后立即显示黑鹇+A 署名——**同路径媒体未串包**。最终已恢复测试前的“挪威 / 不熟悉 / 49 张”状态。手机中仍留两个 `Codex 媒体边界 A/B` 测试包及下载目录 ZIP；如要删除，须用户明确授权（App 删除为不可恢复操作）。
+
+## 2026-08-27 App 软件设计哲学审查（Codex，结论/未改代码）
+- **Hard verdict**：客户端当前没有需要推倒重写的致命结构问题。定向 `flutter analyze --no-pub` 无问题，全量 30 条测试通过。长期不追求“现代架构”，只保护三个真正的复杂度边界：数据包归属、牌组生成规则、鸟种身份。
+- **第一优先级：数据包边界**。现在闪卡只读当前包的 `species.json`，但 `getResourcePath()` 在当前包找不到媒体时会继续搜索其他已启用包，可能串用同名图片/音频与署名。下次改这条线时引入一个真正的深模块 `PackSnapshot`：一次读取包目录与物种，由 `snapshot.resolveMedia(relativePath)` 严格在所属包内解析；同时消除闪卡启动时逐物种、逐媒体反复读 SharedPreferences/目录的扫描放大。
+- **第二优先级：纯牌组引擎**。`flashcard_screen.dart` 约 3970 行本身不是罪，真问题是 `_buildDeck()` 集中了筛选、排序、进度与媒体可用性知识，被十余条 UI 路径触发。下次实质修改闪卡规则时，只抽出纯 Dart `DeckBuilder.build(species, setup, progress, availableMedia)`；它不管 `setState`、导航、网络、音频或上传。每个筛选/排序规则补行为测试，不为了行数拆 Widget。
+- **第三优先级：鸟种身份渐进收口**。学习记录/收藏不应长期以可变的中文显示名作权威 key，但现在不造宏大 `speciesId` 系统。等下次修改收藏/进度时，先建单一 `SpeciesKey`/异名规范化模块，用规范学名+现有 taxonomy synonyms 做权威归并；旧中文名 key 兼容读、新 key 写入，有真实多名录压力后再决定是否需要永久 ID。
+- **明确不做**：不全 App 迁移 Riverpod/BLoC，不全面拆 `PackManager`，不先做完整 API 版本协商、云端学习同步或网络服务依赖注入。只在真实变化频率和故障证据出现时建边界，避免浅封装和推测性复杂度。
+- **触发顺序**：现在若只做一件事，就做 `PackSnapshot` + “两包同名媒体不串包”回归测试；下次改牌组规则再抽 `DeckBuilder`；下次改用户记录再引入 `SpeciesKey`。其余保持现状。
+
+## 2026-08-21 闪卡筛选记忆 + 进度反馈（Codex，已发布 OTA v1.7.8+94）
+- 根因：原先只持久化「范围」，`startSession()` 每次进入都把学习/测试、题型、音频/图片、难度和顺序重置为默认值。
+- 已改：用 SharedPreferences JSON 记住整套闪卡配置，点「开始」后下次进入完整恢复；旧版只有范围的用户仍能平滑迁移，损坏设置安全回退。动态「可能性」排序会在恢复时静默刷新 eBird 近期观测。
+- 筛选页顶部新增「今日打卡进度 N / 目标 M 张」进度条，达标后显示完成反馈。定向 analyze 无问题；新增 2 条持久化回归测试，项目指定 Flutter SDK 下全过。
+
+## 2026-08-21 整 App 对抗审查高风险修复（Codex，已发布 OTA v1.7.8+94）
+- **用户导入数据包**：新 `DataPackSafety` 拒绝 ZIP Slip 路径、符号链接、异常包名、重复/过多/过大的条目；普通和分包导入均先解到随机 staging 目录并校验 `manifest.json`/`species.json`，成功后才替换旧包。坏包或中断不会再提前删除原有数据包。
+- **令牌与 API Key**：Android/iOS 启动时把旧的 SharedPreferences 明文凭证迁到 `flutter_secure_storage`（Android Keystore / iOS 本机 Keychain），并清除旧明文；Android `allowBackup=false`。项目仍保持 Android API 21。**鸿蒙尚无该插件实现，当前保留原 SharedPreferences 回退；若要在鸿蒙启用管理员令牌，需补鸿蒙安全存储实现。**
+- **网络认证**：`AdminUploadService` 的管理令牌从查询参数和 JSON body 移到 `Authorization: Bearer`，服务端现有 header 鉴权已兼容，避免 URL、代理日志和浏览历史泄露令牌。
+- **应用内更新**：仅对 `https://birding.today/*.apk` 且带 64 位 SHA-256 的版本 JSON 启用一键安装；下载完成前校验哈希，不匹配会删除临时 APK。`scripts/release.sh` 已提示写入 `sha256`。**下次发布服务器 `version.json` 必须有 `sha256` 字段，否则 App 安全降级为手动下载页。**
+- **状态回归**：自定义复习/鸟单不再覆盖常用打卡筛选；重新进入已保存的「可能性」顺序会重新取 eBird 排名。
+- **验证**：鸿蒙工具链全量 `flutter test --no-pub` 30 条通过；全量 `flutter analyze --no-pub` 仅剩已有 `lib/screens/home_screen 2.dart` 文件名 info。依赖锁文件已以 Dart 3.6 的鸿蒙工具链解析，未破坏多端开发态。
+- **发布回验**：Android APK `Birdaholic_v1.7.8_android_arm64.apk`（versionCode 94 / versionName 1.7.8，61 MB）已上传至 `https://birding.today/birdaholic/`；线上 `version.json` 和服务器文件均回验 SHA-256 `2d3d813d5a549972f7c9adb5ea16fe479f59be813a57252d282e036bd6c2a27e`。本地已恢复鸿蒙开发态。
+
+## 2026-07-20 媒体库名录与中国选择题待办（Codex）
+- **媒体库搜索的真实数据源**：App 管理端 `ServerMediaManagerSection` 只读取安装包内的 `assets/data/world_birds.json`，不调用服务器 `/api/search`。因此服务器虽已有 `Emberiza yunnanensis` 的媒体（西南灰眉岩鹀），但 App 内置名录缺该物种时仍无法搜索。服务器 `/api/search` 已补“媒体存在但 `world_birds.json` 缺失”的兜底并部署、`birdaholic-upload` 已重启；**要让 App 媒体库可搜，仍须把该物种补进 App 的 `assets/data/world_birds.json`，重新打包发版。**
+- **中国鸟选择题重复同一图片**：`assets/data/china_quiz_bank.json` 当前每种仅 1 题、1 个 `image_url`（1460 种=1460 题）；生成器 `packager/build_china_quiz_bank.py` 从每种 manifest 固定挑一张最低难度代表图。因此服务器有多张图也不会轮换。下次改为每种保留所有可用图 URL，开局时随机选一张，仍维持“每种一题”以免多图物种被过度抽中；需重建题库并随 App 发版。
+
+## 2026-07-11 内置更新慢/失败诊断 + 安卓按 ABI 拆包（Claude）
+- **断点续传（Codex，2026-07-11）**：新增 `lib/services/resumable_apk_downloader.dart`，一键更新中断/取消后保留按版本隔离的 `.part` 文件；重试会带 `Range` 请求从已下载字节继续。服务端忽略 Range 时安全丢弃旧片段、复用完整响应从零开始，避免拼出损坏 APK。`test/resumable_apk_downloader_test.dart` 覆盖 Range 续传与 Range 被忽略两种路径，均通过；相关静态分析无问题。**`1.7.7+93` arm64-only APK（63.3MB，SHA-256 `efaa72bb9c6108474cfff8cad3d8b8d940ae5fd0d9b155f32f3580b9c45a0879`）已发布到国内 OTA；公网确认 APK 支持 `Accept-Ranges: bytes`，`version.json` 与下载页均已切至 1.7.7。未推送代码、未创建 GitHub Release。**
+- **Git 恢复（Codex，2026-07-11）**：同步残留的 `refs/heads/main.lock` 实为完整的 `36d29a8 Release Birdaholic 1.7.5`；已先备份 `.git` 到 `.git.pre_ref_recovery_20260711_104850`，再恢复为 `refs/heads/main`。`git fsck --full` 通过；本节涉及的 `HANDOFF.md`、`scripts/build_android.sh`、`scripts/release.sh`、`lib/widgets/update_download_dialog.dart` 仍是未暂存修改，尚未提交。
+- **用户报"内置更新老是失败、很慢"。诊断结论：瓶颈在下载源服务器带宽，非客户端代码。** `app_update_service.dart` 版本检查逻辑正常；真正下载在 `update_download_dialog.dart`，从 `birding.today` 拉 **71.9MB** 整包 apk。实测（Mac 网络良好）稳定速度仅 **~495 KB/s ≈ 4Mbps**——正是腾讯云轻量应用服务器（124.223.101.188）的固定出口带宽上限，且被 API/媒体库/多用户共享。整包要下 ~2.5 分钟。叠加客户端 `receiveTimeout:30s`（带宽打满时连接停顿超 30s 即判 receiveTimeout 失败）、`Dio().download` 无断点续传（中途断/切后台/锁屏 → `deleteOnError` 从 0 重下）→ 慢 + 高失败率。
+- **已做：安卓仅产 arm64 包（无客户端代码改动、纯打包脚本）。** `android/app/build.gradle` 的 `ndk.abiFilters` 限为 `arm64-v8a`，`scripts/build_android.sh` 使用普通 `flutter build apk --release`，避免 `--split-per-abi` 与 Gradle 过滤冲突。产物 `Birdaholic_v<ver>_android_arm64.apk` 预期约 25MB，覆盖绝大多数现代真机；不再提供 armv7/x86_64 包。
+  - `scripts/release.sh` 发布清单已同步更新：国内 version.json 与 download.html 都指向 arm64 包，GitHub release 仅给存量老用户 bootstrap。**2026-07-11 已发布 `1.7.6+92` arm64-only APK（63.3MB，SHA-256 `c7f097076028d226dcb480f12ada2ab95db4a7dbc77906a4ae2f07a8f7f11b5f`）到国内 OTA；`version.json`、下载页和 APK 均已从公网复核。未推送代码、未创建 GitHub Release。**
+- **已做：一键更新失败态加「手动下载」按钮**（`update_download_dialog.dart`）。原来失败只有「关闭/重试」、文案提「改用浏览器」却无入口；现失败态多一个「手动下载」按钮直接 `launchUrl(downloadUrl)` 跳下载页（`_openDownloadPage`，已 try/catch），三处失败文案统一成「点"手动下载"去下载页装」。analyze 干净，随下次发版生效。
+- **待用户定/未做**：① 挂国内 CDN/对象存储（腾讯云 COS ~0.5元/GB 下行 / COS+CDN ~0.2元/GB / 七牛 10GB/月免费）根治源站 4Mbps 带宽——一行 version.json url 的事，其余全白干，用户在纠结 COS 流量费，倾向先拆包看效果。② 客户端断点续传（dio Range 续传）+ `receiveTimeout` 放宽到 60s（第二稳妥补充，未做）。③ 若真有 32 位用户反馈一键装不上，再加 ABI 检测精细分发（客户端读 `Build.SUPPORTED_ABIS`，version.json 提供各架构 url map）。
+
 ## 2026-07-09 审核入口与逐种评级体验修正（Codex）
 - 先在服务器修正 `Ianthocincla rufogularis` 中文名：`/data/server/china_birds.json`、`/data/server/china_quiz_bank.json` 中“棕颈噪鹛”→“棕颏噪鹛”，同目录已留 `.bak_*_rufogularis_name` 备份。App 仓库内置 `assets/data/china_birds*` 与 `china_quiz_bank.json` 已同步修正，已随 1.7.5 安卓 OTA 打包发布。
 - 普通用户功能：闪卡题型新增“输入题”（与判断题/选择题并列），支持输入中文名、英文名、学名或拼音首字母；提交后按已有掌握度逻辑记录对错并自动下一题。
@@ -53,9 +96,9 @@
 - **确认：（当时）没有真正的 OTA 一键装**——`app_update_service.dart` 只是查 GitHub Releases API / 抓 `download.html` 拿版本号，`_openUrl` 打开的是下载页链接，不像 kacui 那样用插件直接下载+拉起安装器。**已在上面那条做成一键装**。
 - **已修复**：`progress_screen.dart` 首页更新横幅——① 原来"已是最新版本"文案在无更新时**每次都渲染**、"关闭"只是内存态 `_updateBannerDismissed`(setState 布尔，不落盘)，重启 App 就复位重新出现；② 现改成**没有新版本时整个横幅直接不渲染**（`_updateBanner()` 返回 `null`），只有真有新版本才出条；③ 新版本横幅本身加了持久化「忽略此版本」（`storage.dart` 新增 `dismissedUpdateVersion`/`dismissUpdateVersion`，走 SharedPreferences），点了不会在同一版本上反复烦你，出新版本号了才会再提示。`flutter analyze` 两个改动文件 No issues。（已随 v1.7.2+88 打包，见顶部。）
 
-最后更新：2026-07-09
+最后更新：2026-08-21
 项目路径：`/Users/wuyang/Documents/bird_flashcard_repo`  
-当前 App 版本：**`1.7.5+91`**（2026-07-09 已通过国内服务器 OTA 发布安卓 apk，见顶部 2026-07-09 条）。内容＝输入鸟名题型 + 棕颏噪鹛名录修正 + 审核/逐种评级体验修正 + 之前 1.7.2/1.7.4 的 OTA/SRS/首页更新。
+当前 App / 线上 OTA 版本：**`1.7.8+94`**（2026-08-21 已发布 `Birdaholic_v1.7.8_android_arm64.apk`，SHA-256 `2d3d813d5a549972f7c9adb5ea16fe479f59be813a57252d282e036bd6c2a27e`）。未推送代码、未创建 GitHub Release；包含筛选记忆/打卡进度、数据包导入安全、凭证保护与 OTA 哈希校验。
 上一发布版：**`1.7.1+87`**（2026-06-28 发布·仅安卓，隐私政策升 v1.2 + 装机/活跃统计）：
 - 安卓 `releases/Birdaholic_v1.7.1_android.apk`（vc87，71.7MB）→ **已 commit/push main + GitHub Release v1.7.1（挂 APK，Latest）+ birding.today download.html（deploy.sh 自动注入）**。
 - 鸿蒙 / iOS 1.7.1 **本版跳过**（用户决定，2026-06-28；要补时鸿蒙 `scripts/build_harmony.sh` vc87>86 满足 AGC、上传 AGC 需**同步隐私政策文本**＝合规 ④，iOS `scripts/build_ios.sh` 准备后 Xcode archive）。

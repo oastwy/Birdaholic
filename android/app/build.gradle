@@ -25,7 +25,7 @@ if (flutterVersionName == null) {
 android {
     namespace "com.birdflash.bird_flashcard"
     compileSdk 35
-    ndkVersion "26.3.11579264"
+    ndkVersion "27.0.12077973"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -44,9 +44,9 @@ android {
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
-        // 只保留真机架构（去掉模拟器才用的 x86/x86_64，APK 直接小一截）
+        // 仅发布 arm64-v8a 真机包；不用 --split-per-abi，避免生成不需要的 ABI 包。
         ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a'
+            abiFilters 'arm64-v8a'
         }
     }
 

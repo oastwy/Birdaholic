@@ -13,6 +13,8 @@ import '../models/data_pack.dart';
 import 'order_taxonomy.dart';
 import '../models/species.dart';
 import 'download_cancel.dart';
+import 'data_pack_safety.dart';
+import 'pack_snapshot.dart';
 import 'server_media_service.dart';
 
 /// 内置数据包描述
@@ -74,6 +76,96 @@ class PackManager {
 
   /// 服务器整包下载已下线，避免弱网大文件失败；请使用逐物种下载。
   static const List<RemotePackInfo> remotePacks = [];
+
+  static Archive _decodeUserArchive(Uint8List bytes) {
+    if (bytes.lengthInBytes > DataPackSafety.maxInputBytes) {
+      throw const FormatException('数据包压缩文件过大');
+    }
+    final archive = ZipDecoder().decodeBytes(bytes);
+    DataPackSafety.archiveEntries(archive);
+    return archive;
+  }
+
+  static Future<Archive> _readUserArchive(String zipPath) async {
+    final source = File(zipPath);
+    if (!await source.exists()) throw Exception('数据包文件不存在');
+    if (await source.length() > DataPackSafety.maxInputBytes) {
+      throw const FormatException('数据包压缩文件过大');
+    }
+    return _decodeUserArchive(await source.readAsBytes());
+  }
+
+  static Future<void> _extractUserArchive(
+    Archive archive,
+    String stagingPath, {
+    Set<String> skip = const {},
+  }) async {
+    for (final entry in DataPackSafety.archiveEntries(archive)) {
+      if (skip.contains(entry.relativePath)) continue;
+      final bytes = entry.file.readBytes();
+      if (bytes == null) throw const FormatException('数据包文件无法读取');
+      final destination = File('$stagingPath/${entry.relativePath}');
+      await destination.parent.create(recursive: true);
+      await destination.writeAsBytes(bytes, flush: true);
+      entry.file.clear();
+    }
+  }
+
+  static Future<Map<String, dynamic>> _validateStagedPack(
+      String stagingPath) async {
+    final manifestFile = File('$stagingPath/manifest.json');
+    final speciesFile = File('$stagingPath/species.json');
+    if (!await manifestFile.exists() || !await speciesFile.exists()) {
+      throw const FormatException('数据包缺少 manifest.json 或 species.json');
+    }
+    final manifest = jsonDecode(await manifestFile.readAsString());
+    final species = jsonDecode(await speciesFile.readAsString());
+    if (manifest is! Map ||
+        species is! List ||
+        species.any((entry) => entry is! Map)) {
+      throw const FormatException('数据包清单格式无效');
+    }
+    return Map<String, dynamic>.from(manifest);
+  }
+
+  static String _newStagingPath(String packsRoot, String packName) {
+    final nonce = Random.secure().nextInt(1 << 32).toRadixString(16);
+    return '$packsRoot/.$packName.installing-$nonce';
+  }
+
+  /// Replaces a completed staging directory while retaining the old pack until
+  /// the new directory is ready. A failed rename restores the previous pack.
+  static Future<void> _commitStagingDirectory(
+    Directory staging,
+    String targetPath,
+  ) async {
+    final target = Directory(targetPath);
+    final backup = Directory('$targetPath.backup');
+    if (await backup.exists()) {
+      if (!await target.exists()) {
+        await backup.rename(target.path);
+      } else {
+        await backup.delete(recursive: true);
+      }
+    }
+
+    var movedOldPack = false;
+    if (await target.exists()) {
+      await target.rename(backup.path);
+      movedOldPack = true;
+    }
+    try {
+      await staging.rename(target.path);
+    } catch (_) {
+      if (movedOldPack && await backup.exists() && !await target.exists()) {
+        await backup.rename(target.path);
+      }
+      rethrow;
+    }
+    if (movedOldPack && await backup.exists()) {
+      await backup.delete(recursive: true);
+    }
+  }
 
   /// 获取当前激活的数据包目录
   Future<String?> getActivePackDir() async {
@@ -642,37 +734,33 @@ class PackManager {
 
   /// 导入 ZIP 数据包（传入文件路径）
   Future<DataPack> importPack(String zipPath) async {
-    final zipData = await File(zipPath).readAsBytes();
-    final archive = ZipDecoder().decodeBytes(zipData);
+    final archive = await _readUserArchive(zipPath);
+    final packName = DataPackSafety.packName(zipPath.split('/').last);
+    return _installImportedArchive(archive, packName);
+  }
 
-    final packName = zipPath.split('/').last.replaceAll('.zip', '');
+  Future<DataPack> _installImportedArchive(
+    Archive archive,
+    String packName,
+  ) async {
     final docDir = await getApplicationDocumentsDirectory();
     final packDir = '${docDir.path}/packs/$packName';
+    final packsRoot = Directory('${docDir.path}/packs');
+    await packsRoot.create(recursive: true);
+    final staging = Directory(_newStagingPath(packsRoot.path, packName));
 
-    // 清理旧目录
-    final dir = Directory(packDir);
-    if (await dir.exists()) await dir.delete(recursive: true);
-    await dir.create(recursive: true);
-
-    // 解压
-    for (final file in archive) {
-      if (!file.isFile) continue;
-      final filePath = '$packDir/${file.name}';
-      final f = File(filePath);
-      await f.parent.create(recursive: true);
-      await f.writeAsBytes(file.content as List<int>);
+    try {
+      await staging.create(recursive: true);
+      await _extractUserArchive(archive, staging.path);
+      final manifestJson = await _validateStagedPack(staging.path);
+      await _commitStagingDirectory(staging, packDir);
+      await prefsSetBuiltinFlagFalse();
+      await setActivePack(packDir);
+      return DataPack.fromJson(manifestJson, packDir);
+    } catch (_) {
+      if (await staging.exists()) await staging.delete(recursive: true);
+      rethrow;
     }
-
-    // 读取 manifest
-    final manifestFile = File('$packDir/manifest.json');
-    if (!await manifestFile.exists()) throw Exception('数据包缺少 manifest.json');
-
-    final manifestJson =
-        jsonDecode(await manifestFile.readAsString()) as Map<String, dynamic>;
-
-    await prefsSetBuiltinFlagFalse();
-    await setActivePack(packDir);
-    return DataPack.fromJson(manifestJson, packDir);
   }
 
   /// 导入多个分包 ZIP 并合并为完整数据包
@@ -698,8 +786,7 @@ class PackManager {
 
     for (var i = 0; i < zipPaths.length; i++) {
       final path = zipPaths[i];
-      final bytes = await File(path).readAsBytes();
-      final archive = ZipDecoder().decodeBytes(bytes);
+      final archive = await _readUserArchive(path);
       final manifestEntry = archive.findFile('manifest.json');
       if (manifestEntry == null) {
         throw Exception('${path.split('/').last} 缺少 manifest.json');
@@ -717,6 +804,9 @@ class PackManager {
           '${path.split('/').last} 不是分包文件\n'
           '（缺少 part / part_count / split_from 字段，请使用 split_data_pack.py 重新切片）',
         );
+      }
+      if (part < 1 || partCount < 1 || part > partCount || partCount > 1000) {
+        throw Exception('${path.split('/').last} 的分包编号无效');
       }
 
       splitFrom ??= from;
@@ -757,97 +847,102 @@ class PackManager {
     }
 
     // Step 3: prepare staging directory
-    final packName =
-        splitFrom!.replaceAll(RegExp(r'\.zip$', caseSensitive: false), '');
+    final packName = DataPackSafety.packName(splitFrom!);
     final docDir = await getApplicationDocumentsDirectory();
     final packDir = '${docDir.path}/packs/$packName';
-    final stagingPath = '${docDir.path}/packs/${packName}_installing';
+    final packsRoot = Directory('${docDir.path}/packs');
+    await packsRoot.create(recursive: true);
+    final stagingPath = _newStagingPath(packsRoot.path, packName);
 
     final staging = Directory(stagingPath);
-    if (await staging.exists()) {
-      await staging.delete(recursive: true);
-    }
     await staging.create(recursive: true);
 
-    // Step 4: extract all parts (skip part-specific manifest/species.json)
-    final allSpecies = <Map<String, dynamic>>[];
-    var totalAudio = 0;
-    var totalImage = 0;
-    String? region;
-    String? version;
-    String? source;
+    try {
+      // Step 4: extract all parts (skip part-specific manifest/species.json)
+      final allSpecies = <Map<String, dynamic>>[];
+      var totalAudio = 0;
+      var totalImage = 0;
+      String? region;
+      String? version;
+      String? source;
+      final extractedPaths = <String>{};
 
-    for (var i = 0; i < partInfos.length; i++) {
-      final info = partInfos[i];
-      onProgress?.call(
-        i + 1,
-        partInfos.length,
-        '解压分包 ${info.part}/$expectedPartCount',
+      for (var i = 0; i < partInfos.length; i++) {
+        final info = partInfos[i];
+        onProgress?.call(
+          i + 1,
+          partInfos.length,
+          '解压分包 ${info.part}/$expectedPartCount',
+        );
+
+        for (final entry in DataPackSafety.archiveEntries(info.archive)) {
+          final name = entry.relativePath;
+          if (name == 'manifest.json' || name == 'species.json') continue;
+          if (!extractedPaths.add(name)) {
+            throw const FormatException('分包包含重复文件');
+          }
+          final dest = File('$stagingPath/$name');
+          await dest.parent.create(recursive: true);
+          final bytes = entry.file.readBytes();
+          if (bytes == null) throw const FormatException('数据包文件无法读取');
+          await dest.writeAsBytes(bytes, flush: true);
+          entry.file.clear();
+        }
+
+        final speciesEntry = info.archive.findFile('species.json');
+        if (speciesEntry != null) {
+          final list = jsonDecode(
+            utf8.decode(speciesEntry.content as List<int>),
+          ) as List<dynamic>;
+          for (final row in list) {
+            allSpecies.add(Map<String, dynamic>.from(row as Map));
+          }
+        }
+
+        region ??= info.manifest['region'] as String?;
+        version ??= info.manifest['version'] as String?;
+        source ??= info.manifest['source'] as String?;
+        totalAudio += (info.manifest['audio_count'] as int?) ?? 0;
+        totalImage += (info.manifest['image_count'] as int?) ?? 0;
+      }
+
+      // Step 5: write merged manifest + species.json
+      onProgress?.call(partInfos.length, partInfos.length, '合并清单');
+      await File('$stagingPath/species.json').writeAsString(
+        const JsonEncoder.withIndent('  ').convert(allSpecies),
+      );
+      final mergedManifest = <String, dynamic>{
+        'name': packName,
+        if (region != null && region.isNotEmpty) 'region': region,
+        if (version != null && version.isNotEmpty) 'version': version,
+        'created': DateTime.now().toIso8601String().split('T').first,
+        'species_count': allSpecies.length,
+        'audio_count': totalAudio,
+        'image_count': totalImage,
+        if (source != null && source.isNotEmpty) 'source': source,
+        'merged_from_parts': expectedPartCount,
+      };
+      await File('$stagingPath/manifest.json').writeAsString(
+        const JsonEncoder.withIndent('  ').convert(mergedManifest),
       );
 
-      for (final file in info.archive) {
-        if (!file.isFile) continue;
-        final name = file.name;
-        if (name == 'manifest.json' || name == 'species.json') continue;
-        final dest = File('$stagingPath/$name');
-        await dest.parent.create(recursive: true);
-        await dest.writeAsBytes(file.content as List<int>);
-      }
+      // Step 6: replace + activate only after every part has been validated.
+      await _validateStagedPack(stagingPath);
+      await _commitStagingDirectory(staging, packDir);
 
-      final speciesEntry = info.archive.findFile('species.json');
-      if (speciesEntry != null) {
-        final list = jsonDecode(
-          utf8.decode(speciesEntry.content as List<int>),
-        ) as List<dynamic>;
-        for (final row in list) {
-          allSpecies.add(Map<String, dynamic>.from(row as Map));
-        }
-      }
-
-      region ??= info.manifest['region'] as String?;
-      version ??= info.manifest['version'] as String?;
-      source ??= info.manifest['source'] as String?;
-      totalAudio += (info.manifest['audio_count'] as int?) ?? 0;
-      totalImage += (info.manifest['image_count'] as int?) ?? 0;
+      await prefsSetBuiltinFlagFalse();
+      await setActivePack(packDir);
+      return DataPack.fromJson(mergedManifest, packDir);
+    } catch (_) {
+      if (await staging.exists()) await staging.delete(recursive: true);
+      rethrow;
     }
-
-    // Step 5: write merged manifest + species.json
-    onProgress?.call(partInfos.length, partInfos.length, '合并清单');
-    await File('$stagingPath/species.json').writeAsString(
-      const JsonEncoder.withIndent('  ').convert(allSpecies),
-    );
-    final mergedManifest = <String, dynamic>{
-      'name': packName,
-      if (region != null && region.isNotEmpty) 'region': region,
-      if (version != null && version.isNotEmpty) 'version': version,
-      'created': DateTime.now().toIso8601String().split('T').first,
-      'species_count': allSpecies.length,
-      'audio_count': totalAudio,
-      'image_count': totalImage,
-      if (source != null && source.isNotEmpty) 'source': source,
-      'merged_from_parts': expectedPartCount,
-    };
-    await File('$stagingPath/manifest.json').writeAsString(
-      const JsonEncoder.withIndent('  ').convert(mergedManifest),
-    );
-
-    // Step 6: atomic replace + activate
-    final oldDir = Directory(packDir);
-    if (await oldDir.exists()) {
-      await oldDir.delete(recursive: true);
-    }
-    await staging.rename(packDir);
-
-    await prefsSetBuiltinFlagFalse();
-    await setActivePack(packDir);
-    return DataPack.fromJson(mergedManifest, packDir);
   }
 
   /// 检查一组 ZIP 是否为分包（仅看第一个文件的 manifest）
   Future<bool> isPartArchive(String zipPath) async {
     try {
-      final bytes = await File(zipPath).readAsBytes();
-      final archive = ZipDecoder().decodeBytes(bytes);
+      final archive = await _readUserArchive(zipPath);
       final manifestEntry = archive.findFile('manifest.json');
       if (manifestEntry == null) return false;
       final manifest = jsonDecode(
@@ -862,31 +957,9 @@ class PackManager {
   /// 导入 ZIP 数据包（传入字节数据）
   Future<DataPack> importPackFromBytes(
       Uint8List zipBytes, String zipName) async {
-    final archive = ZipDecoder().decodeBytes(zipBytes);
-    final packName = zipName.replaceAll('.zip', '');
-    final docDir = await getApplicationDocumentsDirectory();
-    final packDir = '${docDir.path}/packs/$packName';
-
-    final dir = Directory(packDir);
-    if (await dir.exists()) await dir.delete(recursive: true);
-    await dir.create(recursive: true);
-
-    for (final file in archive) {
-      if (!file.isFile) continue;
-      final filePath = '$packDir/${file.name}';
-      final f = File(filePath);
-      await f.parent.create(recursive: true);
-      await f.writeAsBytes(file.content as List<int>);
-    }
-
-    final manifestFile = File('$packDir/manifest.json');
-    if (!await manifestFile.exists()) throw Exception('数据包缺少 manifest.json');
-
-    final manifestJson =
-        jsonDecode(await manifestFile.readAsString()) as Map<String, dynamic>;
-    await prefsSetBuiltinFlagFalse();
-    await setActivePack(packDir);
-    return DataPack.fromJson(manifestJson, packDir);
+    final archive = _decodeUserArchive(zipBytes);
+    final packName = DataPackSafety.packName(zipName);
+    return _installImportedArchive(archive, packName);
   }
 
   /// 加载物种列表
@@ -904,6 +977,12 @@ class PackManager {
         .toList();
     if (list.isEmpty) throw Exception('数据包损坏，缺少 species.json');
     return list..sort((a, b) => a.cn.compareTo(b.cn));
+  }
+
+  /// Captures one pack's species and media namespace for a flashcard session.
+  Future<PackSnapshot> loadPackSnapshot(String packDir) async {
+    final species = await loadSpeciesForPack(packDir);
+    return PackSnapshot.create(packDir: packDir, species: species);
   }
 
   Future<List<Species>> loadSpecies() async {

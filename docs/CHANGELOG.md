@@ -5,6 +5,10 @@
 
 ## Changelog
 
+- **2026-08-21 — 对抗审查高风险修复（v1.7.8+94 已发布 OTA）**：本地 ZIP 数据包改为路径/容量/符号链接校验 + staging 校验后原子替换，防 Zip Slip、恶意包与坏包覆盖旧数据；管理员令牌统一改走 Bearer header，Android/iOS 的上传令牌与外部 API Key 自动从 SharedPreferences 迁入加密存储（Android 关闭备份）；应用内 APK 更新仅接受 birding.today 的 HTTPS APK + `version.json` SHA-256，下载完校验失败即丢弃。自定义复习不再覆盖常用打卡设置，恢复「可能性」顺序会重新取排名。新增数据包安全和 APK 哈希回归测试；项目指定鸿蒙工具链全量测试 30 条通过、全量 analyze 只剩既有文件名 info。**OTA 已发布，线上 `version.json` 含 SHA-256 `2d3d813d5a549972f7c9adb5ea16fe479f59be813a57252d282e036bd6c2a27e`。**
+
+- **2026-08-21 — 闪卡筛选不再重置（v1.7.8+94 已发布 OTA）**：持久化整套闪卡配置（学习/测试、判断/选择/输入、音频/图片、范围、顺序、物种/图片难度），下次进入恢复上次确认值；保留旧范围键迁移、异常值验证和「可能性」动态刷新。筛选页新增今日目标进度条/达标反馈。定向 analyze 通过，2 条本地存储回归测试通过。
+
 - **2026-06-26 — v1.7.0+86（从 1.6.27 改名升 1.7；安卓 `releases/Birdaholic_v1.7.0_android.apk` vc86 已打+用户测过，发 GitHub Release + birding.today；鸿蒙 .app 待 AGC 时再打）**：在 1.6.27 全部内容之上，新增三个用户功能 + 一轮 code-review 修复：
   - **物种难度筛选**（`flashcard_screen`）：闪卡筛选/练习弹层的「难度」行从单个「图片难度」扩成 **物种难度 + 图片难度** 两个下拉（`_difficultyDropdown(species:)`）。物种难度按 `species.difficulty` 评分、两种模式都生效（`_buildDeck` 加 `_speciesDifficultyFilter` 过滤，难度 0/未评按 1）；图片难度只对图片闪卡生效，故只在图片模式显示（音频模式隐藏，避免设了看不到/清不掉的静默过滤——code-review G1）。每档带计数 `⭐⭐⭐ (N)`。
   - **类群概览可点**（`pack_manage_screen._showPackOrderOverview`）：目的 `Chip` 改 `ActionChip`，点某目 → `_openOrderSpecies` 把该目鸟种（`Species.fromJson` 解 species.json 行）用 `BirdPreviewScreen.list` 打开，可左右翻看/点进详情。

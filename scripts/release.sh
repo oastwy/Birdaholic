@@ -19,17 +19,25 @@ bump_version "$NAME" "$BUILD"
 
 cat <<TIP
 
-$(c_green "✅ 打包完成。发布清单（逐条人工确认后执行）：")
+$(c_green "✅ 打包完成（仅 arm64-v8a）。发布清单（逐条人工确认后执行）：")
   1) 提交+推送代码（提交护栏 hook 会拦二进制/密钥）：
        git add -u && git status   # 核对后 commit
        git commit -m "release: v${NAME} ..." && git push origin main
-  2) GitHub Release（挂 APK；先写好发布说明 md）：
+  2) 【主渠道】国内服务器 OTA —— 真实用户一键更新走这里：
+       scp releases/Birdaholic_v${NAME}_android_arm64.apk \\
+           root@124.223.101.188:/usr/share/nginx/html/birdaholic/
+       # 从 releases/Birdaholic_v${NAME}_android_arm64.apk.sha256 复制第一列校验值
+       再把服务器 /usr/share/nginx/html/birdaholic/version.json 改成（url 必须指 *_arm64.apk）：
+         {"versionCode": ${BUILD}, "versionName": "${NAME}",
+          "url": "https://birding.today/birdaholic/Birdaholic_v${NAME}_android_arm64.apk",
+          "sha256": "<上一步的 sha256>",
+          "notes": "……填更新说明……", "date": "$(date +%F)"}
+  3) 下载页 download.html 兜底（一键装失败者手动下 arm64）：
+       改 download.html 的下载链接指向 Birdaholic_v${NAME}_android_arm64.apk（页面版本号同步成 ${NAME}）。
+  4) GitHub Release（仅给存量 ≤1.7.2 老用户 bootstrap；主渠道已是国内 OTA）：
        gh release create v${NAME} \\
-         releases/Birdaholic_v${NAME}_android.apk releases/Birdaholic_v${NAME}_android.apk.sha256 \\
+         releases/Birdaholic_v${NAME}_android_arm64.apk releases/Birdaholic_v${NAME}_android_arm64.apk.sha256 \\
          --title "鸟瘾综合征 ${NAME}" --notes-file /tmp/notes.md --latest
-  3) birding.today 下载页：
-       ssh root@124.223.101.188 \\
-         "sed -i 's#v[0-9.]\\+</span>#v${NAME}</span>#; s#/v[0-9.]\\+/Birdaholic_v[0-9.]\\+_android.apk#/v${NAME}/Birdaholic_v${NAME}_android.apk#g' /usr/share/nginx/html/download.html"
-  4) 鸿蒙：$([ "$ALL" = 1 ] && echo "已打 releases/Birdaholic_v${NAME}_ohos_api22_release.app" || echo "scripts/build_harmony.sh") → 传华为 AGC
-  5) iOS：scripts/build_ios.sh → Xcode archive+上传
+  5) 鸿蒙：$([ "$ALL" = 1 ] && echo "已打 releases/Birdaholic_v${NAME}_ohos_api22_release.app" || echo "scripts/build_harmony.sh") → 传华为 AGC
+  6) iOS：scripts/build_ios.sh → Xcode archive+上传
 TIP

@@ -13,6 +13,7 @@ import '../services/admin_upload_service.dart';
 import '../services/ebird_service.dart';
 import '../services/order_taxonomy.dart';
 import '../services/pack_manager.dart';
+import '../services/pack_snapshot.dart';
 import '../services/pinyin.dart';
 import '../services/server_media_service.dart';
 import '../services/storage.dart';
@@ -65,6 +66,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   // 筛选里切换数据包用：已安装包 + 当前激活包目录
   List<DataPack> _installedPacks = const [];
   String? _activePackDir;
+  PackSnapshot? _activePackSnapshot;
   Set<String> _speciesWithAudioFiles = const {};
   Set<String> _speciesWithImageFiles = const {};
   int _idx = 0;
@@ -152,17 +154,82 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     'favorites',
     'lifer',
   };
+  static const _restorableOrders = {'random', 'taxonomic', 'likelihood'};
+
+  T _enumByName<T extends Enum>(
+    Iterable<T> values,
+    Object? name,
+    T fallback,
+  ) {
+    if (name is! String) return fallback;
+    for (final value in values) {
+      if (value.name == name) return value;
+    }
+    return fallback;
+  }
+
+  void _restoreLastSetup({
+    required String fallbackFilter,
+    required StudyMode fallbackMode,
+    required PromptMode fallbackPromptMode,
+    String fallbackOrder = 'random',
+  }) {
+    final setup = widget.storage.getLastFlashcardSetup();
+    final savedFilter = setup['filter'] ?? widget.storage.lastFlashcardFilter;
+    _filter = _restorableFilters.contains(savedFilter)
+        ? savedFilter as String
+        : fallbackFilter;
+    _answerMode = _enumByName(
+      AnswerMode.values,
+      setup['answerMode'],
+      AnswerMode.review,
+    );
+    _mode = _enumByName(StudyMode.values, setup['studyMode'], fallbackMode);
+    _promptMode = _enumByName(
+      PromptMode.values,
+      setup['promptMode'],
+      fallbackPromptMode,
+    );
+    final savedOrder = setup['order'];
+    _order = _restorableOrders.contains(savedOrder)
+        ? savedOrder as String
+        : fallbackOrder;
+    _speciesDifficultyFilter =
+        ((setup['speciesDifficulty'] as num?)?.toInt() ?? 0)
+            .clamp(0, 5)
+            .toInt();
+    _imageDifficultyFilter =
+        ((setup['imageDifficulty'] as num?)?.toInt() ?? 0).clamp(0, 5).toInt();
+  }
+
+  void _saveCurrentSetup() {
+    // A review queue / bird list is a one-off session, not the user's regular
+    // check-in preference. Persisting it would silently overwrite the setup
+    // they expect to see on the next normal check-in.
+    if (_filter == 'custom') return;
+    final regularFilter = _filter;
+    widget.storage.setLastFlashcardSetup({
+      'filter':
+          _restorableFilters.contains(regularFilter) ? regularFilter : 'all',
+      'answerMode': _answerMode.name,
+      'studyMode': _mode.name,
+      'promptMode': _promptMode.name,
+      'order': _order,
+      'speciesDifficulty': _speciesDifficultyFilter,
+      'imageDifficulty': _imageDifficultyFilter,
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _ebirdFilterLabel = widget.storage.getEbirdFilterLabel();
     _ebirdFilterSci = widget.storage.getEbirdFilterSci();
-    // 恢复上次打卡用的筛选（如「未学习」），只接受筛选下拉里有的值，避免下拉断言失败。
-    final savedFilter = widget.storage.lastFlashcardFilter;
-    if (_restorableFilters.contains(savedFilter)) {
-      _filter = savedFilter;
-    }
+    _restoreLastSetup(
+      fallbackFilter: 'all',
+      fallbackMode: StudyMode.review,
+      fallbackPromptMode: PromptMode.audio,
+    );
     _loadSpecies();
   }
 
@@ -198,10 +265,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       // 闪卡按「当前选中的单个数据包」出题（不合并其它已启用包）；
       // 否则选了挪威包还会混进中国100。无激活包时退回合并加载。
       final active = await widget.packManager.getActivePackDir();
-      final list = active != null
-          ? await widget.packManager.loadSpeciesForPack(active)
-          : await widget.packManager.loadSpecies();
-      final media = await _buildMediaAvailability(list);
+      final snapshot = active == null
+          ? null
+          : await widget.packManager.loadPackSnapshot(active);
+      final list = snapshot?.species ?? await widget.packManager.loadSpecies();
+      final media = await _buildMediaAvailability(list, snapshot: snapshot);
       List<DataPack> installed = const [];
       try {
         installed = await widget.packManager.getInstalledPacks();
@@ -211,17 +279,22 @@ class FlashcardScreenState extends State<FlashcardScreen> {
         _allSpecies = list;
         _installedPacks = installed;
         _activePackDir = active;
+        _activePackSnapshot = snapshot;
         _speciesWithAudioFiles = media.audioSpecies;
         _speciesWithImageFiles = media.imageSpecies;
         _loading = false;
       });
       _buildDeck();
       _fetchExtraImages();
+      if (_order == 'likelihood' && _likelihoodRank.isEmpty) {
+        _selectLikelihoodOrder(showFeedback: false);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _allSpecies = [];
         _deck = [];
+        _activePackSnapshot = null;
         _speciesWithAudioFiles = const {};
         _speciesWithImageFiles = const {};
         _idx = 0;
@@ -234,13 +307,19 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }
 
   Future<({Set<String> audioSpecies, Set<String> imageSpecies})>
-      _buildMediaAvailability(List<Species> speciesList) async {
+      _buildMediaAvailability(
+    List<Species> speciesList, {
+    PackSnapshot? snapshot,
+  }) async {
     final audioSpecies = <String>{};
     final imageSpecies = <String>{};
 
     for (final species in speciesList) {
       for (final audio in species.audios) {
-        final path = await widget.packManager.getResourcePath(audio.file);
+        final path = snapshot?.resolveMedia(audio.file) ??
+            (snapshot == null
+                ? await widget.packManager.getResourcePath(audio.file)
+                : null);
         if (path != null) {
           audioSpecies.add(species.sci);
           break;
@@ -248,7 +327,10 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       }
 
       for (final image in species.imageFiles) {
-        final path = await widget.packManager.getResourcePath(image);
+        final path = snapshot?.resolveMedia(image) ??
+            (snapshot == null
+                ? await widget.packManager.getResourcePath(image)
+                : null);
         if (path != null) {
           imageSpecies.add(species.sci);
           break;
@@ -257,6 +339,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
 
     return (audioSpecies: audioSpecies, imageSpecies: imageSpecies);
+  }
+
+  Future<String?> _resolveMedia(String relativePath) async {
+    final snapshot = _activePackSnapshot;
+    if (snapshot != null) return snapshot.resolveMedia(relativePath);
+    return widget.packManager.getResourcePath(relativePath);
   }
 
   void _scheduleAutoPlay({List<String>? audioPaths}) {
@@ -577,7 +665,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     final files = <String>[];
     final credits = <String>[];
     for (final image in entries) {
-      final path = await widget.packManager.getResourcePath(image.file);
+      final path = await _resolveMedia(image.file);
       if (path != null) {
         paths.add(path);
         files.add(image.file);
@@ -609,7 +697,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     if (bird == null) return [];
     final paths = <String>[];
     for (final a in _cardAudios(bird)) {
-      final p = await widget.packManager.getResourcePath(a.file);
+      final p = await _resolveMedia(a.file);
       if (p != null) paths.add(p);
     }
     return paths;
@@ -631,13 +719,12 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     final result = <String>[];
     for (final audio in _cardAudios(bird)) {
       // 与 _getAudioPaths 对齐：无法解析音频文件的项不计入
-      final audioPath = await widget.packManager.getResourcePath(audio.file);
+      final audioPath = await _resolveMedia(audio.file);
       if (audioPath == null) continue;
 
       var spec = '';
       if (audio.spectrogram.isNotEmpty) {
-        final local =
-            await widget.packManager.getResourcePath(audio.spectrogram);
+        final local = await _resolveMedia(audio.spectrogram);
         if (local != null) spec = local;
       }
       if (spec.isEmpty && audio.spectrogramUrl.isNotEmpty) {
@@ -1338,11 +1425,15 @@ class FlashcardScreenState extends State<FlashcardScreen> {
 
   /// 选「可能性」排序：用上次 eBird 地区码 / 经纬度查近 30 天观测，按最近观测排名。
   /// 需先做过地点筛选（地区代码或经纬度）+ 有 API Key。
-  Future<void> _selectLikelihoodOrder() async {
+  Future<void> _selectLikelihoodOrder({bool showFeedback = true}) async {
     final region = widget.storage.getEbirdFilterRegion();
     final coordsStr = widget.storage.getEbirdFilterCoords();
     if (region.isEmpty && coordsStr.isEmpty) {
-      if (mounted) {
+      if (!showFeedback && mounted) {
+        setState(() => _order = 'random');
+        _buildDeck();
+      }
+      if (mounted && showFeedback) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('「可能性」需先做 eBird 地点筛选（地区代码或经纬度）'),
         ));
@@ -1351,7 +1442,11 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     }
     final apiKey = widget.storage.getEBirdApiKey();
     if (apiKey.isEmpty) {
-      if (mounted) {
+      if (!showFeedback && mounted) {
+        setState(() => _order = 'random');
+        _buildDeck();
+      }
+      if (mounted && showFeedback) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('「可能性」需要 eBird API Key（在设置里填写）'),
         ));
@@ -1388,20 +1483,24 @@ class FlashcardScreenState extends State<FlashcardScreen> {
           .length;
       if (overlap == 0) {
         // 整包跟该地区近期记录无交集 → 排序没效果，提示并可去下载覆盖该地区的包（不动牌组）
-        await _promptLikelihoodInsufficient();
+        if (showFeedback) await _promptLikelihoodInsufficient();
         return;
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已把该地区近 30 天最可能遇到的 $overlap 种排到前面'),
-      ));
+      if (showFeedback) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('已把该地区近 30 天最可能遇到的 $overlap 种排到前面'),
+        ));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _order = 'random');
       _buildDeck();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('「可能性」获取失败：$e，已用随机'),
-      ));
+      if (showFeedback) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('「可能性」获取失败：$e，已用随机'),
+        ));
+      }
     }
   }
 
@@ -1862,19 +1961,23 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     PromptMode promptMode = PromptMode.audio,
     String order = 'random',
   }) {
-    // 沿用上次打卡的筛选（如「未学习」），没有存过才用调用方给的默认值。
-    final savedFilter = widget.storage.lastFlashcardFilter;
     setState(() {
-      _filter = _restorableFilters.contains(savedFilter) ? savedFilter : filter;
-      _answerMode = AnswerMode.review;
-      _mode = mode;
-      _promptMode = promptMode;
-      _order = order;
+      _restoreLastSetup(
+        fallbackFilter: filter,
+        fallbackMode: mode,
+        fallbackPromptMode: promptMode,
+        fallbackOrder: order,
+      );
       _correctCount = 0;
       _wrongCount = 0;
       _quizChoiceCache.clear();
     });
     _buildDeck();
+    // Restored likelihood order has no persisted rank map. Reload it whenever
+    // a normal session starts after the current context was cleared/reloaded.
+    if (_order == 'likelihood' && _likelihoodRank.isEmpty) {
+      _selectLikelihoodOrder(showFeedback: false);
+    }
     // 本次启动首次进入 → 停在「闪卡筛选页」；确认过(或用户设了"直接全屏")→ 进全屏沿用上次配置。
     if (_configuredThisLaunch || widget.storage.flashcardStartFullscreen) {
       enterFocusMode();
@@ -1915,6 +2018,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   /// 从「打卡设置」窗口点「开始」进全屏：记一笔「已配置」，下次打卡直接全屏沿用上次设置。
   void _startFromWindow() {
     _configuredThisLaunch = true; // 本次会话内之后打卡/复习直接全屏沿用，重启后重新弹一次
+    _saveCurrentSetup(); // 自定义牌组在方法内显式跳过，不覆盖常用打卡配置。
     enterFocusMode();
   }
 
@@ -2017,6 +2121,62 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   void jumpTo(Species target) => _jumpToSpecies(target);
 
   /// 独立的「闪卡筛选页」（非全屏时显示）。点「开始」才进学习页（全屏）。
+  Widget _todayProgressStrip() {
+    final count = widget.storage.getTodayStudyCount();
+    final goal = widget.storage.dailyGoal;
+    final completed = count >= goal;
+    final progress = (count / goal).clamp(0.0, 1.0);
+    const green = Color(0xFF2d7d32);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: green.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                completed ? Icons.check_circle : Icons.today_outlined,
+                size: 17,
+                color: green,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                completed ? '今日目标已完成 🎉' : '今日打卡进度',
+                style: const TextStyle(
+                  color: green,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$count / $goal 张',
+                style: const TextStyle(
+                  color: green,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 5,
+              backgroundColor: green.withValues(alpha: 0.1),
+              valueColor: const AlwaysStoppedAnimation<Color>(green),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFilterPage() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_loadError != null) return Center(child: _buildMissingPackView());
@@ -2044,6 +2204,8 @@ class FlashcardScreenState extends State<FlashcardScreen> {
                     total == 0 ? '当前范围没有可练习的题目' : '$_deckSummary · 共 $total 张',
                     style: TextStyle(fontSize: 12.5, color: Colors.grey[600]),
                   ),
+                  const SizedBox(height: 12),
+                  _todayProgressStrip(),
                   const SizedBox(height: 16),
                   // #8 数据包 + 地点 并列一行
                   if (!beginner) ...[

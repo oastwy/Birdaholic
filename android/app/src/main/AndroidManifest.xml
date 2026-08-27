@@ -19,6 +19,7 @@
         android:label="鸟瘾综合征"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
         android:theme="@style/Theme.BirdFlashcard">
 
         <activity

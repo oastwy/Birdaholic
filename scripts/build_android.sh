@@ -11,14 +11,20 @@ set_flutter_sdk /Users/wuyang/.flutter-sdk
 
 step "flutter clean + pub get（.flutter-sdk）"
 "$FLUTTER_ANDROID" clean >/dev/null
-"$FLUTTER_ANDROID" pub get >/dev/null
+if ! "$FLUTTER_ANDROID" pub get >/dev/null; then
+  c_yellow "pub get 网络刷新失败，改用本地缓存继续打包。"
+  "$FLUTTER_ANDROID" pub get --offline >/dev/null
+fi
 
-step "flutter build apk --release"
+step "flutter build apk --release（仅 arm64-v8a）"
+# build.gradle 已过滤为 arm64-v8a：原来 72MB 的 universal 包会变成约 25MB 的真机包。
 "$FLUTTER_ANDROID" build apk --release
 
-publish_artifact "$REPO/build/app/outputs/flutter-apk/app-release.apk" "Birdaholic_v${VER}_android.apk"
+APKDIR="$REPO/build/app/outputs/flutter-apk"
+publish_artifact "$APKDIR/app-release.apk" "Birdaholic_v${VER}_android_arm64.apk"
 
 AAPT=$(ls "$HOME"/Library/Android/sdk/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
-[ -n "$AAPT" ] && "$AAPT" dump badging "$RELEASES/Birdaholic_v${VER}_android.apk" 2>/dev/null \
+[ -n "$AAPT" ] && "$AAPT" dump badging "$RELEASES/Birdaholic_v${VER}_android_arm64.apk" 2>/dev/null \
   | /usr/bin/grep "package: name" | head -1
-c_green "✅ 安卓 ${VER}+${BUILD} 打好（鸿蒙态由 trap 自动恢复）"
+c_green "✅ 安卓 ${VER}+${BUILD} 已打 arm64-only 包（鸿蒙态由 trap 自动恢复）"
+c_yellow "发版提醒：version.json 与 download.html 均指向 *_arm64.apk。"

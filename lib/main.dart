@@ -22,6 +22,7 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final packManager = PackManager();
   final storage = StorageService(prefs);
+  await storage.initializeSensitiveCredentials();
   await StorageService.loadTaxonomySynonyms(); // 郑四↔eBird 跨分类清单匹配
   try {
     await packManager.ensureBuiltinPackInstalled();
@@ -145,8 +146,8 @@ class _ModeGateState extends State<_ModeGate> {
       } catch (e) {
         if (mounted) {
           setState(() => _busy = false);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('初始化数据包失败，请检查网络/存储后重试：$e')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('初始化数据包失败，请检查网络/存储后重试：$e')));
         }
         return;
       }
