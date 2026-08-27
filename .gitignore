@@ -85,3 +85,7 @@ pubspec.yaml.tmp
 .git.pre_ref_recovery_*
 *.bak_trim_*
 .workbuddy/
+
+# 构建产物不进 git（APK 发到服务器/GitHub Release，非仓库）
+data_packs/
+releases/
