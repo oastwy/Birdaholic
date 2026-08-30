@@ -15,31 +15,127 @@ import 'services/storage.dart';
 import 'services/usage_service.dart';
 import 'utils/file_picker_guard.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Framework 与平台层的未捕获异常统一送进 Flutter 错误管道：默认会打印到日志，
+  // 既不让错误无声消失，也不会中断用户正在进行的操作。
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    FlutterError.presentError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'platform dispatcher',
+      ),
+    );
+    return true;
+  };
+  _launchApp();
+}
 
-  // 初始化服务
-  final prefs = await SharedPreferences.getInstance();
-  final packManager = PackManager();
-  final storage = StorageService(prefs);
-  await storage.initializeSensitiveCredentials();
-  await StorageService.loadTaxonomySynonyms(); // 郑四↔eBird 跨分类清单匹配
+Future<void> _launchApp() async {
   try {
-    await packManager.ensureBuiltinPackInstalled();
-  } catch (_) {
-    // 不阻断启动；设置页的数据包管理里会提供恢复内置包入口。
+    // 初始化服务
+    final prefs = await SharedPreferences.getInstance();
+    final packManager = PackManager();
+    final storage = StorageService(prefs);
+    await storage.initializeSensitiveCredentials();
+    await StorageService.loadTaxonomySynonyms(); // 郑四↔eBird 跨分类清单匹配
+    try {
+      await packManager.ensureBuiltinPackInstalled();
+    } catch (_) {
+      // 不阻断启动；设置页的数据包管理里会提供恢复内置包入口。
+    }
+
+    // 重新登记每日打卡提醒（仅 Android；保证 App 更新/重启后仍生效）。fire-and-forget。
+    if (storage.reminderEnabled) {
+      unawaited(NotificationService.scheduleDaily(
+          storage.reminderHour, storage.reminderMinute));
+    }
+
+    runApp(BirdFlashcardApp(
+      packManager: packManager,
+      storage: storage,
+    ));
+  } catch (error, stack) {
+    // 启动初始化失败（安全存储异常、资产损坏等）不能白屏闪退：给出可重试的错误页。
+    FlutterError.presentError(
+      FlutterErrorDetails(exception: error, stack: stack, library: 'startup'),
+    );
+    runApp(_StartupErrorScreen(error: error));
+  }
+}
+
+/// 启动初始化失败的兜底页：展示原因并提供重试入口，避免白屏闪退。
+class _StartupErrorScreen extends StatefulWidget {
+  final Object error;
+  const _StartupErrorScreen({required this.error});
+
+  @override
+  State<_StartupErrorScreen> createState() => _StartupErrorScreenState();
+}
+
+class _StartupErrorScreenState extends State<_StartupErrorScreen> {
+  bool _retrying = false;
+
+  Future<void> _retry() async {
+    setState(() => _retrying = true);
+    // 成功时会 runApp 新的整棵树替换本页；再次失败则重建本页展示新错误。
+    await _launchApp();
   }
 
-  // 重新登记每日打卡提醒（仅 Android；保证 App 更新/重启后仍生效）。fire-and-forget。
-  if (storage.reminderEnabled) {
-    unawaited(NotificationService.scheduleDaily(
-        storage.reminderHour, storage.reminderMinute));
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF2d5016);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(colorSchemeSeed: green, useMaterial3: true),
+      home: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(Icons.error_outline,
+                    size: 56, color: Colors.redAccent),
+                const SizedBox(height: 16),
+                const Text(
+                  '启动初始化失败',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'App 数据初始化出现问题，可以尝试重新初始化；若反复失败，请重启手机后再试。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13, color: Colors.grey[700], height: 1.5),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${widget.error}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: _retrying ? null : _retry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新初始化'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
-
-  runApp(BirdFlashcardApp(
-    packManager: packManager,
-    storage: storage,
-  ));
 }
 
 class BirdFlashcardApp extends StatelessWidget {

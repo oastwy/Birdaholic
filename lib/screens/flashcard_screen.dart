@@ -80,6 +80,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   final Map<String, List<Species>> _quizChoiceCache = {};
   final TextEditingController _nameAnswerController = TextEditingController();
   final FocusNode _nameAnswerFocusNode = FocusNode();
+  // 完成音效复用同一个播放器：每次 new AudioPlayer() 会在长时间学习中持续
+  // 累积底层音频会话（Android 上每个实例各占一个 MediaPlayer）。
+  AudioPlayer? _completePlayer;
 
   String _filter = 'all';
   // 自定义牌组（到期复习 / 关卡 / 鸟单 等指定一批 sci 学习时用，_filter=='custom'）
@@ -250,6 +253,7 @@ class FlashcardScreenState extends State<FlashcardScreen> {
     _audioKey.currentState?.stop();
     _nameAnswerController.dispose();
     _nameAnswerFocusNode.dispose();
+    _completePlayer?.dispose();
     super.dispose();
   }
 
@@ -870,7 +874,9 @@ class FlashcardScreenState extends State<FlashcardScreen> {
   }
 
   void _playCompleteSound() {
-    AudioPlayer().play(AssetSource('sounds/complete.m4a')).catchError((_) {});
+    (_completePlayer ??= AudioPlayer())
+        .play(AssetSource('sounds/complete.m4a'))
+        .catchError((_) {});
   }
 
   void _answerQuizChoice(Species choice) {
@@ -1474,7 +1480,15 @@ class FlashcardScreenState extends State<FlashcardScreen> {
       }
       if (!mounted) return;
       setState(() => _likelihoodRank = rank);
-      _buildDeck(); // 纯排序：整包保留，近期 eBird 观测到的种排到前面
+      // 自动恢复（showFeedback=false，来自 startSession/_loadSpecies）的排名是
+      // 会话开始后的异步补拍：若用户已经开始答题，重排会把进度归零、已答过的卡
+      // 重新出现导致重复计数——此时只记下排名，留待下次重建牌组时生效。
+      // 用户从下拉主动选「可能性」时仍立即重排（与改其他筛选行为一致）。
+      final midSession =
+          _answered || _idx > 0 || _answeredCardKeys.isNotEmpty;
+      if (showFeedback || !midSession) {
+        _buildDeck(); // 纯排序：整包保留，近期 eBird 观测到的种排到前面
+      }
       // 统计本包里有多少种与该地区近期观测重合（仅作反馈 + 判断排序是否有意义）
       final overlap = _deck
           .map((c) => StorageService.normalizeSci(c.species.sci))
