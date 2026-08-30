@@ -126,8 +126,12 @@ class StorageService {
   Set<String> getFavorites() {
     final str = _prefs.getString(_favoritesKey);
     if (str == null || str.isEmpty) return {};
-    final list = jsonDecode(str) as List<dynamic>;
-    return list.cast<String>().toSet();
+    try {
+      final list = jsonDecode(str) as List<dynamic>;
+      return list.cast<String>().toSet();
+    } catch (_) {
+      return {};
+    }
   }
 
   /// 切换收藏状态
@@ -510,11 +514,18 @@ class StorageService {
   List<FeedbackEntry> getFeedbackJournal() {
     final str = _prefs.getString(_feedbackJournalKey);
     if (str == null || str.isEmpty) return [];
-    final list = jsonDecode(str) as List<dynamic>;
-    return list
-        .map((item) => FeedbackEntry.fromJson(item as Map<String, dynamic>))
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    try {
+      final decoded = jsonDecode(str);
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map((item) =>
+              FeedbackEntry.fromJson(Map<String, dynamic>.from(item)))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> addFeedbackEntry({
@@ -561,8 +572,17 @@ class StorageService {
   Map<String, String> getSpeciesNotes() {
     final str = _prefs.getString(_speciesNotesKey);
     if (str == null || str.isEmpty) return {};
-    final map = jsonDecode(str) as Map<String, dynamic>;
-    return map.map((key, value) => MapEntry(key, value as String? ?? ''));
+    try {
+      final decoded = jsonDecode(str);
+      if (decoded is! Map) return {};
+      final result = <String, String>{};
+      decoded.forEach((key, value) {
+        if (value is String) result['$key'] = value;
+      });
+      return result;
+    } catch (_) {
+      return {};
+    }
   }
 
   String getSpeciesNote(String sciName) {
@@ -586,8 +606,12 @@ class StorageService {
   LearningStats getStats() {
     final str = _prefs.getString(_statsKey);
     if (str == null || str.isEmpty) return LearningStats();
-    final map = jsonDecode(str) as Map<String, dynamic>;
-    return LearningStats.fromJson(map);
+    try {
+      final map = jsonDecode(str) as Map<String, dynamic>;
+      return LearningStats.fromJson(map);
+    } catch (_) {
+      return LearningStats();
+    }
   }
 
   /// 重置统计
@@ -616,8 +640,12 @@ class StorageService {
   Set<String> getCheckInDates() {
     final str = _prefs.getString(_checkInDatesKey);
     if (str == null || str.isEmpty) return {};
-    final list = jsonDecode(str) as List<dynamic>;
-    return list.cast<String>().toSet();
+    try {
+      final list = jsonDecode(str) as List<dynamic>;
+      return list.cast<String>().toSet();
+    } catch (_) {
+      return {};
+    }
   }
 
   Future<void> _recordCheckIn() async {
@@ -704,10 +732,25 @@ class StorageService {
   Map<String, SpeciesMastery> getAllMastery() {
     final str = _prefs.getString(_speciesMasteryKey);
     if (str == null || str.isEmpty) return {};
-    final map = jsonDecode(str) as Map<String, dynamic>;
-    return map.map(
-      (k, v) => MapEntry(k, SpeciesMastery.fromJson(v as Map<String, dynamic>)),
-    );
+    try {
+      final decoded = jsonDecode(str);
+      if (decoded is! Map) return {};
+      final result = <String, SpeciesMastery>{};
+      decoded.forEach((key, value) {
+        try {
+          if (value is Map) {
+            result['$key'] =
+                SpeciesMastery.fromJson(Map<String, dynamic>.from(value));
+          }
+        } catch (_) {
+          // 单条记录损坏只丢弃该条；整表照常返回，
+          // 否则下次 markSpeciesKnown 重写会把其余物种的进度一并抹掉。
+        }
+      });
+      return result;
+    } catch (_) {
+      return {};
+    }
   }
 
   /// 获取单个物种的掌握度

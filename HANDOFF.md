@@ -1,5 +1,12 @@
 # Birdaholic / 鸟瘾综合征 Handoff
 
+## 2026-08-30 两处小修：存储损坏兜底 + 「可能性」异步重排竞态（ZCode）
+- **存储 JSON 损坏兜底（`lib/services/storage.dart`）**：`getFavorites`/`getCheckInDates`/`getFeedbackJournal`/`getSpeciesNotes`/`getStats`/`getAllMastery` 六处 `jsonDecode` 原先无 try/catch（同文件 `getLifeList`/`getLastFlashcardSetup` 等早有防护），偏好值一旦损坏会让每次答题链路（`markCorrect`→`_recordCheckIn`、`markSpeciesKnown`）抛异常、学习进度卡死。现统一安全回退空默认值；`getAllMastery` 额外做**逐条打捞**——单条记录损坏只丢该条，其余物种进度保留，避免下次重写整表时连带抹掉。
+- **「可能性」排名异步重排竞态（`lib/screens/flashcard_screen.dart` `_selectLikelihoodOrder`）**：`startSession`/`_loadSpecies` 恢复「可能性」排序时异步拉 eBird 排名，拉回后原先无条件 `_buildDeck()`——若用户已在网络等待期开始答题，重排会把进度归零、已答过的卡再次出现导致重复计数。现改为：自动恢复路径（`showFeedback=false`）在会话已有答题（`_answered || _idx > 0 || _answeredCardKeys` 非空）时只记排名不重排，留待下次重建牌组生效；用户从下拉主动选「可能性」仍立即重排（与其他筛选行为一致）。
+- **回归测试**：新增 `test/storage_corruption_test.dart` 3 条（各键损坏安全回退 / 掌握度单条损坏打捞 / 损坏表上继续答题可写入）。全量 **35 条测试通过**；`flutter analyze --no-pub` 无问题。
+- **⚠️ 工具链注意（与 HANDOFF 旧记录相反）**：当前 `.dart_tool` 已按 `.flutter-sdk`（3.29.3）解析，`flutter test`/`analyze` 用 **`/Users/wuyang/.flutter-sdk/bin/flutter --no-pub`** 全过；`/Users/wuyang/flutter-ohos/bin/flutter test` 现在反而编不过（框架缺 `SemanticsRole`，SDK 错配非代码问题）。下次若跑鸿蒙构建需先用 flutter-ohos 重新 `pub get` 再跑 test。
+- **顺带确认非问题**：审查还发现续传下载器不校验 206 `Content-Range` 起始偏移（理论可 append 错位内容，但 sha256 会在安装前拦截，最坏浪费一次下载）；连续打卡天数当天未答显示 0 属产品取向；均为有意保留，未改动。
+
 ## 2026-08-27 App v1.7.9+95 数据包边界测试版（Codex，已发布独立测试链接）
 - **本次只做第一阶段**：新增深模块 `PackSnapshot`，进入闪卡时一次读取当前激活包的物种和文件索引；闪卡的图片、音频、频谱图此后只在所属包内解析，不再因当前包缺文件而串用其他已启用包的同名媒体，也不再为每条媒体反复读取 SharedPreferences 和扫描已启用包。
 - **兼容语义**：有激活包时严格单包；没有激活包时保留原来的合并加载兼容路径。没有顺带拆 `DeckBuilder` 或改 `SpeciesKey`，后两阶段仍按触发条件推进。
@@ -7,6 +14,7 @@
 - **Android 测试包**：`1.7.9+95`，arm64-only，64,007,520 bytes；SHA-256 `84f282ed08116bd330e5a4339f20f5aef0865e49bbe651dbcf600b3f538f06ac`。测试下载：`https://birding.today/birdaholic/Birdaholic_v1.7.9_test_android_arm64.apk`；公网 200、服务器哈希与本地一致。
 - **未向普通用户推送**：线上正式 `version.json` 仍广播 `1.7.8+94`，正式下载页未改。测试重点：在包管理里切换两个数据包后进入闪卡，确认题目、图片、声音和频谱图均来自当前包；切回另一包后无旧包媒体残留。通过人工冒烟后再决定是否把同一 APK 提升为正式 OTA。
 - **真机冒烟（vivo V2366GA，2026-08-27，通过）**：从 `1.7.8+94` 原地升级到 `1.7.9+95`，原有挪威包和学习记录正常保留。构造并导入 A/B 两个独立小包：二者都引用 `images/shared.jpg`，但 A=黑鹇、署名 `Codex device fixture A`，B=白鹇、署名 `Codex device fixture B`。B 主包进入图片闪卡显示白鹇+B 署名；切 A 后立即显示黑鹇+A 署名——**同路径媒体未串包**。最终已恢复测试前的“挪威 / 不熟悉 / 49 张”状态。手机中仍留两个 `Codex 媒体边界 A/B` 测试包及下载目录 ZIP；如要删除，须用户明确授权（App 删除为不可恢复操作）。
+- **iOS 同步（2026-08-28）**：已按 App Store Connect 的最低系统要求将 Podfile、Xcode 三套构建配置及 Flutter framework 的部署目标统一升至 **iOS 15.0**。发布版本同步为 `1.8.0+96`；最终 Archive 与 IPA 均已复核 Version `1.8.0` / Build `96` / bundle `today.birding.birdaholic` / `MinimumOSVersion 15.0`，本地 IPA 为 `build/ios/ipa/鸟瘾综合征.ipa`（71MB）。**已于 2026-08-28 通过 Xcode 成功上传 App Store Connect**，未再报 MinimumOSVersion；接下来等待 Apple 处理完成后即可在 TestFlight 中选择测试者。先前 `1.7.9 (95)` 也已上传但带 iOS 13 警告，应忽略该旧构建。`scripts/build_ios.sh` 的 EXIT 清理钩子已验证会恢复 `android/local.properties` 到鸿蒙 SDK。
 
 ## 2026-08-27 App 软件设计哲学审查（Codex，结论/未改代码）
 - **Hard verdict**：客户端当前没有需要推倒重写的致命结构问题。定向 `flutter analyze --no-pub` 无问题，全量 30 条测试通过。长期不追求“现代架构”，只保护三个真正的复杂度边界：数据包归属、牌组生成规则、鸟种身份。
