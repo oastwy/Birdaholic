@@ -16,7 +16,7 @@
   - **code-review（两轮）**：本批新功能跑了 finder+核验+sweep，修了 G1（物种难度音频模式静默过滤）、R1（删包清续传记录）、F-a/F-b/F-c（横幅按钮）；R2（同名包碰撞）/R3（app 杀在清记录瞬间虚显按钮）判定为窄边角/自愈，记录不改。全量 analyze No issues。
   - **改名**：版本号 1.6.27→**1.7.0**（pubspec / app_version / android+ohos local.properties 四处，vc 84→86）。
 
-- **2026-06-26 — v1.6.27+84：安全审查 + code-review 一批修复 + 记录中心导入 + 同义词映射 + 6 条待改（已打 `releases/Birdaholic_v1.6.27_android.apk` 71.7MB/vc84/sha256 已出，待发版；服务器 `upload_server.py` 已部署 124.223.101.188 实测，备份 `.bak_20260626_173246`）**：
+- **2026-06-26 — v1.6.27+84：安全审查 + code-review 一批修复 + 记录中心导入 + 同义词映射 + 6 条待改（已打 `releases/Birdaholic_v1.6.27_android.apk` 71.7MB/vc84/sha256 已出，待发版；服务器 `upload_server.py` 已部署 your-server-ip 实测，备份 `.bak_20260626_173246`）**：
   - **流程**：用户要求「先跑 code-review 再一起修」。先做了安全聚焦审查（S1–S3），再跑 `/code-review`（10 finder 角度 + 验证 + sweep）得 15 条（C1–C15），合并去重后一起修。全量 `flutter analyze` No issues、服务器 `py_compile` 通过。
   - **服务器 `server/upload_server.py`（6 处，已部署+curl 实测）**：
     - **S1 路径穿越写**：`species_key()` 内加路径校验（拒 `/`、`\`、`..`、绝对路径、前导 `.`、空）。一处收口覆盖全部「用 sci 拼写入路径」的 sink：`set_identification_features` / `set_difficulty` / `set_image_difficulty` / `_apply_rating` / `load_manifest`。`match_species` 只对 world_birds（干净二名）调它，正常不触发。实测 `sci="../../tmp/evil"` + admin → `400 Invalid species name`。
@@ -68,7 +68,7 @@
   - **⑦ 新手模式建包失败落空首页**：`main._ModeGate._choose` 先 `setAppMode` 再 try 装包且 `catch(_){}`，失败时模式已写入 → 门户消失到「未安装数据包」空首页且无提示。修：beginner 改为**先装包成功再写模式**，失败弹提示 + return 保留模式选择门。
   - **⑧ removeSpeciesImageFromActivePack 精确匹配 sci**：与 `findWritablePackDirForSpecies`/`addUploadedSpeciesImageFromFile` 的归一化匹配不一致，大小写/空白差异会误报「未找到」。修：改 `.trim().toLowerCase()` 匹配。
   - **清理**：删死字段 `_taxonomicOrder`（「按目筛选」下拉这轮已移除、永远 'all'，连带 `_buildDeck` 过滤块 + `_deckSummary` 的 `orderText` 局部变量及 8 处 `$orderText` 插值 + startSession/startCustomSession 两处重置）；删死持久化 `checkinConfigured` getter/setter + `_checkinConfiguredKey`（已被会话标志 `_configuredThisLaunch` 取代、全库无引用）；`_AdminTokenRequestsScreen._approve` 的 `TextEditingController` 补 dispose（每次批准都泄漏一个）。
-  - **服务器（birding.today，已部署 124.223.101.188 + curl 实测，备份 `/data/server/upload_server.py.bak_20260626_093958`、`admin.html.bak_…`）**：
+  - **服务器（birding.today，已部署 your-server-ip + curl 实测，备份 `/data/server/upload_server.py.bak_20260626_093958`、`admin.html.bak_…`）**：
     - **#9** `GET /api/contributors`（公开无鉴权、每次冷查扫 ~1.1万 manifest）原无单飞，每次缓存失效后并发请求各自重复全量扫描、可把 Starlette 同步线程池耗尽（写后惊群）。注：该路由是 `def`（非 `async def`），Starlette 本就放线程池跑、**不阻塞事件循环**——所以原 review「阻塞整个服务」一说被否；真问题是重复扫描。修：加 `_CONTRIB_CACHE_LOCK = threading.Lock()` 做**单飞 + 双检**，失效后只放一个线程算、其余等它复用。实测冷查回数据、热查 0.0016s。
     - **#10** `admin.html` 反馈图缩略图直接把客户端可控的 `row.image_url` 去源后塞进 `href/src`（`esc()` 只转义不校验 scheme），构造 `javascript:`/`data:` 可在管理员页注入可点链接。修：新增 `safeMediaUrl(u)`——去 `http(s)://源` 后只放行以单个 `/` 开头的本站路径（拒 `javascript:`/`data:`/`//协议相对`），缩略图 href/src 改用它、不安全则整块不渲染。
   - 全量 `flutter analyze` No issues；打包配方同前（注释 `dependency_overrides` + `android/local.properties` 的 `flutter.sdk` 指 `.flutter-sdk` + bump 1.6.25+82，打完手动恢复鸿蒙：overrides 反注释 + flutter.sdk→flutter-ohos + `flutter-ohos pub get`，未用 `git checkout`）。
@@ -105,7 +105,7 @@
     - 新 `lib/screens/rate_species_screen.dart`：读 `assets/data/china_birds.json`(1490)，逐种拉服务器 manifest 图片（`ServerMediaService.fetchSpeciesMedia`），给**物种难度 + 每张图质量/难度**打星，上一/下一/搜索跳转。入口：设置管理员卡「逐种评级」；内测用户单独卡「逐种评级」（注明需审核）。
     - 新 `lib/screens/rate_review_screen.dart`：管理员审核内测提交（通过写入 manifest / 拒绝丢弃）。入口：设置管理员卡「评级审核」。
     - `AdminUploadService` 加 `submitRating`(POST `/api/rate/submit`)、`fetchPendingRatings`、`resolveRating`。
-    - **服务器** `upload_server.py` 加 `POST /api/rate/submit`（管理员→`_apply_rating` 直接写 manifest；内测→存 `pending_ratings.json` 待审）、`GET /api/admin/rate/pending`、`POST /api/admin/rate/resolve`（approve 写入 / reject 丢弃）。**已部署 124.223.101.188 + restart + 全链路 curl 实测通过**（unauth 401、内测 pending、管理员 reject 不写、approve 写 manifest difficulty、管理员直评 applied、临时 beta 密钥已清理）。改前备份 `.bak_upload_server_20260624_223844.py`。
+    - **服务器** `upload_server.py` 加 `POST /api/rate/submit`（管理员→`_apply_rating` 直接写 manifest；内测→存 `pending_ratings.json` 待审）、`GET /api/admin/rate/pending`、`POST /api/admin/rate/resolve`（approve 写入 / reject 丢弃）。**已部署 your-server-ip + restart + 全链路 curl 实测通过**（unauth 401、内测 pending、管理员 reject 不写、approve 写 manifest difficulty、管理员直评 applied、临时 beta 密钥已清理）。改前备份 `.bak_upload_server_20260624_223844.py`。
   - ⚠️ 发安卓包仍按「安卓打包配方」：注释 pubspec `dependency_overrides` + local.properties 指 `.flutter-sdk` + 版本已 bump `1.6.20+77`，打完恢复 flutter-ohos。本批纯 Dart+资产+服务器，无新原生依赖，鸿蒙安全。
 
 - **2026-06-24 — v1.6.18 实测反馈批：5 处 bug/UI 收口 + 逐种评级后台 + 中国鸟选择题库（App analyze 全绿、10 测试过；后台已上线实测）**：

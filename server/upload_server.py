@@ -75,7 +75,7 @@ def load_users() -> dict:
 
 
 PUBLIC_BASE_URL = os.environ.get(
-    "BIRDAHOLIC_PUBLIC_BASE_URL", "http://124.223.101.188:8080"
+    "BIRDAHOLIC_PUBLIC_BASE_URL", "http://your-server-ip:8080"
 ).rstrip("/")
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}

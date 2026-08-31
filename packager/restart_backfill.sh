@@ -10,7 +10,7 @@ if [ -n "$PIDS" ]; then
 fi
 cd /data || exit 1
 exec python3 -u /data/server/backfill_inat_photos.py \
-  --data-dir /data --base-url http://124.223.101.188:8080 \
+  --data-dir /data --base-url http://your-server-ip:8080 \
   --max-images 3 --per-page 30 --sleep 0.5 --jpeg-quality 72 --max-image 1600 \
   --timeout 20 --workers 16 --purge-nonopen-inat --compress-existing \
   >> /data/inat_backfill.log 2>&1

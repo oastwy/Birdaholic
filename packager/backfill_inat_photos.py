@@ -28,7 +28,7 @@ from typing import Any
 
 
 INAT_OBS_URL = "https://api.inaturalist.org/v1/observations"
-DEFAULT_BASE_URL = "http://124.223.101.188:8080"
+DEFAULT_BASE_URL = "http://your-server-ip:8080"
 
 # Free Cultural Works / Wikimedia-compatible licenses only. We deliberately
 # exclude NC (non-commercial: incompatible with an open-source app that may be

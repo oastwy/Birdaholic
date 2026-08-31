@@ -13,7 +13,7 @@
 
 ## 脚本位置与设计
 
-- **脚本**：`root@124.223.101.188:/data/server/ingest_world_birds.py`（本地副本在仓库 `/tmp` 或可从服务器拉）
+- **脚本**：`root@your-server-ip:/data/server/ingest_world_birds.py`（本地副本在仓库 `/tmp` 或可从服务器拉）
 - **运行方式**：服务器端直接跑，文件直落 `/data/species/{Genus_species}/{images,audio,audio_spectrograms}/` + 写 `manifest.json`
 - **断点续传**：`is_complete(key)` 判断 manifest 已有 images+audio 就跳过；可反复跑
 - **CLI**：
@@ -44,7 +44,7 @@
 1. **拿 xeno-canto API key**（向用户要，或 https://xeno-canto.org 注册）。eBird key 不能用。
 2. **排查 manifest 写入**：
    ```
-   ssh root@124.223.101.188
+   ssh root@your-server-ip
    cd /data/server
    python3 ingest_world_birds.py --start 1 --limit 1 --sources image,text --overwrite
    cat /data/species/<那一种>/manifest.json   # 确认有 images / description 字段

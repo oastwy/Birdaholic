@@ -1118,7 +1118,7 @@ class App(tk.Tk):
         self.input_var = tk.StringVar(value="/Users/wuyang/Archive/bird_uploads/file")
         self.output_var = tk.StringVar(value=str(Path.home() / "BirdaholicUploadBatch"))
         self.world_var = tk.StringVar(value=str(bundled_world_birds_path()))
-        self.server_var = tk.StringVar(value="http://124.223.101.188:8080")
+        self.server_var = tk.StringVar(value="http://your-server-ip:8080")
         self.token_var = tk.StringVar(value="birdaholic_2026")
         self.birdnet_var = tk.BooleanVar(value=True)
         self.osea_var = tk.BooleanVar(value=True)
@@ -2312,7 +2312,7 @@ class App(tk.Tk):
         subprocess.run(["open", str(path)])
 
     def open_uploader(self):
-        subprocess.run(["open", "http://124.223.101.188:8080/uploader"])
+        subprocess.run(["open", "http://your-server-ip:8080/uploader"])
 
 
 if __name__ == "__main__":

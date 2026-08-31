@@ -25,5 +25,5 @@ fi
 
 echo "$(date '+%F %T') relaunch (processed=$PROCESSED/$TOTAL)" >> "$LOG"
 cd /data || exit 1
-setsid bash -c "nohup python3 -u $SCRIPT --data-dir /data --base-url http://124.223.101.188:8080 --max-images 3 --per-page 30 --sleep 0.8 --jpeg-quality 72 --max-image 1600 >> /data/inat_backfill.log 2>&1" </dev/null >/dev/null 2>&1 &
+setsid bash -c "nohup python3 -u $SCRIPT --data-dir /data --base-url http://your-server-ip:8080 --max-images 3 --per-page 30 --sleep 0.8 --jpeg-quality 72 --max-image 1600 >> /data/inat_backfill.log 2>&1" </dev/null >/dev/null 2>&1 &
 exit 0

@@ -18,7 +18,7 @@ mv -f /data/.inat_photo_backfill_state.json "/data/backups/inat_state_$TS.json" 
 
 echo "$(date '+%F %T') launching combined backfill" >> "$LOG"
 python3 -u /data/server/backfill_inat_photos.py \
-  --data-dir /data --base-url http://124.223.101.188:8080 \
+  --data-dir /data --base-url http://your-server-ip:8080 \
   --max-images 3 --per-page 30 --sleep 0.8 --jpeg-quality 72 --max-image 1600 \
   --purge-nonopen-inat --compress-existing \
   >> /data/inat_backfill.log 2>&1

@@ -318,7 +318,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--base-url",
         default="",
-        help="Optional public server base URL, for example http://124.223.101.188:8080",
+        help="Optional public server base URL, for example http://your-server-ip:8080",
     )
     parser.add_argument(
         "--clean",

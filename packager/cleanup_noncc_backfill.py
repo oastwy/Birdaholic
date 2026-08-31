@@ -17,7 +17,7 @@ from pathlib import Path
 ALLOWED = {"cc0", "cc-by", "cc-by-sa"}
 SPECIES_GLOB = "/data/species/*/manifest.json"
 INDEX_PATH = Path("/data/indexes/species_media_index.json")
-BASE_URL = "http://124.223.101.188:8080"
+BASE_URL = "http://your-server-ip:8080"
 
 
 def main() -> None:

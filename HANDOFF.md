@@ -1,6 +1,7 @@
 # Birdaholic / 鸟瘾综合征 Handoff
 
 ## 2026-08-30 两处小修：存储损坏兜底 + 「可能性」异步重排竞态（ZCode）
+- **公开仓库清洗约定**：本仓库在 GitHub 是 public，已把全部已跟踪文件里的服务器 IP 替换为 `your-server-ip` 占位符（HANDOFF/docs/packager/server/release.sh 共 16 个文件）。**今后新增文档/脚本不要写真实服务器 IP**，用 `your-server-ip` 占位；真实地址 `dig birding.today` 可得。注意 git 历史里仍有旧 IP（彻底清除需重写历史，未做），服务器侧请保持 SSH 密钥登录 + 防火墙白名单。
 - **存储 JSON 损坏兜底（`lib/services/storage.dart`）**：`getFavorites`/`getCheckInDates`/`getFeedbackJournal`/`getSpeciesNotes`/`getStats`/`getAllMastery` 六处 `jsonDecode` 原先无 try/catch（同文件 `getLifeList`/`getLastFlashcardSetup` 等早有防护），偏好值一旦损坏会让每次答题链路（`markCorrect`→`_recordCheckIn`、`markSpeciesKnown`）抛异常、学习进度卡死。现统一安全回退空默认值；`getAllMastery` 额外做**逐条打捞**——单条记录损坏只丢该条，其余物种进度保留，避免下次重写整表时连带抹掉。
 - **「可能性」排名异步重排竞态（`lib/screens/flashcard_screen.dart` `_selectLikelihoodOrder`）**：`startSession`/`_loadSpecies` 恢复「可能性」排序时异步拉 eBird 排名，拉回后原先无条件 `_buildDeck()`——若用户已在网络等待期开始答题，重排会把进度归零、已答过的卡再次出现导致重复计数。现改为：自动恢复路径（`showFeedback=false`）在会话已有答题（`_answered || _idx > 0 || _answeredCardKeys` 非空）时只记排名不重排，留待下次重建牌组生效；用户从下拉主动选「可能性」仍立即重排（与其他筛选行为一致）。
 - **回归测试**：新增 `test/storage_corruption_test.dart` 3 条（各键损坏安全回退 / 掌握度单条损坏打捞 / 损坏表上继续答题可写入）。全量 **35 条测试通过**；`flutter analyze --no-pub` 无问题。
@@ -45,7 +46,7 @@
 ## 2026-07-11 内置更新慢/失败诊断 + 安卓按 ABI 拆包（Claude）
 - **断点续传（Codex，2026-07-11）**：新增 `lib/services/resumable_apk_downloader.dart`，一键更新中断/取消后保留按版本隔离的 `.part` 文件；重试会带 `Range` 请求从已下载字节继续。服务端忽略 Range 时安全丢弃旧片段、复用完整响应从零开始，避免拼出损坏 APK。`test/resumable_apk_downloader_test.dart` 覆盖 Range 续传与 Range 被忽略两种路径，均通过；相关静态分析无问题。**`1.7.7+93` arm64-only APK（63.3MB，SHA-256 `efaa72bb9c6108474cfff8cad3d8b8d940ae5fd0d9b155f32f3580b9c45a0879`）已发布到国内 OTA；公网确认 APK 支持 `Accept-Ranges: bytes`，`version.json` 与下载页均已切至 1.7.7。未推送代码、未创建 GitHub Release。**
 - **Git 恢复（Codex，2026-07-11）**：同步残留的 `refs/heads/main.lock` 实为完整的 `36d29a8 Release Birdaholic 1.7.5`；已先备份 `.git` 到 `.git.pre_ref_recovery_20260711_104850`，再恢复为 `refs/heads/main`。`git fsck --full` 通过；本节涉及的 `HANDOFF.md`、`scripts/build_android.sh`、`scripts/release.sh`、`lib/widgets/update_download_dialog.dart` 仍是未暂存修改，尚未提交。
-- **用户报"内置更新老是失败、很慢"。诊断结论：瓶颈在下载源服务器带宽，非客户端代码。** `app_update_service.dart` 版本检查逻辑正常；真正下载在 `update_download_dialog.dart`，从 `birding.today` 拉 **71.9MB** 整包 apk。实测（Mac 网络良好）稳定速度仅 **~495 KB/s ≈ 4Mbps**——正是腾讯云轻量应用服务器（124.223.101.188）的固定出口带宽上限，且被 API/媒体库/多用户共享。整包要下 ~2.5 分钟。叠加客户端 `receiveTimeout:30s`（带宽打满时连接停顿超 30s 即判 receiveTimeout 失败）、`Dio().download` 无断点续传（中途断/切后台/锁屏 → `deleteOnError` 从 0 重下）→ 慢 + 高失败率。
+- **用户报"内置更新老是失败、很慢"。诊断结论：瓶颈在下载源服务器带宽，非客户端代码。** `app_update_service.dart` 版本检查逻辑正常；真正下载在 `update_download_dialog.dart`，从 `birding.today` 拉 **71.9MB** 整包 apk。实测（Mac 网络良好）稳定速度仅 **~495 KB/s ≈ 4Mbps**——正是腾讯云轻量应用服务器（your-server-ip）的固定出口带宽上限，且被 API/媒体库/多用户共享。整包要下 ~2.5 分钟。叠加客户端 `receiveTimeout:30s`（带宽打满时连接停顿超 30s 即判 receiveTimeout 失败）、`Dio().download` 无断点续传（中途断/切后台/锁屏 → `deleteOnError` 从 0 重下）→ 慢 + 高失败率。
 - **已做：安卓仅产 arm64 包（无客户端代码改动、纯打包脚本）。** `android/app/build.gradle` 的 `ndk.abiFilters` 限为 `arm64-v8a`，`scripts/build_android.sh` 使用普通 `flutter build apk --release`，避免 `--split-per-abi` 与 Gradle 过滤冲突。产物 `Birdaholic_v<ver>_android_arm64.apk` 预期约 25MB，覆盖绝大多数现代真机；不再提供 armv7/x86_64 包。
   - `scripts/release.sh` 发布清单已同步更新：国内 version.json 与 download.html 都指向 arm64 包，GitHub release 仅给存量老用户 bootstrap。**2026-07-11 已发布 `1.7.6+92` arm64-only APK（63.3MB，SHA-256 `c7f097076028d226dcb480f12ada2ab95db4a7dbc77906a4ae2f07a8f7f11b5f`）到国内 OTA；`version.json`、下载页和 APK 均已从公网复核。未推送代码、未创建 GitHub Release。**
 - **已做：一键更新失败态加「手动下载」按钮**（`update_download_dialog.dart`）。原来失败只有「关闭/重试」、文案提「改用浏览器」却无入口；现失败态多一个「手动下载」按钮直接 `launchUrl(downloadUrl)` 跳下载页（`_openDownloadPage`，已 try/catch），三处失败文案统一成「点"手动下载"去下载页装」。analyze 干净，随下次发版生效。
@@ -118,7 +119,7 @@
 - 安卓 `releases/Birdaholic_v1.7.0_android.apk`（vc86）→ **已 commit/push main（5343ba9）+ GitHub Release v1.7.0（挂 APK，Latest）+ birding.today `download.html` 已更到 1.7.0**。
 - 鸿蒙 `releases/Birdaholic_v1.7.0_ohos_api22_release.app`（1.7.0/86, api22·Release·已签名）→ **待传华为 AGC**。
 - iOS：工程已 archive-ready（Pods 同步、版本注入 1.7.0/86），**用户在 Xcode 自行 archive+上传**（team 4X6MA7WX67 / bundle `today.birding.birdaholic` / App Store profile 在本地但缺 Distribution 证书，需 Xcode 自动创建）。⚠️ iOS 打包用 `.flutter-sdk`，**overrides 保持反注释即可**——ohos fork 的 `audioplayers_darwin` 就是上游 iOS 实现、能用，**别像安卓那样注释**；只需 `cd ios && pod install` 同步沙盒。
-- 服务器 `upload_server.py`（审核通知 + 安全/正确性修复）已部署 124.223.101.188 实测，备份 `.bak_20260626_173246` / `.bak_20260626_210912`。
+- 服务器 `upload_server.py`（审核通知 + 安全/正确性修复）已部署 your-server-ip 实测，备份 `.bak_20260626_173246` / `.bak_20260626_210912`。
 - **环境为鸿蒙态**（pubspec overrides 反注释 + `flutter-ohos pub get`，lock=ohos fork）。
 
 </details>
@@ -164,7 +165,7 @@
 本版一次性带上：①「中国观鸟记录中心」导入 + 跨分类同义词映射；② 安全审查 S1–3 + code-review C1–14 修复；③ 用户口述 6 条待改；④ 新手教程同步更新（点鸟名进「了解此鸟」、今日听声挑战位置、记录中心导入说明）。**安卓 + 鸿蒙两包均已打**（见顶部）。**细节见 [docs/CHANGELOG.md](docs/CHANGELOG.md)**，下面只留要点：
 
 - **6 条待改（全做进本版）**：① 详情页(`progress_detail_screen`)与主页「学习概览」重复的 6 张统计卡 → 删详情页那组，主页那套(可点进清单)留作唯一入口；② 「今日听声挑战」移到打卡日历**上方**(`_soundChallengeCard`)；③ 删「学习周报」(tile + import + `weekly_report_screen.dart` 文件)；④ **【合规】闪卡音频致谢**——根因是**正面(听音频那面)无致谢行**(数据/back 侧正常)，已给 `_buildPromptFront` 音频分支补 `_creditLine`；⑤ 答案侧「了解此鸟」按钮删除、`_difficultyRow` 用 `FittedBox` 兜底防溢出；⑥ 答案侧中/英/拉丁名包成可点 → `onLearnMore`(带「轻点名字·了解此鸟」提示)。
-- **服务器 `upload_server.py`**：S1 `species_key()` 加路径穿越校验(一处覆盖全部写入点)；S2 `set_difficulty` 收成 `_require_admin`；C6 `admin_rate_resolve` 记录先删后应用+catch 404；C8 回达跳过 pending；C10 difficulty 安全解析；C11 评级队列缓存加单飞锁。**已部署 124.223.101.188，curl 实测：路径穿越→400 / 无token→401 / rate-queue admin→200 全过**，备份 `.bak_20260626_173246`。
+- **服务器 `upload_server.py`**：S1 `species_key()` 加路径穿越校验(一处覆盖全部写入点)；S2 `set_difficulty` 收成 `_require_admin`；C6 `admin_rate_resolve` 记录先删后应用+catch 404；C8 回达跳过 pending；C10 difficulty 安全解析；C11 评级队列缓存加单飞锁。**已部署 your-server-ip，curl 实测：路径穿越→400 / 无token→401 / rate-queue admin→200 全过**，备份 `.bak_20260626_173246`。
 - **App 修复**：C1 对账删除用含 pending 的 `allImages/allAudio` 防误删本地图；C2/C3 `_imageEntriesFromItem` 无损 + `_setCoverFromEntry` 同步 source/license（合规·防署名丢失）；C4 新地点也重置「可能性」；C5/C7/C9 xlsx/CSV 导入解析加固；C13/C14 eBird URL 编码+按日期排序。**C12（对账兄弟图保活漏删）有意不改**——良性失败，收紧匹配反招「误删本地文件」数据丢失。
 - 记录中心导入 + 同义词映射详情见 CHANGELOG；同义词资产 `assets/data/taxonomy_synonyms.json`(208 键双向)。
 
@@ -186,7 +187,7 @@
 - **2026-06-26 — v1.6.25+82：code-review(xhigh) 正确性修一批 + 服务器 #9/#10 收口（已打安卓包 `releases/Birdaholic_v1.6.25_android.apk` 71.7MB/vc82，待发版；细节见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）**：
   - **App 8 处正确性修复（全量 analyze No issues）**：① 清除地点/切数据包后「可能性」排名不失效→牌组被旧地区排名静默排序：新增 `_resetLikelihoodOnContextChange()`，5 处（清除地点×3 + 切包×2）清 `_likelihoodRank`+若正按可能性则退回随机；② 两处**切包补 `clearEbirdFilter()`**，storage 地区码/经纬度不再残留到新包污染后续可能性；③ 删本地图后 **PageController 归位**（丢旧 controller、post-frame dispose、重建到第0页，消除越界/圆点错位）；④ **多图卡署名兜底**（`bird_card._imageCaption` 空署名回退物种级图片致谢，杜绝无署名图，合规）；⑤ 可能性排名 key 两侧统一 `StorageService.normalizeSci` 二名归一（eBird 亚种三名不再误排末尾）；⑥ 二维码长按改 await `launchUrl` 按结果提示，去掉「成功+失败」双弹；⑦ 新手模式建包失败**不写入模式**+提示，保留模式选择门不落空首页；⑧ `removeSpeciesImageFromActivePack` 改归一化匹配 sci。
   - **清理**：删死字段 `_taxonomicOrder`（按目筛选下拉早移除、永远 'all'，连带 `orderText` 8 处插值）+ 死持久化 `checkinConfigured`/key（已被 `_configuredThisLaunch` 取代）+ `_AdminTokenRequestsScreen._approve` 的 `TextEditingController` 补 dispose。
-  - **服务器（已部署 124.223.101.188 + curl 实测，`/data/server/*.bak_20260626_093958`）**：① **#9** `/api/contributors` 加**单飞+双检锁** `_CONTRIB_CACHE_LOCK`——失效后只让一个线程扫全量 ~1.1万 manifest、其余复用，避免写后惊群把同步线程池耗尽（冷查回数据、热查 0.0016s）；② **#10** `admin.html` 反馈图缩略图加 `safeMediaUrl` scheme 白名单（客户端可控的 `image_url` 防 `javascript:`/`data:`/协议相对注入）。
+  - **服务器（已部署 your-server-ip + curl 实测，`/data/server/*.bak_20260626_093958`）**：① **#9** `/api/contributors` 加**单飞+双检锁** `_CONTRIB_CACHE_LOCK`——失效后只让一个线程扫全量 ~1.1万 manifest、其余复用，避免写后惊群把同步线程池耗尽（冷查回数据、热查 0.0016s）；② **#10** `admin.html` 反馈图缩略图加 `safeMediaUrl` scheme 白名单（客户端可控的 `image_url` 防 `javascript:`/`data:`/协议相对注入）。
   - 打包配方同前（注释 overrides + local.properties 指 .flutter-sdk + bump 1.6.25+82，打完手动恢复鸿蒙）。
 
 - **2026-06-26 — v1.6.23+80：UX 大改一批 + 著作权合规（已打安卓包 `releases/Birdaholic_v1.6.23_android.apk`，待发版）**：
@@ -417,7 +418,7 @@ cd /Users/wuyang/Documents/bird_flashcard_repo
 ## 服务器
 
 ```text
-http://124.223.101.188:8080
+http://your-server-ip:8080
 ```
 
 上传密钥通过服务端环境变量 `BIRDAHOLIC_UPLOAD_TOKEN` 控制。
@@ -438,8 +439,8 @@ http://124.223.101.188:8080
 
 ## 与 birding.today 后台对接（2026-06-16，服务器端已就绪，待 App 接入）
 
-> 这几项的**服务器端已在 `124.223.101.188:/data/server/upload_server.py` 写好并上线**，只差 App 端调用/加界面。
-> App 基址沿用 `http://124.223.101.188:8080`（nginx 已把 `/api/` 反代到 FastAPI :8000，`/species/` 也在 8080）。
+> 这几项的**服务器端已在 `your-server-ip:/data/server/upload_server.py` 写好并上线**，只差 App 端调用/加界面。
+> App 基址沿用 `http://your-server-ip:8080`（nginx 已把 `/api/` 反代到 FastAPI :8000，`/species/` 也在 8080）。
 > 后台/服务器侧细节见 birding-today 项目 handoff：`/Users/wuyang/Projects/birding-today/HANDOFF.md`。
 
 1. **上传界面加「地点」字段**
@@ -466,7 +467,7 @@ http://124.223.101.188:8080
 
 为每个物种补到 3 张图（多补 1–2 张），iNat 图展示优先级低于用户上传图。
 
-- **脚本**：`packager/backfill_inat_photos.py`（已同步到 `root@124.223.101.188:/data/server/`）。本次改动：
+- **脚本**：`packager/backfill_inat_photos.py`（已同步到 `root@your-server-ip:/data/server/`）。本次改动：
   - **只收开源安全许可** `OPEN_LICENSES = {cc0, cc-by, cc-by-sa}`（排除 NC/ND——NC 与开源 app 商用/fork 冲突，ND 与缩放=演绎冲突）；空/保留所有权利一律剔除。
   - 压缩改用 **Pillow**（服务器无 `sips`），长边 1600px、质量 72。
   - 写回 manifest 前**稳定排序**：`source==inaturalist` 永远排在用户上传图之后。
@@ -476,7 +477,7 @@ http://124.223.101.188:8080
   - **非破坏性保证**：只有在"已拿到替代图"或"API 确认该种无开源图"时才删非开源原图；网络失败则保留原图、下轮重试——绝不因网络抖动把物种删空。
   - **网络瓶颈**：服务器（腾讯云·国内）→ iNat 跨境严重限速（API 单次可达 90s、下载 ~17KB/s/连接）。已加全局 socket 超时 + 单图失败跳过 + `--workers` 并发（16 路）。实测并发只提速 ~3x（≈1.1 网络型物种/分钟，疑似总带宽封顶），全量预计数天。
   - **运行**（当前用并发版，见 `packager/restart_backfill.sh`）：`setsid bash /data/server/restart_backfill.sh </dev/null >/dev/null 2>&1 &`（内部会先杀旧 python 再起，含 `--workers 16 --purge-nonopen-inat --compress-existing --timeout 20`）。脱离会话、按物种写状态、可续跑。
-  - 监控：`ssh root@124.223.101.188 'tail -f /data/inat_backfill.log'`；崩溃/重启后重跑 restart 脚本即可。
+  - 监控：`ssh root@your-server-ip 'tail -f /data/inat_backfill.log'`；崩溃/重启后重跑 restart 脚本即可。
   - **动手前已全量备份**：`/data/backups/manifests_<ts>.tar.gz` + 索引 + 旧状态。
   - **提速备选（plan B，待用户资源）**：跨境限速是根因，最优解是在境外/连通性好的机器上跑下载+压缩，再把图同步回服务器（域内传输快）。需用户提供境外机或确认 Mac 的 iNat 通路。
   - `packager/backfill_guard.sh`（自愈 cron 守护）已上传 `/data/server/` 但 cron 未装（权限拦截）；需无人值守可手动 `*/15 * * * * /data/server/backfill_guard.sh`。
@@ -484,5 +485,5 @@ http://124.223.101.188:8080
   - 新下载的图：`inat_candidates()` 已带出这三项，写进 manifest 条目的 `location` / `coords` / `observed_on`。
   - 存量图（pass1 加的 6645 张 + 保留的开源原图）：用 `packager/backfill_locations.py` 按 obs_id 批量补（iNat 一次查 200 条观测，~10k 图仅 ~50 次请求）。**必须在图片 backfill 停止时跑**，避免两进程同时写 manifest。计划在补图收敛后跑一遍。
 - **补图审核闸门（Claude 加，2026-06-17，勿删）**：脚本读 `manifest["backfill_review"]`，为真时**新补的图标 `pending=True` + `pending_reason="backfill_review"`**，只进后台「待审核」、人工通过后才上线。配套逻辑在 birding.today 后台 `upload_server.py`（删空物种打标记、审核通过清标记）。
-  - ⚠️ 协作提醒：此脚本两份（本 repo `packager/` 与 `124.223.101.188:/data/server/`）。**2026-06-17 发现 Codex 重新同步时把这段 review 逻辑覆盖过一次**，已重新加回。今后同步前请先 `diff`，保留 `review_mode`/`backfill_review`/`pending_reason` 三处。
+  - ⚠️ 协作提醒：此脚本两份（本 repo `packager/` 与 `your-server-ip:/data/server/`）。**2026-06-17 发现 Codex 重新同步时把这段 review 逻辑覆盖过一次**，已重新加回。今后同步前请先 `diff`，保留 `review_mode`/`backfill_review`/`pending_reason` 三处。
 - **未提交 git、未改 App**；脚本改动 + `cleanup_noncc_backfill.py` / `restart_backfill.sh` / `run_backfill_v2.sh` / `backfill_guard.sh` / `backfill_locations.py` 待 commit。

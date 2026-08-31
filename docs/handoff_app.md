@@ -41,7 +41,7 @@
 - ✅ 已完成（勿重复）：build.gradle.kts 已删；APK 去 x86_64（abiFilters）；世界名录 + GoAccess 已上线（见下）。
 
 ### 关键环境/凭据（本次验证可用）
-- SSH：`ssh root@124.223.101.188` 用本机 `~/.ssh/id_rsa`（已在 known_hosts，连通正常）。
+- SSH：`ssh root@your-server-ip` 用本机 `~/.ssh/id_rsa`（已在 known_hosts，连通正常）。
 - `gh` 已登录 `oastwy`，可发 Release。Android 签名 keystore + `android/local.properties` 就位，release 构建出 `CN=Birdaholic` 证书。
 
 ### ⚠️ 本次踩的新坑（务必注意）
@@ -117,7 +117,7 @@ App 启动 → `_ConsentGate`（同意协议）→ HomeScreen（底部 Tab：闪
 
 ## 5. 服务器后端
 
-- **机器**：`root@124.223.101.188`，域名 `birding.today`（HTTPS via certbot）
+- **机器**：`root@your-server-ip`，域名 `birding.today`（HTTPS via certbot）
 - **服务**（systemd，都 active）：
   - `birdaholic-upload.service` → FastAPI `/data/server/upload_server.py`（业务 API）
   - `nginx.service` → 反代 + 静态（`/data/packs`、`/species/` 走 nginx 直出）
@@ -163,7 +163,7 @@ cd /Users/wuyang/Documents/bird_flashcard_repo
 | 项 | 位置 / 说明（值找用户要） |
 |---|---|
 | Android keystore | `/Users/wuyang/birdaholic_release.jks`；密码/alias 在 `android/local.properties`（**该文件已/应在 .gitignore**） |
-| 服务器 SSH | `root@124.223.101.188`（密钥/密码找用户） |
+| 服务器 SSH | `root@your-server-ip`（密钥/密码找用户） |
 | 管理员 token | 向用户索取；服务器 `users.json` 里 role=admin 的那条 |
 | FileBrowser 后台 | `birding.today/filebrowser`，账号密码找用户 |
 | eBird API key | 找用户（采集/名录用） |

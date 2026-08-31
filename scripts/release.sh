@@ -25,7 +25,7 @@ $(c_green "✅ 打包完成（仅 arm64-v8a）。发布清单（逐条人工确�
        git commit -m "release: v${NAME} ..." && git push origin main
   2) 【主渠道】国内服务器 OTA —— 真实用户一键更新走这里：
        scp releases/Birdaholic_v${NAME}_android_arm64.apk \\
-           root@124.223.101.188:/usr/share/nginx/html/birdaholic/
+           root@your-server-ip:/usr/share/nginx/html/birdaholic/
        # 从 releases/Birdaholic_v${NAME}_android_arm64.apk.sha256 复制第一列校验值
        再把服务器 /usr/share/nginx/html/birdaholic/version.json 改成（url 必须指 *_arm64.apk）：
          {"versionCode": ${BUILD}, "versionName": "${NAME}",

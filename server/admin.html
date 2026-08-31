@@ -1776,7 +1776,7 @@ function refreshActive(){
 
 // ── 逐种评级 ───────────────────────────────────────────────
 const rateState = { items: [], idx: 0, loaded: false, manifest: null, curImg: 0, onlyUnrated: false };
-function rateHttpsUrl(u){ return String(u || '').replace('http://124.223.101.188:8080', 'https://birding.today'); }
+function rateHttpsUrl(u){ return String(u || '').replace('http://your-server-ip:8080', 'https://birding.today'); }
 function rateStars(containerId, value, onPick){
   const el = document.querySelector('#' + containerId);
   el.innerHTML = '';

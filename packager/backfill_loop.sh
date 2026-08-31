@@ -28,7 +28,7 @@ prev=$(count_residual)
 echo "$(date '+%F %T') LOOP start, residual=$prev" >> "$LOG"
 for pass in $(seq 1 12); do
   echo "$(date '+%F %T') pass $pass start (residual=$prev)" >> "$LOG"
-  python3 -u "$PY" --data-dir /data --base-url http://124.223.101.188:8080 \
+  python3 -u "$PY" --data-dir /data --base-url http://your-server-ip:8080 \
     --max-images 3 --per-page 30 --sleep 0.5 --jpeg-quality 72 --max-image 1600 \
     --timeout 20 --workers 16 --purge-nonopen-inat --compress-existing \
     >> /data/inat_backfill.log 2>&1
